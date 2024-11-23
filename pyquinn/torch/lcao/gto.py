@@ -33,6 +33,7 @@ _GTO_IJK_VALUES = {
 """ IJK values for each angular momentum  l up to l = _GTO_L_MAX"""
 
 def _make_gto_hermite_tensor(l_max):
+    """ Generates a matrix of Hermite polynomial coefficients up to order n = 2*l+1"""
     n = 2*(l_max + 1)
     H = torch.zeros((n,n), requires_grad=False)
     for j in range(n):
@@ -45,7 +46,7 @@ _GTO_HERMITE_TENSOR = _make_gto_hermite_tensor(_GTO_L_MAX)
 """ Matrix of Hermite polynomial coefficients up to order n = 2*_GTO_MAX + 1"""
 
 def _make_gto_alpha_tensor(l_max):
-""" Generates a matrix of alpha coefficients for multiplying the product of Gaussian primitives up to l = _GTO_L_MAX"""
+    """ Generates a matrix of alpha coefficients for multiplying the product of Gaussian primitives up to l = _GTO_L_MAX"""
     n = l_max+1
     A = torch.zeros((n,n), requires_grad=False)
     for l in range(n):
@@ -126,7 +127,7 @@ _GTO_CHO_TENSORS = {
 def gaussian_3d(x: torch.Tensor, mu: torch.Tensor, beta : torch.Tensor) -> torch.Tensor:
     """Evaluates a 3D unnormalized Gaussian primitive function
 
-    
+
 
     Args:
         x (torch.Tensor): Point x in space (shape: [...,3])
@@ -185,10 +186,6 @@ def sto_ng_prmitive_overlap_matrix(mu_1, alphas_1, mu_2, alphas_2):
 
     sqrt_eta_powers = sqrt_etas.unsqueeze(-1) ** hermite_powers
     r_powers = dx.unsqueeze(-1) ** hermite_powers
-
-    print(_GTO_HERMITE_TENSOR.shape, sqrt_eta_powers.shape, r_powers.shape)
-
-    hermite_terms = torch.einsum()
 
     hermite_coeffs = sqrt_eta_powers * torch.einsum(
         'jp, ...ip -> ...ij',
