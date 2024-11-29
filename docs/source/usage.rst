@@ -13,5 +13,5 @@ via pip, using a command like
 
 .. code-block:: console
     
-    $ pip install pyquinn
+    $ pip install -e .
 
