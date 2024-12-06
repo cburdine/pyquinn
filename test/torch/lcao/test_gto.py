@@ -6,8 +6,10 @@ from pyquinn.torch.lcao.gto import (
     _make_gto_cho_tensor, 
     sto_ng_prmitive_overlap_matrix,
     gaussian_3d, l1_gaussian_3d, l2_gaussian_3d, 
-    gto_3d, sto_ng_3d, sto_ng_3d_norm_coeff, sto_ng_3d_overlap_matrix,
-    cho_ng_3d, cho_ng_3d_norm_coeff, cho_ng_3d_block_overlap_matrix
+    gto_3d, sto_ng_3d, potential_gto_3d, potential_ng_3d, sto_ng_3d_norm_coeff, 
+    sto_ng_3d_overlap_matrix, sto_ng_3d_potential_overlap_matrix,
+    cho_ng_3d, cho_ng_3d_norm_coeff, cho_ng_3d_block_overlap_matrix,
+    cho_ng_3d_block_potential_overlap_matrix
 )
 
 
@@ -142,7 +144,7 @@ class GTOTest(unittest.TestCase):
 
     def test_gto_3d(self):
 
-        dx = torch.linspace(-3, 3, 64)
+        dx = torch.linspace(-3, 3, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
         xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
@@ -154,10 +156,34 @@ class GTOTest(unittest.TestCase):
                                1.0,
                                places=3)
 
-        # test for (i,j,k) = (3,2,4)
+        # test for (i,j,k) = (3, 2, 4)
         ijk_2 = torch.tensor([3, 2, 4])
         psi_2 = gto_3d(xyz, mu=0.0, ijk=ijk_2, alpha=2.0).reshape(x.shape)
         N_2 = torch.trapz(torch.trapz(torch.trapz(psi_2**2, dx), dx), dx)
+        self.assertAlmostEqual(N_2.detach().numpy(),
+                               1.0,
+                               places=3)
+
+    def test_potential_gto_3d(self):
+
+        dx = torch.linspace(-8, 8, 32)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+
+        # test for (i,j,k) = (0, 0, 0)
+        ijk_1 = torch.tensor([0, 0, 0])
+        F_1 = potential_gto_3d(xyz, mu=0.0, ijk=ijk_1, gamma=0.2)\
+            .reshape(x.shape)
+        N_1 = torch.trapz(torch.trapz(torch.trapz(torch.abs(F_1), dx), dx), dx)
+        self.assertAlmostEqual(N_1.detach().numpy(),
+                               1.0,
+                               places=3)
+
+        # test for (i,j,k) = (3, 2, 4)
+        ijk_2 = torch.tensor([3, 2, 4])
+        F_2 = potential_gto_3d(xyz, mu=0.0, ijk=ijk_2, gamma=0.6)\
+            .reshape(x.shape)
+        N_2 = torch.trapz(torch.trapz(torch.trapz(torch.abs(F_2), dx), dx), dx)
         self.assertAlmostEqual(N_2.detach().numpy(),
                                1.0,
                                places=3)
@@ -197,7 +223,7 @@ class GTOTest(unittest.TestCase):
 
     def test_sto_ng_3d(self):
 
-        dx = torch.linspace(-5, 5, 64)
+        dx = torch.linspace(-5, 5, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
         xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
@@ -244,7 +270,7 @@ class GTOTest(unittest.TestCase):
 
     def test_sto_ng_3d_overlap_matrix(self):
 
-        dx = torch.linspace(-6, 6, 128)
+        dx = torch.linspace(-6, 6, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
         xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
@@ -389,9 +415,70 @@ class GTOTest(unittest.TestCase):
         cs_2_norm = sto_ng_3d_norm_coeff(ijk_2, alphas_2, alpha_idxs_2, cs_2)
         self.assertEqual(tuple(cs_2_norm.shape), tuple(cs_2.shape[:-1]))
 
+    def test_sto_ng_3d_potential_overlap_matrix(self):
+
+        dx = torch.linspace(-6, 6, 32)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+
+        alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
+        gammas = torch.linspace(0.4, 1.5, 4).view(1, -1)
+
+        alpha_idxs = torch.zeros((1, 1), dtype=torch.int)
+        cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
+        vs = torch.linspace(-10, -5, 4).view(1, -1)
+
+        mu = torch.tensor([[0.0, 0.0, 0.0]])
+
+        # test for (i,j,k) = (2, 1, 0), unnormalized inner product:
+        ijk_1 = torch.tensor([[[2, 1, 0]]])
+        M_1 = sto_ng_3d_potential_overlap_matrix(
+            mu, ijk_1, alphas, alpha_idxs, cs,
+            gammas, vs,
+            mu, ijk_1, alphas, alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng_3d(xyz, mu=mu, ijk=ijk_1, alphas=alphas, cs=cs)\
+            .reshape(x.shape)
+
+        V_1 = potential_ng_3d(xyz, mu, torch.tensor([0, 0, 0]), 
+                              gammas.squeeze(), vs.squeeze())\
+            .reshape(x.shape)
+
+        # ensure potential is evaluated correctly:
+        N_1 = torch.trapz(torch.trapz(torch.trapz(
+            psi_1*V_1*psi_1, dx), dx), dx)
+        self.assertAlmostEqual(N_1.detach().numpy(),
+                               M_1.detach().numpy(),
+                               places=5)
+
+        # test the product of orbital (i,j,k) = (2,1,0) 
+        # with (i,j,k) = (3,2,4), but shifted
+        mu_shifted = torch.tensor([0.1, 0.2, 0.5])
+        ijk_2 = torch.tensor([[3, 2, 4]])
+        M_12 = sto_ng_3d_potential_overlap_matrix(
+            mu, 
+            ijk_1, alphas, 
+            alpha_idxs, cs,
+            gammas, vs,
+            mu_shifted, ijk_2, alphas, 
+            alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng_3d(xyz, mu=mu, ijk=ijk_1, 
+                          alphas=alphas, cs=cs).reshape(x.shape)
+
+        psi_2_shifted = sto_ng_3d(xyz, mu=mu_shifted, ijk=ijk_2, 
+                                  alphas=alphas, cs=cs).reshape(x.shape)
+
+        N_12 = torch.trapz(torch.trapz(torch.trapz(
+            psi_1 * V_1 * psi_2_shifted, dx), dx), dx)
+
+        self.assertAlmostEqual(N_12.detach().numpy(),
+                               M_12.detach().numpy(),
+                               places=5)
+
     def test_cho_ng_3d(self):
 
-        dx = torch.linspace(-5, 5, 64)
+        dx = torch.linspace(-5, 5, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
         xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
 
@@ -450,3 +537,59 @@ class GTOTest(unittest.TestCase):
 
         self.assertTrue(
             np.allclose(M_X_np, np.eye(M_X_np.shape[0]), atol=1e-6))
+
+    def test_cho_ng_3d_block_potential_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 32)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+
+        n_gauss = 3
+        V_n_gauss = 5
+        alphas = torch.linspace(0.5, 0.9, n_gauss)\
+            .view(1, -1).expand(1, -1)
+        cs = torch.linspace(0.1, 0.7, n_gauss)\
+            .view(1, -1).expand(1, -1)
+
+        mu_1 = torch.tensor([0.0, 0.0, 0.0])
+        mu_2 = torch.tensor([0.1, 0.2, 0.3])
+        l_1 = torch.tensor([2])
+        l_2 = torch.tensor([3])
+
+        gammas_1 = torch.linspace(0.2, 0.5, V_n_gauss)
+        vs_1 = torch.linspace(-100, -20, V_n_gauss)
+
+        V = potential_ng_3d(xyz, mu_1, 
+                            ijk=torch.tensor([0, 0, 0]), 
+                            gammas=gammas_1, 
+                            vs=vs_1).reshape(x.shape)
+
+        # compute block overlap matrix:
+        M_X = cho_ng_3d_block_potential_overlap_matrix(
+            mu_1, l_1, alphas, cs,
+            gammas_1, vs_1,
+            mu_2, l_2, alphas, cs)
+
+        for m_1 in range(-l_1, l_1+1):
+            for m_2 in range(-l_2, l_2+1):
+
+                # compare with numerical results:
+                psi_1 = cho_ng_3d(
+                    xyz, mu=mu_1, 
+                    l=l_1, m=m_1, 
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                psi_2 = cho_ng_3d(
+                    xyz, mu=mu_2, 
+                    l=l_2, m=m_2, 
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                I = torch.trapz(torch.trapz(
+                    torch.trapz(psi_1*psi_2*V, dx), dx), dx)
+
+                self.assertAlmostEqual(
+                    I.item(), 
+                    M_X[l_1+m_1, l_2+m_2].item(), 
+                    places=5)
