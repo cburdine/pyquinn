@@ -35,8 +35,8 @@ class HamiltonianModel(nn.Module):
 
     @abstractmethod
     def hamiltonian_matrix(self, 
-                           atomic_numbers: torch.IntTensor, 
-                           positions: torch.Tensor, 
+                           atomic_numbers: torch.IntTensor,
+                           positions: torch.Tensor,
                            neighbors: torch.IntTensor
                            ) -> torch.Tensor:
         """Returns the Hamiltonian of an atomic system in matrix form.
@@ -130,9 +130,10 @@ class HamiltonianModel(nn.Module):
                                               [N_eigstates, N_orbitals]) 
         """
 
-        H = self.get_hamiltonian_matrix(atomic_numbers=atomic_numbers, 
-                                        positions=positions,
-                                        neighbors=neighbors)
+        H = self.hamiltonian_matrix(
+            atomic_numbers=atomic_numbers, 
+            positions=positions,
+            neighbors=neighbors)
 
         if self.eigensolver is None:
             raise ValueError('An eigensolver must be supplied.')
@@ -164,9 +165,10 @@ class HamiltonianModel(nn.Module):
         Returns:
             torch.Tensor: Eigenenergies of the system (shape: [N_eigstates])
         """
-        H = self.get_hamiltonian_matrix(atomic_numbers=atomic_numbers, 
-                                        positions=positions,
-                                        neighbors=neighbors)
+        H = self.hamiltonian_matrix(
+            atomic_numbers=atomic_numbers, 
+            positions=positions,
+            neighbors=neighbors)
 
         if self.eigensolver is None:
             raise ValueError('An eigensolver must be supplied.')

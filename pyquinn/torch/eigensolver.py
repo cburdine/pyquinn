@@ -138,7 +138,7 @@ class LobpcgEigensolver(Eigensolver):
             warnings.warn("The Pytorch API for LOBPCG diagonalization is "
                           "still under development. Backward passes and "
                           "complex Hamiltonians are not yet fully supported.", 
-                          FutureWarning, stacklevel=2)
+                          UserWarning, stacklevel=2)
             self.__class__._initialized = True
 
     def diagonalize(self, 
