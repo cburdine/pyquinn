@@ -3,7 +3,10 @@ import torch
 
 import numpy as np
 
-from pyquinn.torch.lcao.lcao_hamiltonian import LCAOModel
+from pyquinn.torch.lcao.lcao_hamiltonian import (
+    LCAOModel,
+    TightBindingModel
+)
 
 class TestLCAOModel(unittest.TestCase):
 
@@ -196,6 +199,103 @@ class TestLCAOModel(unittest.TestCase):
         E.sum().backward(inputs=positions)
 
         # ensure gradients with respect to positions are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+
+
+class TestTightBindingModel(unittest.TestCase):
+
+    def test_tight_binding_model_hamiltonian_matrix(self):
+
+        model = TightBindingModel(
+            eigensolver='torch_eigh',
+            spin='paired',
+            basis='even_tempered',
+            basis_size=3,
+            potential_basis='even_tempered',
+            potential_basis_size=5,
+            orbital_shells={7: [0, 1, 2, 3]})
+
+        atomic_numbers = torch.tensor([7, 7])
+
+        positions = torch.tensor([
+            [0.0, 0.0, 0.0], 
+            [1.0, 1.0, 0.0],
+        ], requires_grad=True)
+
+        unit_cell = torch.tensor([
+            [2.0, 0.0, 0.0],
+            [0.0, 100, 0.0],
+            [0.0, 0.0, 100]
+        ], requires_grad=True)
+
+        neighbors = torch.tensor([
+            [1, 1, 0, 0],
+            [0, 0, 1, 1]
+        ])
+
+        unit_cell_images = torch.tensor([
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]],
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        ])
+
+        k_pts = torch.outer(
+            torch.tensor([1.0, 0, 0]), 
+            torch.linspace(0, torch.pi/4, 1000)).T
+
+        H_size = sum(
+            sum(2*l+1 for l in model.orbital_shell_idxs[z] if l >= 0)
+            for z in atomic_numbers
+        )
+
+        H_k = model.hamiltonian_matrix(
+            atomic_numbers,
+            positions,
+            neighbors,
+            unit_cell,
+            unit_cell_images,
+            k_pts,
+            sparse=False
+        )
+
+        H_k_sparse = model.hamiltonian_matrix(
+            atomic_numbers,
+            positions,
+            neighbors,
+            unit_cell,
+            unit_cell_images,
+            k_pts,
+            sparse=True
+        )
+
+        # ensure H is the correct size and is symmetric
+        H_shape = (H_size, H_size) + tuple(k_pts.shape[:-1])
+        self.assertEqual(H_k.shape, H_shape)
+        self.assertEqual(H_k_sparse.shape, H_shape)
+
+        self.assertTrue(torch.allclose(H_k, H_k.conj().transpose(0, 1)))
+        self.assertTrue(torch.allclose(
+            H_k_sparse.to_dense(), 
+            H_k_sparse.to_dense().conj().transpose(0, 1)))
+
+        # ensure sparse and non-sparse hamiltonians agree:
+        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense()))
+
+        # test if backward pass is successful
+        (torch.abs(H_k)**2).sum().backward(inputs=positions)
+
+        # ensure gradients with respect to positions are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+
+        # test if backward pass is successful
+        (torch.abs(H_k_sparse)**2).sum().sum().backward(inputs=positions)
+
+        # ensure sparse gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
             np.allclose(positions_grad, np.zeros_like(positions_grad))

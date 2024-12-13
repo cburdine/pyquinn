@@ -52,8 +52,10 @@ class LCAOModel(HamiltonianModel):
         return shell_idxs
 
     @classmethod
-    def _make_logscale_basis_parameters(cls, basis: str, basis_size: int, shells: dict, 
-                                        r_max: float = 5.0, r_min: float = 5e-2):
+    def _make_logscale_basis_parameters(
+            cls, 
+            basis: str, basis_size: int, shells: dict, 
+            r_max: float = 5.0, r_min: float = 5e-2):
 
         z_max = max(shells.keys())
         n_alpha_sets = max(len(l_list) for l_list in shells.values())
@@ -77,23 +79,36 @@ class LCAOModel(HamiltonianModel):
 
         elif basis == 'even_tempered':
             logscale_alphas = nn.Parameter(
-                torch.ones(z_max, n_alpha_sets, 1)*log_alpha_r_max, 
+                torch.ones(z_max+1, n_alpha_sets, 1)*log_alpha_r_max, 
                 requires_grad=True)
             logscale_betas = nn.Parameter(
-                torch.ones(z_max, n_alpha_sets, 1)*beta_min_max, 
+                torch.ones(z_max+1, n_alpha_sets, 1)*beta_min_max, 
                 requires_grad=True)
 
         elif basis == 'fixed':
             logscale_alphas = nn.Parameter(
-                torch.ones(z_max, n_alpha_sets, 1)*log_alpha_r_max, 
+                torch.ones(z_max+1, n_alpha_sets, 1)*log_alpha_r_max, 
                 requires_grad=False)
             logscale_betas = nn.Parameter(
-                torch.ones(z_max, n_alpha_sets, 1)*beta_min_max, 
+                torch.ones(z_max+1, n_alpha_sets, 1)*beta_min_max, 
                 requires_grad=False)
 
         logscale_cs = torch.randn(z_max, n_alpha_sets, basis_size)
 
         return logscale_alphas, logscale_betas, logscale_cs
+
+    @classmethod
+    def _make_logscale_energy_parameters(cls, shells: dict):
+        
+        z_max = max(shells.keys())
+        n_alpha_sets = max(len(l_list) for l_list in shells.values())
+
+        logscale_energies = nn.Parameter(
+            torch.sort(torch.randn(z_max+1, n_alpha_sets))[0],
+            requires_grad=True
+        )
+
+        return logscale_energies
 
     def __init__(self, 
                  eigensolver: str | Eigensolver | None = None,
@@ -150,6 +165,10 @@ class LCAOModel(HamiltonianModel):
                 shells=potential_shells
             )
 
+        # initialize on-site logscale energies
+        self.logscale_onsite_energies = \
+            LCAOModel._make_logscale_energy_parameters(shells=orbital_shells)
+
     def get_basis_parameters(self, 
                              atomic_numbers: torch.IntTensor, 
                              positions: torch.Tensor, 
@@ -180,6 +199,17 @@ class LCAOModel(HamiltonianModel):
         vs = -self.energy_scale * torch.exp(logscale_vs)
 
         return alphas, cs, gammas, vs
+
+    def get_onsite_energies(self,
+                            atomic_numbers: torch.IntTensor, 
+                            positions: torch.Tensor, 
+                            neighbors: torch.IntTensor
+                            ) -> torch.Tensor:
+        
+        # get log-scale on-site energies
+        logscale_energies = self.logscale_onsite_energies[atomic_numbers]
+
+        return self.energy_scale*torch.sinh(logscale_energies)
 
     def _get_block_basis_idxs(
             self,
@@ -230,6 +260,7 @@ class LCAOModel(HamiltonianModel):
 
     def _build_hamiltonian(
             self,
+            diagonals: list[torch.Tensor],
             components: list[torch.Tensor], 
             component_idxs: list[torch.IntTensor],
             shape: torch.Tensor,
@@ -237,21 +268,25 @@ class LCAOModel(HamiltonianModel):
 
         H_ij = torch.cat(component_idxs, dim=0).T
         H_values = torch.cat(components, dim=0)
-        
+
+        H_diagonal = torch.cat(diagonals, dim=0)
+        H_ii = torch.arange(H_diagonal.shape[0])\
+            .view(1, -1).expand(2, -1)
+
         if sparse:
-            # append hermitian conjugate values:
+
+            # append values and hermitian conjugate values
             H_ji = H_ij[torch.tensor([1, 0])]
-            H_ij_conj = torch.cat((H_ij, H_ji), dim=-1)
+            H_indices_total = torch.cat((H_ii, H_ij, H_ji), dim=-1)
+            H_values_total = torch.cat(
+                (H_diagonal, H_values, H_values.conj()), dim=-1)
 
-            H_values_conj = torch.cat(
-                (H_values, H_values.conj()), dim=-1)
-
-            # build sparse tensor:
+            # build sparse tensor
             H = torch.sparse_coo_tensor(
-                indices=H_ij_conj, 
-                values=H_values_conj,
+                indices=H_indices_total, 
+                values=H_values_total,
                 size=shape,
-                device=H_values_conj.device).coalesce()
+                device=H_values_total.device).coalesce()
 
         else:
             # build dense tensor:
@@ -260,6 +295,7 @@ class LCAOModel(HamiltonianModel):
                 dtype=H_values.dtype, 
                 device=H_values.device)
 
+            H[H_ii[0], H_ii[1]] += H_diagonal
             H[H_ij[0], H_ij[1]] += H_values
             H[H_ij[1], H_ij[0]] += H_values.conj()
 
@@ -276,8 +312,15 @@ class LCAOModel(HamiltonianModel):
         alphas, cs, gammas, vs = \
             self.get_basis_parameters(atomic_numbers, positions, neighbors)
 
+
+        # get on-site energies:
+        onsite_energies = self.get_onsite_energies(
+            atomic_numbers, positions, neighbors)
+
         H_idxs, H_blocksizes = self._get_hamiltonian_idxs(atomic_numbers)
         H_size = H_blocksizes.sum()
+
+        H_diagonals = []
         H_components = []
         H_component_idxs = []
 
@@ -310,6 +353,9 @@ class LCAOModel(HamiltonianModel):
             H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site_neighbors, H_idxs, H_blocksizes)
 
+            # compute on-site diagonals:
+            H_site_diagonal = onsite_energies[site_idxs, site_l_idxs]
+
             # compute neighborhood Hamiltonian matrix:
             H_neighborhood = cho_ng_potential_overlap_matrix(
                 mu_1=positions[site_idxs],
@@ -325,15 +371,16 @@ class LCAOModel(HamiltonianModel):
                 cho_data_1=site_data,
                 cho_data_2=neighbor_data,
             )
-            
+
             H_neighborhood_idxs = torch.cartesian_prod(
                 H_site_idxs, H_neighbor_idxs)
 
+            H_diagonals.append(H_site_diagonal)
             H_components.append(H_neighborhood.flatten())
             H_component_idxs.append(H_neighborhood_idxs)
-        
+
         return self._build_hamiltonian(
-            H_components, H_component_idxs, 
+            H_diagonals, H_components, H_component_idxs, 
             shape=(H_size, H_size), sparse=sparse)
 
     def hamiltonian_key(self, 
@@ -344,7 +391,7 @@ class LCAOModel(HamiltonianModel):
 
         key = []
         for z in atomic_numbers:
-            
+
             l_values = self.orbital_shell_idxs[z]
             l_nz_values = l_values[l_values >= 0]
 
@@ -358,6 +405,190 @@ class LCAOModel(HamiltonianModel):
 
 class TightBindingModel(LCAOModel):
 
-    def __init__(self):
-        super().__init__(self)
+    def __init__(self, 
+                 eigensolver: str | Eigensolver | None = None,
+                 spin='paired',
+                 basis: str = 'even_tempered',
+                 basis_size: int = 3,
+                 potential_basis: str = 'even_tempered',
+                 potential_basis_size: int = 5,
+                 energy_scale: float = 1.0,
+                 orbital_shells: dict = {},
+                 ) -> None:
+        
+        super().__init__(
+            eigensolver=eigensolver,
+            spin=spin,
+            basis=basis,
+            basis_size=basis_size,
+            potential_basis=potential_basis,
+            potential_basis_size=potential_basis_size,
+            energy_scale=energy_scale,
+            orbital_shells=orbital_shells
+        )
 
+    def _get_neighborhood_hamiltonian_distances(
+            self,
+            neighbor_distances: torch.Tensor,
+            neighbor_ls: torch.IntTensor) -> torch.IntTensor:
+
+        H_neighborhood_dxs = torch.cat([
+            dx.unsqueeze(0).expand(2*l+1, -1)
+            for dx, l in zip(neighbor_distances, neighbor_ls)            
+        ])
+
+        return H_neighborhood_dxs
+
+    def _build_bloch_hamiltonian(
+            self,
+            diagonals: list[torch.Tensor],
+            components: list[torch.Tensor],
+            component_idxs: list[torch.IntTensor],
+            component_distances: list[torch.Tensor],
+            k_pts: torch.Tensor,
+            shape: torch.Tensor,
+            sparse: bool = False):
+
+        H_ij = torch.cat(component_idxs, dim=0).T
+        H_distances = torch.cat(component_distances, dim=0)
+        k_shape = k_pts.shape[:-1]
+        k_view = tuple([1]*len(k_shape))
+
+        H_thetas = 2 * torch.pi * torch.einsum(
+            'id, ...d -> i...',
+            H_distances,
+            k_pts
+        )
+
+        H_values = torch.einsum(
+            'i, i... -> i...',
+            torch.cat(components, dim=0),
+            torch.exp(1.j*H_thetas))
+
+        H_diagonal = torch.cat(diagonals, dim=0)\
+            .view(-1, *k_view).expand(-1, *k_shape)
+        H_ii = torch.arange(H_diagonal.shape[0])\
+            .view(1, -1).expand(2, -1)
+
+        # append values and hermitian conjugate values
+        H_ji = H_ij[torch.tensor([1, 0])]
+        H_indices_total = torch.cat((H_ii, H_ij, H_ji), dim=-1)
+        H_values_total = torch.cat(
+            (H_diagonal, H_values, H_values.conj()), dim=0)
+
+        # build sparse tensor
+        H = torch.sparse_coo_tensor(
+            indices=H_indices_total, 
+            values=H_values_total,
+            size=shape + k_shape,
+            device=H_values_total.device).coalesce()
+            
+        return H if sparse else H.to_dense()
+
+    def hamiltonian_matrix(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor,
+            k_pts: torch.Tensor,
+            sparse: bool = False) -> torch.Tensor:
+
+        # get orbital parameters:
+        alphas, cs, gammas, vs = \
+            self.get_basis_parameters(atomic_numbers, positions, neighbors)
+
+        # get on-site energies:
+        onsite_energies = self.get_onsite_energies(
+            atomic_numbers, positions, neighbors)
+
+        # convert unit_cell_images to float:
+        unit_cell_images = unit_cell_images.to(torch.float)
+
+        H_idxs, H_blocksizes = self._get_hamiltonian_idxs(atomic_numbers)
+        H_size = H_blocksizes.sum()
+
+        H_diagonals = []
+        H_components = []
+        H_component_distances = []
+        H_component_idxs = []
+        n_sites = atomic_numbers.shape[0]
+
+        for i in range(n_sites):
+
+            # retrieve site data:
+            site = torch.tensor(
+                [i], dtype=neighbors.dtype, 
+                device=neighbors.device,
+                requires_grad=False)
+            site_idxs, site_l_idxs, site_ls = \
+                self._get_block_basis_idxs(site, atomic_numbers)
+            site_data = cho_overlap_matrix_metadata(site_ls, sparse=True)
+
+            H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
+                site, H_idxs, H_blocksizes)
+
+            # retrieve neighborhood data:
+            site_neighbors_pad = neighbors[i]
+            site_neighbors = site_neighbors_pad[site_neighbors_pad >= 0]
+
+            neighbor_idxs, neighbor_l_idxs, neighbor_ls = \
+                self._get_block_basis_idxs(site_neighbors, atomic_numbers)
+
+            neighbor_data = cho_overlap_matrix_metadata(
+                neighbor_ls, sparse=True)
+
+            H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
+                site_neighbors, H_idxs, H_blocksizes)
+
+            # compute on-site diagonals:
+            H_site_diagonal = onsite_energies[site_idxs, site_l_idxs]
+
+            # compute distances to neighbors across unit cell boundaries:
+            neighbor_positions = \
+                positions[neighbor_idxs] + \
+                unit_cell_images[neighbor_idxs, neighbor_l_idxs] @ unit_cell
+
+            # compute neighborhood Hamiltonian matrix:
+            H_neighborhood = cho_ng_potential_overlap_matrix(
+                mu_1=positions[site_idxs],
+                l_1=site_ls,
+                l_alphas_1=alphas[site_idxs, site_l_idxs],
+                l_cs_1=cs[site_idxs, site_l_idxs],
+                gammas_1=gammas[i],
+                vs_1=vs[i],
+                mu_2=neighbor_positions,
+                l_2=neighbor_ls,
+                l_alphas_2=alphas[neighbor_idxs, neighbor_l_idxs],
+                l_cs_2=cs[neighbor_idxs, neighbor_l_idxs],
+                cho_data_1=site_data,
+                cho_data_2=neighbor_data)
+
+            H_neighborhood_dxs = self._get_neighborhood_hamiltonian_distances(
+                neighbor_positions - positions[i],
+                neighbor_ls).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
+
+            H_neighborhood_idxs = torch.cartesian_prod(
+                H_site_idxs, H_neighbor_idxs)
+
+            H_diagonals.append(H_site_diagonal)
+            H_components.append(H_neighborhood.flatten())
+            H_component_idxs.append(H_neighborhood_idxs)
+            H_component_distances.append(H_neighborhood_dxs.reshape(-1, 3))
+
+        return self._build_bloch_hamiltonian(
+            H_diagonals, H_components, H_component_idxs,
+            H_component_distances, k_pts,
+            shape=(H_size, H_size), sparse=sparse)
+
+    def eigenstates(self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor,
+            k_pts: torch.Tensor,
+            sparse: bool = False):
+
+        pass

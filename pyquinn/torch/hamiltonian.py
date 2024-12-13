@@ -37,7 +37,8 @@ class HamiltonianModel(nn.Module):
     def hamiltonian_matrix(self, 
                            atomic_numbers: torch.IntTensor,
                            positions: torch.Tensor,
-                           neighbors: torch.IntTensor
+                           neighbors: torch.IntTensor,
+                           **kwargs
                            ) -> torch.Tensor:
         """Returns the Hamiltonian of an atomic system in matrix form.
         This abstract method provides the recommended signature of
@@ -70,7 +71,8 @@ class HamiltonianModel(nn.Module):
     def hamiltonian_key(self, 
                         atomic_numbers: torch.IntTensor, 
                         positions: torch.Tensor, 
-                        neighbors: torch.IntTensor
+                        neighbors: torch.IntTensor,
+                        **kwargs
                         ) -> list[str]:
         """Returns a list of string labels for the entries of the Hamiltonian
            matrix. Entries in the Hamiltonian matrix are expected to follow the
@@ -103,7 +105,8 @@ class HamiltonianModel(nn.Module):
     def eigenstates(self, 
                     atomic_numbers: torch.IntTensor, 
                     positions: torch.Tensor, 
-                    neighbors: torch.IntTensor
+                    neighbors: torch.IntTensor,
+                    **kwargs
                     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns the eigenenergies and associated eigenstates of the
         Hamiltonian matrix.
@@ -133,7 +136,8 @@ class HamiltonianModel(nn.Module):
         H = self.hamiltonian_matrix(
             atomic_numbers=atomic_numbers, 
             positions=positions,
-            neighbors=neighbors)
+            neighbors=neighbors,
+            **kwargs)
 
         if self.eigensolver is None:
             raise ValueError('An eigensolver must be supplied.')
@@ -143,7 +147,8 @@ class HamiltonianModel(nn.Module):
     def eigenenergies(self,
                       atomic_numbers: torch.IntTensor, 
                       positions: torch.Tensor, 
-                      neighbors: torch.IntTensor
+                      neighbors: torch.IntTensor,
+                      **kwargs
                       ) -> torch.Tensor:
         """Returns the eigenenergies of an atomic system's Hamiltonian.
 
@@ -168,7 +173,8 @@ class HamiltonianModel(nn.Module):
         H = self.hamiltonian_matrix(
             atomic_numbers=atomic_numbers, 
             positions=positions,
-            neighbors=neighbors)
+            neighbors=neighbors,
+            **kwargs)
 
         if self.eigensolver is None:
             raise ValueError('An eigensolver must be supplied.')
@@ -178,7 +184,8 @@ class HamiltonianModel(nn.Module):
     def forward(self,
                 atomic_numbers: torch.IntTensor, 
                 positions: torch.Tensor, 
-                neighbors: torch.IntTensor
+                neighbors: torch.IntTensor,
+                **kwargs
                 ) -> torch.Tensor:
         """Forward pass function for a HamiltonianModel. Default behavior is
         to return the eigenenergies of an atomic system's Hamiltonian. In any
@@ -204,4 +211,5 @@ class HamiltonianModel(nn.Module):
         return self.eigenenergies(
             atomic_numbers=atomic_numbers,
             positions=positions,
-            neighbors=neighbors)
+            neighbors=neighbors,
+            **kwargs)

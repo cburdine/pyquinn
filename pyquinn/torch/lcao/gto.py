@@ -542,8 +542,7 @@ def sto_ng_overlap_matrix(
         cs_2: torch.IntTensor) -> torch.Tensor:
 
     mu_batch_shape = mu_1.shape[:-2]
-    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))\
-        .item()
+    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     # determine dimensions of I_1,I_2,B_1, and B_2 tensors
     i1_size = ijk_1.shape[-2]
@@ -643,8 +642,7 @@ def sto_ng_block_overlap_matrix(
     """
 
     mu_batch_shape = mu_1.shape[:-1]
-    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))\
-        .item()
+    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     # determine dimensions of I_1,I_2,B_1, and B_2 tensors
     i1_size = ijk_1.shape[-2]
@@ -891,8 +889,7 @@ def sto_ng_potential_overlap_matrix(
         cs_2: torch.IntTensor) -> torch.Tensor:
     
     mu_batch_shape = mu_1.shape[:-2]
-    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))\
-        .item()
+    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     # determine dimensions of I_1,I_2,B_1, and B_2 tensors
     i1_size = ijk_1.shape[-2]
@@ -995,8 +992,7 @@ def sto_ng_block_potential_overlap_matrix(
     """
 
     mu_batch_shape = mu_1.shape[:-1]
-    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))\
-        .item()
+    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     # determine dimensions of I_1,I_2,B_1, and B_2 tensors
     i1_size = ijk_1.shape[-2]
@@ -1075,8 +1071,7 @@ def sto_ng_norm_coeff(
     """
 
     mu_batch_shape = ijk.shape[:-2]
-    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))\
-        .item()
+    mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
     i_size = ijk.shape[-2]
 
     mu = torch.zeros((mu_batch_size, 3), device=alphas.device)

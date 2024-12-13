@@ -9,7 +9,7 @@ Pytorch Compatibility
 ---------------------
 
 
-Modules
+Module Tree
 ---------------------
 
 .. autosummary::

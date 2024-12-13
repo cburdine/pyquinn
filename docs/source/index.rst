@@ -22,20 +22,22 @@ For installation instructions, see the :doc:`usage` section.
    usage
    api
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
-API Reference
-=============
+API Quick Reference
+-------------------
 
 .. autosummary::
     :toctree: generated
     :recursive:
 
-    pyquinn
+    pyquinn.torch.eigensolver
+    pyquinn.torch.hamiltonian
+    pyquinn.torch.lcao
+
+
+
+Indices and Tables
+------------------
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
