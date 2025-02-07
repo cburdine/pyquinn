@@ -24,7 +24,7 @@ python3 -m unittest discover
 
 ### Linting
 
-WE are currently using [flake8](https://flake8.pycqa.org/en/latest/) for linting. (You can install flake8 using `python -m pip install flake8`).
+We are currently using [flake8](https://flake8.pycqa.org/en/latest/) for linting. (You can install flake8 using `python -m pip install flake8`).
 
 To lint all files, run the command:
 ```
@@ -61,6 +61,6 @@ python3 ./benchmark/torch/benchmark_lcao_gto.py
 - [x] Add Unit Tests using the `unittest` module
 - [x] Add support for linting
 - [x] Build documentation
-- [ ] Add benchmarking suite
+- [x] Add benchmarking suite
 - [ ] Add a tutorial repository
 - [ ] Add a CI pipline (via github actions)

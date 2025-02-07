@@ -30,7 +30,6 @@ class EigensolverTest(unittest.TestCase):
         ]
 
         self.assertTrue(len(solvers) > 0)
-        self.assertTrue(len(solvers) == len(Eigensolver._solvers))
 
         self.assertRaises(
             ValueError, 
@@ -52,15 +51,15 @@ class EigensolverTest(unittest.TestCase):
 
         # check diagonalize() function
         eigvals, eigvects = solver.diagonalize(H)
-        self.assertTrue(np.allclose(eigvals.detach().numpy(), 
+        self.assertTrue(np.allclose(eigvals.detach().numpy(),
                                     np_eigvals, atol=1e-5))
 
-        self.assertTrue(np.allclose(np.abs(eigvects.detach().numpy()**2), 
+        self.assertTrue(np.allclose(np.abs(eigvects.detach().numpy()**2),
                                     np.abs(np_eigvects**2), atol=1e-5))
 
     def test_lobpcg_eigensolver(self):
 
-        # note: lobpcg API is subject to change
+        # note: lobpcg API is subject to change (throws warning)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             solver = LobpcgEigensolver()

@@ -1,0 +1,182 @@
+from abc import ABC, abstractmethod
+import os
+
+from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
+
+SUPPORTED_DATASET_BACKENDS = []
+""" The full list of dataset backends supported by default"""
+
+
+class AtomGraphDatasetBase:
+    """ Base class for AtomGraphDataset instances"""        
+
+
+class AtomGraphDataset(AtomGraphDatasetBase):
+
+    _backends = {}
+
+    @classmethod
+    def register_backend(cls, name: str):
+
+        def decorator(subclass):
+            if name not in cls._backends:
+                SUPPORTED_DATASET_BACKENDS.append(name)
+            cls._backends[name] = subclass
+            return subclass
+        return decorator
+
+    def __init__(
+            self,
+            graphs: list[AtomGraph] | list[str] = [],
+            names: list[str] | None = None):
+
+        self.graphs = []
+        self.names = []
+
+        self.extend(graphs=graphs, names=names)
+
+    def append(self, graph: AtomGraph | str, name: str | None = None):
+
+        n_graphs = len(self.graphs)
+        name = AtomGraphDataset._resolve_graph_name(n_graphs, graph, name)
+
+        self.graphs.append(graph)
+        self.names.append(name)
+
+    def extend(
+            self, 
+            graphs: list[AtomGraph] | list[str],
+            names: list[str] | None = None):
+
+        if names is None:
+            names = [None]*len(graphs)
+
+        if len(graphs) != len(names):
+            raise ValueError(f'Expected len(graphs) == len(names); '
+                             f'got: {len(graphs)} != {len(names)}.')
+
+        # resolve the name of each graph:
+        n_graphs = len(self.graphs)
+        names = [
+            AtomGraphDataset._resolve_graph_name(n_graphs+i, g, gn)
+            for i, (g, gn) in enumerate(zip(graphs, names))
+        ]
+
+        self.graphs.extend(graphs)
+        self.names.extend(names)
+
+    @classmethod
+    def _parse_graph_name(cls, graph_filepath) -> str:
+        base_file = os.path.split(graph_filepath)[-1]
+        name = os.path.splitext(base_file)[0]
+        return name
+
+    @classmethod
+    def _resolve_graph_name(
+            cls, 
+            idx: int, 
+            graph: AtomGraph, 
+            graph_name: str | None = None):
+
+        if graph_name is None:
+            if isinstance(graph, str):
+                graph_name = AtomGraphDataset._parse_graph_name(graph)
+            else:
+                graph_name = f'graph_{idx:05d}'
+
+        return graph_name
+
+    def _validate_names(self):
+        names_dict = {}
+        for i, name in enumerate(self.names):
+            if name in names_dict:
+                raise ValueError(
+                    f'Found more than one occurence of graph with name '
+                    f'"{name}" at indices {names_dict[name]} and {i}')
+            else:
+                names_dict[name] = i
+
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, idx: int) -> AtomGraph:
+
+        # retrieve graph
+        graph = self.graphs[idx]
+        if isinstance(graph, str):
+            graph = AtomGraph.load(graph)
+
+        return graph
+
+    def __iter__(self):
+        for graph in self.graphs:
+            yield AtomGraph.load(graph) \
+                if isinstance(graph, str) else graph
+
+    def items(self):
+        for name, graph in zip(self.names, self.graphs):
+            resolved_graph = AtomGraph.load(graph) \
+                if isinstance(graph, str) else graph
+            yield name, resolved_graph
+
+    def compile(
+            self,
+            cache_dir: str,
+            backend: str = 'torch',
+            cutoffs: dict | list[float] | None = None,
+            masses: dict | list[float] | None = None,
+            symbols: dict | list[str] | None = None,
+            **backend_kwargs) -> 'BackendAtomGraphDataset':
+
+        if backend not in AtomGraphDataset._backends:
+            raise ValueError(f'Unknown Backend Type: {backend}')
+
+        # verify all names are unique:
+        self._validate_names()
+
+        # compile graphs:
+        return AtomGraphDataset._backends[backend].compile(
+            dataset=self,
+            cache_dir=cache_dir,
+            cutoffs=cutoffs,
+            masses=masses,
+            symbols=symbols,
+            **backend_kwargs
+        )
+
+
+class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
+
+    def __init__(
+            self,
+            graphs: list[str],
+            names: list[str],
+            cache_dir: str | None = None):
+
+        self.graphs = graphs
+        self.names = names
+        self.cache_dir = cache_dir
+
+    @classmethod
+    @abstractmethod
+    def compile(
+            cls,
+            dataset: AtomGraphDataset,
+            cache_dir: str,
+            cutoffs: dict | list[float] | None = None,
+            masses: dict | list[float] | None = None,
+            symbols: dict | list[str] | None = None,
+            **backend_kwargs):
+        pass
+
+    @abstractmethod
+    def save(self, cache_dir: str):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def load(self, cache_dir: str):
+        pass
+
+# import supported BackendAtomGraphDatasets
+import pyquinn.torch.dataset # noqa

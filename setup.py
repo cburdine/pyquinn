@@ -3,7 +3,10 @@ from setuptools import setup, find_packages
 INSTALL_REQUIRES = [
     'numpy',
     'scipy',
-    'torch'
+    'tqdm',
+    'ase',
+    'torch',
+    'torch_geometric'
 ]
 
 setup(

@@ -1,4 +1,37 @@
 import torch
+from torch.nn.modules import activation
+
+from typing import Callable
+
+Activation = Callable[..., torch.nn.Module]
+
+
+def get_activation_fn(act: str) -> Activation:
+    """Gets a Pytorch activation function by name
+
+    Args:
+        act (str): The name of the activation function (in lower case)
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        torch.nn.Module: _description_
+    """
+
+    # get list from activation submodule as lower-case
+    activations_lc = [str(a).lower() for a in activation.__all__]
+
+    if (act := str(act).replace('_', '').lower()) in activations_lc:
+
+        # match actual name from lower-case list, return function/factory
+        idx = activations_lc.index(act)
+        act_name = activation.__all__[idx]
+        act_func = getattr(activation, act_name)
+        return act_func
+    else:
+        raise ValueError(
+            f"Cannot load activation function for string <{act}>.")
 
 
 def sparse_csr_block_diag(*tensors):

@@ -1,20 +1,17 @@
 import torch
 import warnings
-from abc import abstractmethod
-from typing import TypeVar
+from abc import abstractmethod, ABC
 
 
 import torch.nn as nn
 
 
-Self = TypeVar('Self')
-
 SUPPORTED_EIGENSOLVERS = []
-""" The full list of supported eigensolvers"""
+"""The full list of eigensolvers supported by default."""
 
 
-class Eigensolver(nn.Module):
-    """ Abstract Base class for PyQuinn Eigensolvers  """
+class Eigensolver(nn.Module, ABC):
+    """ Abstract Base class for PyTorch Eigensolvers  """
 
     _solvers = {}
 
@@ -52,7 +49,10 @@ class Eigensolver(nn.Module):
         return decorator
 
     @classmethod
-    def from_name(cls, solver_name: str, solver_kwargs: dict = {}) -> Self:
+    def from_name(cls, 
+                  solver_name: str, 
+                  solver_kwargs: dict = {}
+                  ) -> 'Eigensolver':
         """Loads an eigensolver with the given name from the set of 
         supported eigensolvers in :attr:`SUPPORTED_EIGENSOLVERS
         <pyquinn.torch.eigensolver.SUPPORTED_EIGENSOLVERS>`
@@ -69,10 +69,10 @@ class Eigensolver(nn.Module):
         Returns:
             Eigensolver: Eigensolver with given name
         """
-        if solver_name in cls._solvers:
-            return cls._solvers[solver_name](**solver_kwargs)
-        else:
+        if solver_name not in cls._solvers:
             raise ValueError(f'Unknown Eigensolver Type: {solver_name}')
+
+        return cls._solvers[solver_name](**solver_kwargs)
 
     @abstractmethod
     def diagonalize(self, M: torch.Tensor,
@@ -97,18 +97,18 @@ class EighEigensolver(Eigensolver):
     def diagonalize(self, H: torch.Tensor
                     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Diagonalizes a dense Hermitian matrix (:math:`H = (H^*)^{T}`). 
-           Supports backward passes for gradients with respect to 
-           eigenvectors and eigenvalues.
+        Supports backward passes for gradients with respect to 
+        eigenvectors and eigenvalues.
 
         .. warning::
             Gradients with respect to eigenvectors are only uniquely defined
             up to a phase. It is recommended that you define loss functions
-            using the modulus or modulus squared of eigenvalues.
+            using the modulus or modulus squared of each eigenvector component.
 
             Also, gradients with respect to eigenvectors can be unstable for
             eigenvalues that are degenerate or nearly degenerate. Due to the
-            non-uniqueness of degenerate eigenvectors, the eigenvectors
-            returned may be different on different systems.
+            non-uniqueness of a degenerate eigenvector basis, the eigenvectors
+            returned may not be the same on all systems.
 
             See `torch.linalg.eigh` for more information.
 
@@ -117,13 +117,24 @@ class EighEigensolver(Eigensolver):
 
         Returns:
             tuple[torch.Tensor, torch.Tensor]: Eigenvalues and Eigenvectors
-            of the matrix H.
-            (shape: [..., N], [..., N, N])
+            of the matrix H. (shape: [..., N], [..., N, N])
         """
 
         return torch.linalg.eigh(H)
 
     def forward(self, H: torch.Tensor) -> torch.Tensor:
+        """Computes the Eigenvalues of a dense Hermitian matrix 
+        (:math:`H = (H^*)^{T}`). Supports backward passes for 
+        stable gradients with respect to eigenvalues.
+
+        Args:
+            H (torch.Tensor): Hermitian matrix (shape: [..., N, N])
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Eigenvalues of 
+            the matrix H. (shape: [..., N])
+        """
+
         return torch.linalg.eigvalsh(H)
 
 
@@ -146,7 +157,42 @@ class LobpcgEigensolver(Eigensolver):
                     E_min: torch.Tensor = torch.tensor(0.0), 
                     n: torch.Tensor = torch.tensor(1),
                     S: torch.Tensor | None = None,
-                    C: torch.Tensor | None = None):
+                    C: torch.Tensor | None = None) -> torch.Tensor:
+        """Diagonalizes a dense symmetric matrix by solving a generalized 
+           eigenvalue problem for the `n` least eigenvectors of a 
+           real symmetric Hamiltonian :math:`H` with eigenvalues bounded
+           below by some constant `E_min`. The generalized eigenvalue problem
+           takes the form
+
+        .. math::
+            H C = SCE
+
+        where :math:`C` is a matrix of eigenvalue coefficients, `E` is a 
+        diagonal matrix containing the `n` least eigenvalues, 
+        and :math:`S` is a basis overlap matrix (equal to the 
+        identity by default).
+
+        .. warning::
+            This eigensolver uses the `torch.lobpcg` function, which is still 
+            under development. Certain feature like backward passes for
+            non-trivial :math:`S` matrices and complex Hamiltonians 
+            are not yet fully supported. Use at your own risk.
+
+        Args:
+            H (torch.Tensor): Hermitian matrix (shape: [..., N, N])
+            E_min (torch.Tensor, optional): Lower bound on eigenvalues of the 
+                Hamiltonian. Defaults to torch.tensor(0.0).
+            n (torch.Tensor, optional): Number of lowest eigenvalues to 
+                solve for. Defaults to 1.
+            S (torch.Tensor | None, optional): Overlap matrix :math:`S`.
+                (shape: [..., N, N]). Defaults to None.
+            C (torch.Tensor | None, optional): Initial guess of eigenvectors 
+                (shape: [...,N,n]). Defaults to None.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Eigenvalues and Eigenvectors
+            of the matrix `H`. (shape: [..., n], [..., N, n])
+        """
 
         H_posdef = H - E_min*torch.eye(H.shape[-1])
 
@@ -163,7 +209,41 @@ class LobpcgEigensolver(Eigensolver):
                 n: torch.Tensor = torch.tensor(1),
                 S: torch.Tensor | None = None,
                 C: torch.Tensor | None = None):
+        """Diagonalizes a dense symmetric matrix by solving a generalized 
+           eigenvalue problem for the `n` least eigenvalues of a 
+           real symmetric Hamiltonian :math:`H` with the eigenvalues bounded
+           below by some constant `E_min`. The generalized eigenvalue problem
+           takes the form
 
+        .. math::
+            H C = SCE
+
+        where :math:`C` is a matrix of eigenvalue coefficients, `E` is a 
+        diagonal matrix containing the `n` least eigenvalues, 
+        and :math:`S` is a basis overlap matrix (equal to the 
+        identity by default).
+
+        .. warning::
+            This eigensolver uses the `torch.lobpcg` function, which is still 
+            under development. Certain feature like backward passes for
+            non-trivial :math:`S` matrices and complex Hamiltonians 
+            are not yet fully supported. Use at your own risk.
+
+        Args:
+            H (torch.Tensor): Hermitian matrix (shape: [..., N, N])
+            E_min (torch.Tensor, optional): Lower bound on eigenvalues of the 
+                Hamiltonian. Defaults to torch.tensor(0.0).
+            n (torch.Tensor, optional): Number of lowest eigenvalues to 
+                solve for. Defaults to 1.
+            S (torch.Tensor | None, optional): Overlap matrix :math:`S`.
+                (shape: [..., N, N]). Defaults to None.
+            C (torch.Tensor | None, optional): Initial guess of eigenvectors 
+                (shape: [...,N,n]). Defaults to None.
+
+        Returns:
+            torch.tensor: Eigenvalues of the matrix `H`. (shape: [..., n])
+        """
+        
         eigvals, _ = self.diagonalize(H=H, E_min=E_min, n=n, S=S, C=C)
 
         return eigvals

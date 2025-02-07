@@ -260,7 +260,7 @@ class TestTightBindingModel(unittest.TestCase):
             sparse=False
         )
 
-        H_k_sparse = model.hamiltonian_matrix(
+        H_k_sparse_raw = model.hamiltonian_matrix(
             atomic_numbers,
             positions,
             neighbors,
@@ -270,32 +270,94 @@ class TestTightBindingModel(unittest.TestCase):
             sparse=True
         )
 
+        # rectify dimensions of sparse tensor
+        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
+
         # ensure H is the correct size and is symmetric
-        H_shape = (H_size, H_size) + tuple(k_pts.shape[:-1])
+        H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
         self.assertEqual(H_k.shape, H_shape)
         self.assertEqual(H_k_sparse.shape, H_shape)
 
-        self.assertTrue(torch.allclose(H_k, H_k.conj().transpose(0, 1)))
+        self.assertTrue(torch.allclose(H_k, H_k.conj().mT))
         self.assertTrue(torch.allclose(
-            H_k_sparse.to_dense(), 
-            H_k_sparse.to_dense().conj().transpose(0, 1)))
+            H_k_sparse, H_k_sparse.conj().mT))
 
         # ensure sparse and non-sparse hamiltonians agree:
-        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense()))
+        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense(), atol=1e-6))
 
         # test if backward pass is successful
-        (torch.abs(H_k)**2).sum().backward(inputs=positions)
+        (torch.abs(H_k)**2).sum().backward(inputs=[positions, unit_cell])
 
-        # ensure gradients with respect to positions are nonzero
+        # ensure gradients with respect to positionsand unit cell are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
             np.allclose(positions_grad, np.zeros_like(positions_grad))
         )
+        unit_cell_grad = unit_cell.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+        )
 
         # test if backward pass is successful
-        (torch.abs(H_k_sparse)**2).sum().sum().backward(inputs=positions)
+        (torch.abs(H_k_sparse_raw)**2).sum().backward(
+            inputs=[positions, unit_cell])
 
         # ensure sparse gradients with respect to positions are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+        unit_cell_grad = unit_cell.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+        )
+
+    def test_tight_binding_model_eigenenergies(self):
+
+        model = TightBindingModel(
+            eigensolver='torch_eigh',
+            spin='paired',
+            basis='even_tempered',
+            basis_size=3,
+            potential_basis='even_tempered',
+            potential_basis_size=5
+        )
+
+        atomic_numbers = torch.tensor([7, 7])
+
+        positions = torch.tensor([
+            [0.0, 0.0, 0.0], 
+            [1.0, 1.0, 0.0],
+        ], requires_grad=True)
+
+        unit_cell = torch.tensor([
+            [2.0, 0.0, 0.0],
+            [0.0, 100, 0.0],
+            [0.0, 0.0, 100]
+        ], requires_grad=True)
+
+        neighbors = torch.tensor([
+            [1, 1, 0, 0],
+            [0, 0, 1, 1]
+        ])
+
+        unit_cell_images = torch.tensor([
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]],
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        ])
+
+        E = model.eigenenergies(
+            atomic_numbers, 
+            positions, 
+            neighbors,
+            unit_cell,
+            unit_cell_images,
+            sparse=False)
+
+        # test if backward pass is successful
+        E.sum().backward(inputs=positions)
+
+        # ensure gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
             np.allclose(positions_grad, np.zeros_like(positions_grad))

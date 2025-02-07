@@ -1,7 +1,6 @@
 import torch
 
 from math import factorial, sqrt, comb, gamma
-
 from pyquinn.torch.util import sparse_coo_block_diag
 
 GTO_L_MAX = 5
@@ -1283,11 +1282,11 @@ def cho_ng_overlap_matrix(
                                (shape: [I_2, N_2])
         cho_data_1 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_1)`.
+                                  `cho_overlap_matrix_metadata(l_1)`.
                                   Defaults to None.
         cho_data_2 (tuple, optional): Precomputed data tuple returned from a
                                   call to
-                                  `get_cho_overlap_matrix_metadata(l_2)`.
+                                  `cho_overlap_matrix_metadata(l_2)`.
                                   Defaults to None.
 
     Returns:
@@ -1355,11 +1354,11 @@ def cho_ng_potential_overlap_matrix(
                                (shape: [I_2, N_2])
         cho_data_1 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_1)`.
+                                  `cho_overlap_matrix_metadata(l_1)`.
                                   Defaults to None.
         cho_data_2 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_2)`.
+                                  `cho_overlap_matrix_metadata(l_2)`.
                                   Defaults to None.
         
     Returns:
@@ -1419,11 +1418,11 @@ def cho_ng_block_overlap_matrix(
                                (shape: [..., I_2, N_2])
         cho_data_1 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_1)`.
+                                  `cho_overlap_matrix_metadata(l_1)`.
                                   Defaults to None.
         cho_data_2 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_2)`.
+                                  `cho_overlap_matrix_metadata(l_2)`.
                                   Defaults to None.
 
     Returns:
@@ -1490,11 +1489,11 @@ def cho_ng_block_potential_overlap_matrix(
                                (shape: [..., I_2, N_2])
         cho_data_1 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_1)`.
+                                  `cho_overlap_matrix_metadata(l_1)`.
                                   Defaults to None.
         cho_data_2 (tuple, optional): Precomputed data tuple returned from a
                                   call to 
-                                  `get_cho_overlap_matrix_metadata(l_2)`.
+                                  `cho_overlap_matrix_metadata(l_2)`.
                                   Defaults to None.
 
     Returns:

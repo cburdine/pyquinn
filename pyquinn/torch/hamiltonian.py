@@ -28,6 +28,18 @@ class HamiltonianModel(nn.Module):
     """
 
     def __init__(self, eigensolver: str | Eigensolver | None = None):
+        """Constructor for a `HamiltonianModel` instance with an associated 
+        `pyquinn.torch.Eigensolver` instance. All Hamiltonian instances are
+        required to call this super constructor with the given eigensolver 
+        name.
+
+        If a string is supplied, an eigensolver returned by 
+        `Eigensolver.from_name(eigensolver)` is used.
+
+        Args:
+            eigensolver (str | Eigensolver | None, optional): The Eigensolver
+                associated with this HamiltonianModel.
+        """
 
         super().__init__()
         self.eigensolver = Eigensolver.from_name(eigensolver) \

@@ -2,7 +2,6 @@ from pyquinn.torch.hamiltonian import HamiltonianModel
 from pyquinn.torch.eigensolver import Eigensolver
 
 from pyquinn.torch.lcao.gto import (
-    _CHO_BASIS_SIZES, 
     _ELEMENT_CHO_VALENCE_SHELLS,
     GTO_L_MAX,
     cho_ng_potential_overlap_matrix,
@@ -17,6 +16,25 @@ import numpy as np
 
 
 class LCAOModel(HamiltonianModel):
+    r"""LCAO (Linear Combination of Atomic Orbitals) Hamiltonian.
+    This model contains a fixed set of Gaussian 
+    orbital parameters, which are trainable `torch.nn.Parameter`
+    values. This model constructs a mean-field Hamiltonian for 
+    a non-periodic atomic system with using a minimal basis of 
+    Gaussian cubic harmonic orbitals at each site. 
+    The Hamiltonian it contructs is real-valued and symmetric.
+
+    When computing the Hamiltonian, this model computes the overlap
+    matrices of each neighboring orbital state with an on-site 
+    pseudopotential that is expanded as a set of Gaussian functions:
+
+        .. math::
+            H_{ij} = \langle \phi_i | V_i + V_j \phi_j \rangle
+
+    This model currently supports the following eigensolvers:
+        - `torch_eigh`
+
+    """
 
     BASIS_OPTIONS = [
         'variable',
@@ -48,24 +66,27 @@ class LCAOModel(HamiltonianModel):
                                      f'in shell {i}, got: l = {l}')
 
                 shell_idxs[z, i] = l
-
         return shell_idxs
 
     @classmethod
     def _make_logscale_basis_parameters(
             cls, 
             basis: str, basis_size: int, shells: dict, 
-            r_max: float = 5.0, r_min: float = 5e-2):
+            r_max: float = 5.0, r_min: float = 5e-2) -> torch.nn.Parameter:
+        """Constructs a set of trainable log-scale Gaussian orbital 
+        parameters. """
 
         z_max = max(shells.keys())
         n_alpha_sets = max(len(l_list) for l_list in shells.values())
 
         if basis not in LCAOModel.BASIS_OPTIONS:
-            raise ValueError(f'Basis must be one of {LCAOModel.BASIS_OPTIONS}, got: {basis}.')
+            raise ValueError(f'Basis must be one of {LCAOModel.BASIS_OPTIONS},'
+                             f' got: {basis}.')
         if basis_size <= 0:
             raise ValueError('Basis size must be a positive integer.')
         if r_max <= 0 or r_min <= 0 or r_min >= r_max:
-            raise ValueError('Values r_min and r_max must satisfy 0 < r_min < r_max.')
+            raise ValueError('Values r_min and r_max must satisfy'
+                             ' 0 < r_min < r_max.')
 
         log_alpha_r_max = np.log(1/(2*r_max**2))
         log_alpha_r_min = np.log(1/(2*r_min**2))
@@ -99,7 +120,9 @@ class LCAOModel(HamiltonianModel):
 
     @classmethod
     def _make_logscale_energy_parameters(cls, shells: dict):
-        
+        """Constructs a set of trainable log-scale orbital 
+        energy parameters."""
+
         z_max = max(shells.keys())
         n_alpha_sets = max(len(l_list) for l_list in shells.values())
 
@@ -111,8 +134,8 @@ class LCAOModel(HamiltonianModel):
         return logscale_energies
 
     def __init__(self, 
-                 eigensolver: str | Eigensolver | None = None,
-                 spin='paired',
+                 eigensolver: str | Eigensolver | None = 'torch_eigh',
+                 spin: str = 'paired',
                  basis: str = 'even_tempered',
                  basis_size: int = 3,
                  potential_basis: str = 'even_tempered',
@@ -120,6 +143,40 @@ class LCAOModel(HamiltonianModel):
                  energy_scale: float = 1.0,
                  orbital_shells: dict = {},
                  ) -> None:
+        """Constructs a LCAO (Linear Combination of Atomic Orbitals) 
+        Hamiltonian model. This model contains a fixed set of Gaussian 
+        orbital parameters, which are trainable `torch.nn.Parameter`
+        values. Depending on the basis options specified, these 
+        parameters may be frozen (i.e., have `requires_grad=False`).
+
+        Args:
+            eigensolver (str | Eigensolver | None, optional): The Eigensolver 
+                used. Defaults to 'torch_eigh'.
+            spin (str, optional): The orbital basis spin. Defaults to 'paired'.
+            basis (str, optional): The type of basis used. Defaults to 
+                'even_tempered'.
+            basis_size (int, optional): The number of Gaussians used in the 
+                basis representation. Defaults to 3.
+            potential_basis (str, optional): The type of potential basis used. 
+                Defaults to 'even_tempered'.
+            potential_basis_size (int, optional): The number of Gaussians
+                used in the potential basis representation. Defaults to 5.
+            energy_scale (float, optional): The scale multiple of energy used. 
+                If the model is trained on different energy units (such as
+                Hartree versus eV units), this scalar may need to be adjusted.
+                Defaults to 1.0.
+            orbital_shells (dict, optional): A dictionary mapping atomic 
+                numbers to orbital shell angular momenta :math:`l`. 
+                For example, to model the 1s, 2s, and 2p orbitals of 
+                Carbon atoms, one would use `orbital_shells={6: [0, 0, 1]}`
+                to model the :math:`l=0,l=0` and :math:`l=1` angular momenta of 
+                these orbitals. For any elements not specified in this 
+                dictionary, the valence shell orbitals are used.
+                Defaults to {}.
+
+        Raises:
+            ValueError: If invalid basis options are supplied.
+        """
 
         super().__init__(eigensolver=eigensolver)
 
@@ -174,12 +231,39 @@ class LCAOModel(HamiltonianModel):
                              positions: torch.Tensor, 
                              neighbors: torch.IntTensor
                              ) -> tuple:
+        """Computes the Gaussian basis parameters of an atomic system.
+
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+
+
+        Returns:
+            tuple: A tuple containing the following:
+
+            - alphas (torch.Tensor): A tensor of Gaussian orbital
+                width parameters (shape: [N_atoms, N_ls, N_basis]).
+            - cs (torch.Tensor): A tensor of Gaussian orbital
+                coefficients (shape: [N_atoms, N_ls, N_basis]).
+            - gammas (torch.Tensor): A tensor of Gaussian
+                potential width parameters (shape: [N_atoms, 1, M_basis]).
+            - vs (torch.Tensor): A tensor of Gaussian potential
+                coefficients (shape: [N_atoms, 1, N_basis])
+        """
 
         # get log-scale orbital parameters
         logscale_alphas = self.logscale_orbital_alphas[atomic_numbers]
         logscale_betas = self.logscale_orbital_betas[atomic_numbers]
         logscale_cs = self.logscale_orbital_cs[atomic_numbers]
-        
+
         beta_powers = torch.arange(0, logscale_cs.shape[-1])\
             .view(1, 1, -1)
         alphas = torch.exp(logscale_alphas + logscale_betas*beta_powers)
@@ -193,7 +277,7 @@ class LCAOModel(HamiltonianModel):
 
         v_beta_powers = torch.arange(0, logscale_vs.shape[-1])\
             .view(1, 1, -1)
-            
+
         gammas = torch.exp(logscale_v_gammas + logscale_v_betas*v_beta_powers)
 
         vs = -self.energy_scale * torch.exp(logscale_vs)
@@ -205,7 +289,24 @@ class LCAOModel(HamiltonianModel):
                             positions: torch.Tensor, 
                             neighbors: torch.IntTensor
                             ) -> torch.Tensor:
-        
+        """Computes the on-site energies of an atomic system.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+
+        Returns:
+            torch.Tensor: The on-site energies of each atom's
+                shell orbitals (shape: [N_atoms, N_ls]).
+        """
+
         # get log-scale on-site energies
         logscale_energies = self.logscale_onsite_energies[atomic_numbers]
 
@@ -274,7 +375,6 @@ class LCAOModel(HamiltonianModel):
             .view(1, -1).expand(2, -1)
 
         if sparse:
-
             # append values and hermitian conjugate values
             H_ji = H_ij[torch.tensor([1, 0])]
             H_indices_total = torch.cat((H_ii, H_ij, H_ji), dim=-1)
@@ -291,13 +391,20 @@ class LCAOModel(HamiltonianModel):
         else:
             # build dense tensor:
             H = torch.zeros(
-                shape, 
-                dtype=H_values.dtype, 
+                shape[0]*shape[1],
+                dtype=H_values.dtype,
                 device=H_values.device)
 
-            H[H_ii[0], H_ii[1]] += H_diagonal
-            H[H_ij[0], H_ij[1]] += H_values
-            H[H_ij[1], H_ij[0]] += H_values.conj()
+            H_ii_idxs = shape[0]*H_ii[0] + H_ii[1]
+            H.put_(H_ii_idxs, H_diagonal, accumulate=True)
+
+            H_ij_idxs = shape[0]*H_ij[0] + H_ij[1]
+            H.put_(H_ij_idxs, H_values, accumulate=True)
+
+            H_ji_idxs = shape[0]*H_ij[1] + H_ij[0]
+            H.put_(H_ji_idxs, H_values, accumulate=True)
+
+            H = H.reshape(shape)
 
         return H
 
@@ -307,11 +414,21 @@ class LCAOModel(HamiltonianModel):
                            neighbors: torch.IntTensor,
                            sparse: bool = False,
                            ) -> torch.Tensor:
+        """_summary_
+
+        Args:
+            atomic_numbers (torch.IntTensor): _description_
+            positions (torch.Tensor): _description_
+            neighbors (torch.IntTensor): _description_
+            sparse (bool, optional): _description_. Defaults to False.
+
+        Returns:
+            torch.Tensor: _description_
+        """
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
             self.get_basis_parameters(atomic_numbers, positions, neighbors)
-
 
         # get on-site energies:
         onsite_energies = self.get_onsite_energies(
@@ -335,7 +452,7 @@ class LCAOModel(HamiltonianModel):
                 requires_grad=False)
             site_idxs, site_l_idxs, site_ls = \
                 self._get_block_basis_idxs(site, atomic_numbers)
-            site_data = cho_overlap_matrix_metadata(site_ls, sparse=True)
+            site_data = cho_overlap_matrix_metadata(site_ls, sparse=sparse)
 
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site, H_idxs, H_blocksizes)
@@ -348,7 +465,7 @@ class LCAOModel(HamiltonianModel):
                 self._get_block_basis_idxs(site_neighbors, atomic_numbers)
 
             neighbor_data = cho_overlap_matrix_metadata(
-                neighbor_ls, sparse=True)
+                neighbor_ls, sparse=sparse)
 
             H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site_neighbors, H_idxs, H_blocksizes)
@@ -415,7 +532,7 @@ class TightBindingModel(LCAOModel):
                  energy_scale: float = 1.0,
                  orbital_shells: dict = {},
                  ) -> None:
-        
+
         super().__init__(
             eigensolver=eigensolver,
             spin=spin,
@@ -450,40 +567,86 @@ class TightBindingModel(LCAOModel):
             sparse: bool = False):
 
         H_ij = torch.cat(component_idxs, dim=0).T
+        H_values = torch.cat(components, dim=0)
+
+        H_diagonal = torch.cat(diagonals, dim=0)
+        H_ii = torch.arange(H_diagonal.shape[0])\
+            .view(1, -1).expand(2, -1)
+
         H_distances = torch.cat(component_distances, dim=0)
         k_shape = k_pts.shape[:-1]
         k_view = tuple([1]*len(k_shape))
 
-        H_thetas = 2 * torch.pi * torch.einsum(
-            'id, ...d -> i...',
-            H_distances,
-            k_pts
-        )
+        if sparse:
 
-        H_values = torch.einsum(
-            'i, i... -> i...',
-            torch.cat(components, dim=0),
-            torch.exp(1.j*H_thetas))
+            # move batch dimensions to the trailing dimensions
+            # (This is necessary due to the fact that pytorch
+            #  only supports efficient sparse formats with the
+            #  leading axes as sparse)
+            H_thetas_k = torch.einsum(
+                'id, ...d -> i...',
+                H_distances,
+                2*torch.pi*k_pts
+            )
 
-        H_diagonal = torch.cat(diagonals, dim=0)\
-            .view(-1, *k_view).expand(-1, *k_shape)
-        H_ii = torch.arange(H_diagonal.shape[0])\
-            .view(1, -1).expand(2, -1)
+            H_values_k = torch.einsum(
+                'i, i... -> i...',
+                H_values,
+                torch.exp(1.j*H_thetas_k))
 
-        # append values and hermitian conjugate values
-        H_ji = H_ij[torch.tensor([1, 0])]
-        H_indices_total = torch.cat((H_ii, H_ij, H_ji), dim=-1)
-        H_values_total = torch.cat(
-            (H_diagonal, H_values, H_values.conj()), dim=0)
+            H_diagonal_k = H_diagonal.view(-1, *k_view).expand(-1, *k_shape)
 
-        # build sparse tensor
-        H = torch.sparse_coo_tensor(
-            indices=H_indices_total, 
-            values=H_values_total,
-            size=shape + k_shape,
-            device=H_values_total.device).coalesce()
-            
-        return H if sparse else H.to_dense()
+            # append values and hermitian conjugate values
+            H_ji = H_ij[torch.tensor([1, 0])]
+            H_indices_total = torch.cat((H_ii, H_ij, H_ji), dim=-1)
+            H_values_total = torch.cat(
+                (H_diagonal_k, H_values_k, H_values_k.conj()), dim=0)
+
+            # build sparse tensor
+            H = torch.sparse_coo_tensor(
+                indices=H_indices_total, 
+                values=H_values_total,
+                size=shape + k_shape,
+                device=H_values_total.device).coalesce()
+        else:
+
+            # build dense hamiltonian
+            H = torch.zeros(k_shape + (shape[0]*shape[1],), 
+                            dtype=torch.complex64)
+
+            H_ii_idxs = (shape[0]*H_ii[0] + H_ii[1])\
+                .view(*k_view, -1).expand(*k_shape, -1)
+
+            H_diagonal_k = H_diagonal.to(torch.complex64)\
+                .view(*k_view, -1).expand(*k_shape, -1)
+
+            H.scatter_add_(-1, H_ii_idxs, H_diagonal_k)
+
+            H_thetas_k = torch.einsum(
+                'id, ...d -> ...i',
+                H_distances,
+                2*torch.pi*k_pts
+            )
+
+            H_values_k = torch.einsum(
+                'i, ...i -> ...i',
+                H_values,
+                torch.exp(1.j*H_thetas_k))
+
+            H_ij_idxs = (shape[0]*H_ij[0] + H_ij[1])\
+                .view(*k_view, -1).expand(*k_shape, -1)
+
+            H.scatter_add_(-1, H_ij_idxs, H_values_k)
+
+            H_ji_idxs = (shape[0]*H_ij[1] + H_ij[0])\
+                .view(*k_view, -1).expand(*k_shape, -1)
+
+            H.scatter_add_(-1, H_ji_idxs, H_values_k.conj())
+
+            # restore original shape
+            H = H.reshape(k_shape + shape)
+
+        return H
 
     def hamiltonian_matrix(
             self, 
@@ -492,8 +655,11 @@ class TightBindingModel(LCAOModel):
             neighbors: torch.IntTensor,
             unit_cell: torch.IntTensor,
             unit_cell_images: torch.Tensor,
-            k_pts: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
             sparse: bool = False) -> torch.Tensor:
+
+        if k_pts is None:
+            k_pts = torch.zeros(3)
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
@@ -582,13 +748,58 @@ class TightBindingModel(LCAOModel):
             H_component_distances, k_pts,
             shape=(H_size, H_size), sparse=sparse)
 
-    def eigenstates(self, 
+    def eigenstates(
+            self, 
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
             unit_cell: torch.IntTensor,
             unit_cell_images: torch.Tensor,
-            k_pts: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
             sparse: bool = False):
 
-        pass
+        H = self.hamiltonian_matrix(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            k_pts=k_pts,
+            sparse=sparse
+        )
+
+        if sparse and H.ndim > 2:
+            raise NotImplementedError(
+                'Diagonalization of sparse hamiltonians not supported '
+                'for TightBindingModels with specified k points.'
+                '(use sparse=False).')
+
+        return self.eigensolver.diagonalize(H)
+
+    def eigenenergies(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            sparse: bool = False):
+
+        H = self.hamiltonian_matrix(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            k_pts=k_pts,
+            sparse=sparse
+        )
+
+        if sparse and H.ndim > 2:
+            raise NotImplementedError(
+                'Diagonalization of sparse hamiltonians not supported '
+                'for TightBindingModels with more than one k point. '
+                '(Use sparse=False or query each k point individually.)')
+
+        return self.eigensolver(H)
