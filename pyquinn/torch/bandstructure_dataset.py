@@ -42,16 +42,19 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
     @classmethod 
     def _save_bands(
             cls,
-            bands: BandStructure | str,
+            bands: TorchBandStructure | str,
             name: str,
-            cache_dir: str):
+            cache_dir: str,
+            device: torch.device = 'cpu'):
         
         # load bands (if necessary)
-        bands = TorchBandStructure.load(bands) \
+        bands = TorchBandStructure.load(bands, device=device) \
             if isinstance(bands, str) else bands
 
         # save bands to cache dir
-        torch_
+        torch_bands_path = os.path.join(
+            cache_dir, f'{name}.pt.bands')
+        bands.save(torch_bands_path)
 
     @classmethod
     def compile(
@@ -127,7 +130,7 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
     def load(
             cls,
             cache_dir: str,
-            device: torch.device='cpu'):
+            device: torch.device = 'cpu'):
 
         graphs = glob(os.path.join(cache_dir, '*.pt'))
         band_structures = glob(os.path.join(cache_dir, '*.pt.bands'))
@@ -156,4 +159,9 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
                 cache_dir=cache_dir,
                 device=self.device)
 
-            TorchBandStructureDataset._save_b
+            TorchBandStructureDataset._save_bands(
+                bands=bands,
+                name=name,
+                cache_dir=cache_dir,
+                device=self.device
+            )

@@ -54,8 +54,6 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             cache_dir, f'{name}.pt')
         torch_graph.save(torch_graph_path)
 
-        return torch_graph_path
-
     @classmethod
     def compile(
             cls,

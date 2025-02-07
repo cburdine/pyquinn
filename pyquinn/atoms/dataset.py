@@ -3,6 +3,9 @@ import os
 
 from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
 
+from tqdm import tqdm
+from glob import glob
+
 SUPPORTED_DATASET_BACKENDS = []
 """ The full list of dataset backends supported by default"""
 
@@ -143,6 +146,39 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             symbols=symbols,
             **backend_kwargs
         )
+
+    @classmethod
+    def _save_graph(
+            cls,
+            graph: str | AtomGraph,
+            name: str,
+            dir: str):
+
+        # load graph (if necessary)
+        graph = AtomGraph.load(graph) \
+            if isinstance(graph, str) else graph
+
+        # save graph to cache dir:
+        graph_path = os.path.join(dir, f'{name}.pkl')
+        graph.save(graph_path)
+
+    def save(self, dir: str):
+
+        for name, graph in tqdm(self.items(), total=len(self)):
+            AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
+
+    @classmethod
+    def load(cls, dir: str):
+
+        graphs = glob(os.path.join(dir, '*.pkl'))
+        names = [
+            AtomGraphDataset._parse_graph_name(file)
+            for file in graphs
+        ]
+
+        return AtomGraphDataset(
+            graphs=graphs,
+            names=names)
 
 
 class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):

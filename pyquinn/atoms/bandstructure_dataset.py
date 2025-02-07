@@ -4,6 +4,9 @@ from pyquinn.atoms.atom_graph import AtomGraph
 from pyquinn.atoms.dataset import AtomGraphDataset
 from pyquinn.atoms.bandstructure import BandStructure
 
+from tqdm import tqdm
+from glob import glob
+import os
 import numpy as np
 
 SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = []
@@ -80,6 +83,7 @@ class BandStructureDataset(BandStructureDatasetBase):
         ]
 
         self.graphs.extend(graphs)
+        self.band_structures.extend(band_structures)
         self.names.extend(names)
 
     def _validate_names(self):
@@ -149,6 +153,42 @@ class BandStructureDataset(BandStructureDatasetBase):
             max_energies=max_energies,
             **backend_kwargs,
         )
+
+    @classmethod
+    def _save_bands(
+            cls,
+            bands: str | BandStructure,
+            name: str,
+            dir: str):
+
+        # load graph (if necessary)
+        bands = BandStructure.load(bands) \
+            if isinstance(bands, str) else bands
+
+        # save graph to cache dir:
+        bands_path = os.path.join(dir, f'{name}.pkl.bands')
+        bands.save(bands_path)
+
+    def save(self, dir: str):
+
+        for name, (graph, bands) in tqdm(self.items(), total=len(self)):
+            AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
+            BandStructureDataset._save_bands(bands=bands, name=name, dir=dir)
+
+    @classmethod
+    def load(cls, dir: str):
+
+        graphs = glob(os.path.join(dir, '*.pkl'))
+        band_structures = glob(os.path.join(dir, '*.pkl.bands'))
+        names = [
+            AtomGraphDataset._parse_graph_name(file)
+            for file in graphs
+        ]
+
+        return BandStructureDataset(
+            graphs=graphs,
+            band_structures=band_structures,
+            names=names)
 
 
 class BackendBandStructureDataset(ABC, BandStructureDatasetBase):

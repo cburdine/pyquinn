@@ -77,7 +77,7 @@ class BandStructure(BandStructureBase):
 
     @property
     def k_pts(self):
-        return self._kpts
+        return self._k_pts
 
     @k_pts.setter
     def k_pts(self, value):

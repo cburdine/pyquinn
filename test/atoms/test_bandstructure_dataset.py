@@ -36,10 +36,6 @@ class AtomGraphDatasetTest(unittest.TestCase):
             for alat in np.linspace(1.0, 2.0, n_graphs)
         ]
 
-        si_bands = BandStructure(
-            energies=np.ones((100, 10)),
-            k_pts=np.linspace(0, 0.5, 300).reshape(100, 3))
-
         si_band_structures = [
             BandStructure(
                 energies=np.full((100, 10), E),
@@ -61,12 +57,12 @@ class AtomGraphDatasetTest(unittest.TestCase):
         for i, (name, (graph, bands)) in enumerate(dataset.items()):
             self.assertTrue(np.all(graph.atoms == si_graphs[i].atoms))
             self.assertTrue(np.all(graph.positions == si_graphs[i].positions))
-            self.assertTrue(np.all(bands.energies == si_bands[i].energies))
-            self.assertTrue(np.all(bands.k_pts == si_bands[i].k_pts))
+            self.assertTrue(np.all(bands.energies == si_band_structures[i].energies)) # noqa
+            self.assertTrue(np.all(bands.k_pts == si_band_structures[i].k_pts)) # noqa
             self.assertTrue(
-                np.all(bands.projections == si_bands[i].projections))
+                np.all(bands.projections == si_band_structures[i].projections)) # noqa
             self.assertTrue(
-                np.all(bands.chemical_potential == si_bands[i].chemical_potential)) # noqa
+                np.all(bands.chemical_potential == si_band_structures[i].chemical_potential)) # noqa
 
     def test_bandstructure_dataset_compile(self):
 
