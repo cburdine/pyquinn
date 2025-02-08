@@ -18,18 +18,18 @@ class BandStructure(BandStructureBase):
 
     _backends = {}
 
-    @classmethod
-    def register_backend(cls, name: str):
+    @staticmethod
+    def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in cls._backends:
+            if name not in BandStructure._backends:
                 SUPPORTED_BANDSTRUCTURE_BACKENDS.append(name)
-            cls._backends[name] = subclass
+            BandStructure._backends[name] = subclass
             return subclass
         return decorator
 
-    @classmethod
-    def load(cls, filename: str) -> 'BandStructure':
+    @staticmethod
+    def load(filename: str) -> 'BandStructure':
         """Helper function to load a BandStructure 
         from a pickle file (`*.pkl`).
 
@@ -50,22 +50,22 @@ class BandStructure(BandStructureBase):
         return bs
 
     def __init__(
-        self,
-        energies: list[list[float]],
-        k_pts: list[list[float]] | None = None,
-        projections: list[list[list[float]]] | None = None,
-        chemical_potential: float | None = None,
-    ):
-        self.energies = energies,
+            self,
+            energies: list[list[float]],
+            k_pts: list[list[float]] | None = None,
+            projections: list[list[list[float]]] | None = None,
+            chemical_potential: float | None = None):
+
+        self.energies = energies
 
         self.k_pts = k_pts if k_pts is not None \
             else np.zeros((self.energies.shape[0], 0))
 
-        self.projections = projections if projections is None \
+        self.projections = projections if projections is not None \
             else np.zeros(self.energies.shape + (0,))
 
         self.chemical_potential = chemical_potential if \
-            chemical_potential is None else np.array(0.0)
+            chemical_potential is not None else np.array(0.0)
 
     @property
     def energies(self):
@@ -119,7 +119,7 @@ class BandStructure(BandStructureBase):
             self,
             backend: str = 'torch',
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             **backend_kwargs):
         
         self._validate_energies()
@@ -130,9 +130,8 @@ class BandStructure(BandStructureBase):
         return BandStructure._backends[backend].compile(
             bands=self,
             max_k_pts=max_k_pts,
-            max_energies=max_energies,
-            **backend_kwargs
-        )
+            max_bands=max_bands,
+            **backend_kwargs)
 
     def resample_bands(
             self, 
@@ -155,7 +154,7 @@ class BandStructure(BandStructureBase):
             projections = projections[sample_idx]
 
         # downsample energies (if applicable)
-        if max_bands is None:
+        if max_bands is not None:
             energies = energies[:, :min(energies.shape[1], max_bands)]
             projections = projections[:, :min(projections.shape[1], max_bands)]
 
@@ -184,13 +183,12 @@ class BackendBandStructure(ABC, BandStructureBase):
         self.projections = projections
         self.chemical_potential = chemical_potential
 
-    @classmethod
+    @staticmethod
     @abstractmethod
     def compile(
-            cls,
             bands: BandStructure,
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             **backend_kwargs):
         pass
 
@@ -201,9 +199,9 @@ class BackendBandStructure(ABC, BandStructureBase):
         implementations. """
         pass
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def load(cls, filename: str) -> 'BackendBandStructure':
+    def load(filename: str) -> 'BackendBandStructure':
         pass
 
     @abstractmethod

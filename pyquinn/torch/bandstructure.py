@@ -5,18 +5,17 @@ import torch
 @BandStructure.register_backend('torch')
 class TorchBandStructure(BackendBandStructure):
 
-    @classmethod
+    @staticmethod
     def compile(
-            cls,
             bands: BandStructure,
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             device: torch.dtype = torch.float32,
             dtype: torch.dtype = torch.float32):
 
         bands = bands.resample_bands(
             max_k_pts=max_k_pts, 
-            max_energies=max_energies)
+            max_bands=max_bands)
 
         energies = torch.tensor(
             bands.energies,
@@ -75,9 +74,8 @@ class TorchBandStructure(BackendBandStructure):
             projections=self.projections.detach().numpy(),
             chemical_potential=self.chemical_potential.detach().numpy())
 
-    @classmethod
+    @staticmethod
     def load(
-            cls, 
             filename: str, 
             device: torch.device | None = None) -> 'TorchBandStructure':
         

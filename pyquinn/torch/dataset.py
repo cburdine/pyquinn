@@ -13,9 +13,8 @@ from glob import glob
 @AtomGraphDataset.register_backend('torch')
 class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
-    @classmethod
+    @staticmethod
     def _compile_graph(
-            cls, 
             graph: AtomGraph | str,
             name: str,
             cache_dir: str,
@@ -36,9 +35,8 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
         return torch_graph_path
 
-    @classmethod
+    @staticmethod
     def _save_graph(
-            cls,
             graph: str | TorchAtomGraph,
             name: str,
             cache_dir: str,
@@ -54,9 +52,8 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             cache_dir, f'{name}.pt')
         torch_graph.save(torch_graph_path)
 
-    @classmethod
+    @staticmethod
     def compile(
-            cls,
             dataset: AtomGraphDataset,
             cache_dir: str,
             cutoffs: dict | list[float] | None = None,
@@ -102,9 +99,8 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
         self.device = device
 
-    @classmethod
+    @staticmethod
     def load(
-            cls,
             cache_dir: str,
             device: torch.device = 'cpu'):
 

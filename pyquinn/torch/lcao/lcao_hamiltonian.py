@@ -46,8 +46,8 @@ class LCAOModel(HamiltonianModel):
         'paired'
     ]
 
-    @classmethod
-    def _make_shell_idxs(cls, shells: dict):
+    @staticmethod
+    def _make_shell_idxs(shells: dict):
         """ Constructs a padded tensor that maps [atomic_number,i] -> l. 
         l values of -1 should be ignored."""
         z_max = max(shells.keys())
@@ -68,9 +68,8 @@ class LCAOModel(HamiltonianModel):
                 shell_idxs[z, i] = l
         return shell_idxs
 
-    @classmethod
+    @staticmethod
     def _make_logscale_basis_parameters(
-            cls, 
             basis: str, basis_size: int, shells: dict, 
             r_max: float = 5.0, r_min: float = 5e-2) -> torch.nn.Parameter:
         """Constructs a set of trainable log-scale Gaussian orbital 
@@ -118,8 +117,8 @@ class LCAOModel(HamiltonianModel):
 
         return logscale_alphas, logscale_betas, logscale_cs
 
-    @classmethod
-    def _make_logscale_energy_parameters(cls, shells: dict):
+    @staticmethod
+    def _make_logscale_energy_parameters(shells: dict):
         """Constructs a set of trainable log-scale orbital 
         energy parameters."""
 

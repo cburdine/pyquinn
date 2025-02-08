@@ -21,13 +21,13 @@ class BandStructureDataset(BandStructureDatasetBase):
 
     _backends = {}
 
-    @classmethod
-    def register_backend(cls, name: str):
+    @staticmethod
+    def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in cls._backends:
+            if name not in BandStructureDataset._backends:
                 SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS.append(name)
-            cls._backends[name] = subclass
+            BandStructureDataset._backends[name] = subclass
             return subclass
         return decorator
 
@@ -133,7 +133,7 @@ class BandStructureDataset(BandStructureDatasetBase):
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             bands_backend_kwargs: dict = {},
             **backend_kwargs):
 
@@ -150,13 +150,12 @@ class BandStructureDataset(BandStructureDatasetBase):
             masses=masses,
             symbols=symbols,
             max_k_pts=max_k_pts,
-            max_energies=max_energies,
+            max_bands=max_bands,
             **backend_kwargs,
         )
 
-    @classmethod
+    @staticmethod
     def _save_bands(
-            cls,
             bands: str | BandStructure,
             name: str,
             dir: str):
@@ -175,8 +174,8 @@ class BandStructureDataset(BandStructureDatasetBase):
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
             BandStructureDataset._save_bands(bands=bands, name=name, dir=dir)
 
-    @classmethod
-    def load(cls, dir: str):
+    @staticmethod
+    def load(dir: str):
 
         graphs = glob(os.path.join(dir, '*.pkl'))
         band_structures = glob(os.path.join(dir, '*.pkl.bands'))
@@ -205,17 +204,16 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
         self.names = names
         self.cache_dir = cache_dir
 
-    @classmethod
+    @staticmethod
     @abstractmethod
     def compile(
-            cls,
             dataset: BandStructureDataset,
             graphs: list[str],
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             bands_backend_kwargs: dict = {},
             **backend_kwargs):
         pass
@@ -224,9 +222,9 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
     def save(self, cache_dir: str):
         pass
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def load(self, cache_dir: str):
+    def load(cache_dir: str):
         pass
 
 # import supported BackendBandStructureDatasets

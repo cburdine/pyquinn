@@ -73,8 +73,8 @@ class AtomGraph(AtomGraphBase):
 
     _backends = {}
 
-    @classmethod
-    def register_backend(cls, name: str):
+    @staticmethod
+    def register_backend(name: str):
         """Registers an BackendAtomGraph subclass. You can add a custom
         AtomGraph backend by using this Python decorator as follows:
 
@@ -103,15 +103,15 @@ class AtomGraph(AtomGraphBase):
         """
 
         def decorator(subclass):
-            if name not in cls._backends:
+            if name not in AtomGraph._backends:
                 SUPPORTED_BACKENDS.append(name)
-            cls._backends[name] = subclass
+            AtomGraph._backends[name] = subclass
             return subclass
         return decorator
 
-    @classmethod
+    @staticmethod
     def from_ase(
-        cls, atoms: ase.Atoms,
+        atoms: ase.Atoms,
         features: list[list[float]] | None = None,
         outputs: list[list[float]] | None = None,
         graph_outputs: list[float] = None,
@@ -153,8 +153,8 @@ class AtomGraph(AtomGraphBase):
             outputs=outputs,
             graph_outputs=graph_outputs)
 
-    @classmethod
-    def from_file(cls, filename: str) -> 'AtomGraph':
+    @staticmethod
+    def from_file(filename: str) -> 'AtomGraph':
         """Helper function to load an AtomGraph from an external file
         that is one of the ASE-supported file formats. For more
         information on supported file formats, see 
@@ -169,8 +169,8 @@ class AtomGraph(AtomGraphBase):
         atoms = ase.io.read(filename)
         return AtomGraph.from_ase(atoms)
 
-    @classmethod
-    def load(cls, filename: str) -> 'AtomGraph':
+    @staticmethod
+    def load(filename: str) -> 'AtomGraph':
         """Helper function to load an AtomGraph from a pickle
         file (`*.pkl`).
 
@@ -734,10 +734,9 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         if compute_neighbors:
             self.update_neighbors()
 
-    @classmethod
+    @staticmethod
     @abstractmethod
     def compile(
-            cls,
             graph: AtomGraph,
             atomic_numbers: list,
             cutoffs: list,
@@ -766,8 +765,9 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         implementations. """
         pass
 
-    @classmethod
-    def load(cls, filename: str) -> 'BackendAtomGraph':
+    @staticmethod
+    @abstractmethod
+    def load(filename: str) -> 'BackendAtomGraph':
         """Helper function to load a BackendAtomGraph to a pickle
         file. For backends without an established serialization
         format, the file extension convention of `*.<backend>.pkl` 
@@ -779,17 +779,9 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         Returns:
             BackendAtomGraph: The loaded BackendAtomGraph
         """
-        
-        with open(filename, 'rb') as f:
-            graph = pickle.load(f)
+        pass
 
-        if not isinstance(graph, BackendAtomGraph):
-            raise IOError(
-                f'Expected an instance of BackendAtomgraph; '
-                f'got: {type(graph)}')
-
-        return graph
-
+    @abstractmethod
     def save(self, filename: str):
         """Helper function to save a BackendAtomGraph to a pickle
         file. For backends without an established serialization
@@ -799,9 +791,7 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         Args:
             filename (str): The name of the pickle file to save.
         """
-
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
+        pass
 
 # import supported BackendAtomGraphs
 import pyquinn.torch.atom_graph # noqa

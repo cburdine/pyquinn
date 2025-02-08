@@ -14,11 +14,11 @@ from tqdm import tqdm
 import torch
 
 
+@BandStructureDataset.register_backend('torch')
 class TorchBandStructureDataset(BackendBandStructureDataset):
 
-    @classmethod
+    @staticmethod
     def _compile_bands(
-            cls,
             bands: BandStructure | str,
             name: str,
             cache_dir: str,
@@ -39,9 +39,8 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
 
         return torch_bands_path
 
-    @classmethod 
+    @staticmethod 
     def _save_bands(
-            cls,
             bands: TorchBandStructure | str,
             name: str,
             cache_dir: str,
@@ -56,16 +55,15 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
             cache_dir, f'{name}.pt.bands')
         bands.save(torch_bands_path)
 
-    @classmethod
+    @staticmethod
     def compile(
-            cls,
             dataset: BandStructureDataset,
             cache_dir: str,
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
-            max_energies: int | None = None,
+            max_bands: int | None = None,
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32,
             idx_dtype: torch.dtype = torch.int64):
@@ -95,7 +93,7 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
                     name=name,
                     cache_dir=cache_dir,
                     max_k_pts=max_k_pts,
-                    max_energies=max_energies,
+                    max_bands=max_bands,
                     device=device,
                     dtype=dtype,
                 )
@@ -118,7 +116,6 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
             device: torch.device = 'cpu'):
 
         super().__init__(
-            self,
             graphs=graphs,
             band_structures=band_structures,
             names=names,
@@ -126,9 +123,8 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
 
         self.device = device
 
-    @classmethod
+    @staticmethod
     def load(
-            cls,
             cache_dir: str,
             device: torch.device = 'cpu'):
 

@@ -18,13 +18,13 @@ class AtomGraphDataset(AtomGraphDatasetBase):
 
     _backends = {}
 
-    @classmethod
-    def register_backend(cls, name: str):
+    @staticmethod
+    def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in cls._backends:
+            if name not in AtomGraphDataset._backends:
                 SUPPORTED_DATASET_BACKENDS.append(name)
-            cls._backends[name] = subclass
+            AtomGraphDataset._backends[name] = subclass
             return subclass
         return decorator
 
@@ -68,15 +68,14 @@ class AtomGraphDataset(AtomGraphDatasetBase):
         self.graphs.extend(graphs)
         self.names.extend(names)
 
-    @classmethod
-    def _parse_graph_name(cls, graph_filepath) -> str:
+    @staticmethod
+    def _parse_graph_name(graph_filepath) -> str:
         base_file = os.path.split(graph_filepath)[-1]
         name = os.path.splitext(base_file)[0]
         return name
 
-    @classmethod
+    @staticmethod
     def _resolve_graph_name(
-            cls, 
             idx: int, 
             graph: AtomGraph, 
             graph_name: str | None = None):
@@ -147,9 +146,8 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             **backend_kwargs
         )
 
-    @classmethod
+    @staticmethod
     def _save_graph(
-            cls,
             graph: str | AtomGraph,
             name: str,
             dir: str):
@@ -167,8 +165,8 @@ class AtomGraphDataset(AtomGraphDatasetBase):
         for name, graph in tqdm(self.items(), total=len(self)):
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
 
-    @classmethod
-    def load(cls, dir: str):
+    @staticmethod
+    def load(dir: str):
 
         graphs = glob(os.path.join(dir, '*.pkl'))
         names = [
@@ -193,10 +191,9 @@ class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
         self.names = names
         self.cache_dir = cache_dir
 
-    @classmethod
+    @staticmethod
     @abstractmethod
     def compile(
-            cls,
             dataset: AtomGraphDataset,
             cache_dir: str,
             cutoffs: dict | list[float] | None = None,
@@ -209,9 +206,9 @@ class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
     def save(self, cache_dir: str):
         pass
 
-    @classmethod
+    @staticmethod
     @abstractmethod
-    def load(self, cache_dir: str):
+    def load(cache_dir: str):
         pass
 
 # import supported BackendAtomGraphDatasets

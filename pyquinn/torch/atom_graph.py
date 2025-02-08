@@ -6,9 +6,8 @@ import torch
 @AtomGraph.register_backend('torch')
 class TorchAtomGraph(BackendAtomGraph):
 
-    @classmethod
+    @staticmethod
     def compile(
-            cls,
             graph: AtomGraph,
             atomic_numbers: list,
             cutoffs: list,
@@ -144,9 +143,8 @@ class TorchAtomGraph(BackendAtomGraph):
             graph_outputs=self.graph_outputs.detach().numpy()
         )
     
-    @classmethod
+    @staticmethod
     def load(
-            cls, 
             filename: str, 
             device: torch.device | None = None) -> 'TorchAtomGraph':
         """Helper function to load a TorchAtomGraph from a pickle

@@ -18,8 +18,8 @@ class Eigensolver(nn.Module, ABC):
     def __init__(self):
         super().__init__()
 
-    @classmethod
-    def register(cls, name: str):
+    @staticmethod
+    def register(name: str):
         """Registers an eigensolver subclass of this abstract class. You can
         add a custom eigensolver by using the python decorator syntax as
         follows:
@@ -42,17 +42,16 @@ class Eigensolver(nn.Module, ABC):
             name (str): Eigensolver class to be registered.
         """
         def decorator(subclass):
-            if name not in cls._solvers:
+            if name not in Eigensolver._solvers:
                 SUPPORTED_EIGENSOLVERS.append(name)
-            cls._solvers[name] = subclass
+            Eigensolver._solvers[name] = subclass
             return subclass
         return decorator
 
-    @classmethod
-    def from_name(cls, 
-                  solver_name: str, 
-                  solver_kwargs: dict = {}
-                  ) -> 'Eigensolver':
+    @staticmethod
+    def from_name(
+            solver_name: str, 
+            solver_kwargs: dict = {}) -> 'Eigensolver':
         """Loads an eigensolver with the given name from the set of 
         supported eigensolvers in :attr:`SUPPORTED_EIGENSOLVERS
         <pyquinn.torch.eigensolver.SUPPORTED_EIGENSOLVERS>`
@@ -69,10 +68,10 @@ class Eigensolver(nn.Module, ABC):
         Returns:
             Eigensolver: Eigensolver with given name
         """
-        if solver_name not in cls._solvers:
+        if solver_name not in Eigensolver._solvers:
             raise ValueError(f'Unknown Eigensolver Type: {solver_name}')
 
-        return cls._solvers[solver_name](**solver_kwargs)
+        return Eigensolver._solvers[solver_name](**solver_kwargs)
 
     @abstractmethod
     def diagonalize(self, M: torch.Tensor,
