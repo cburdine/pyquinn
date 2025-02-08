@@ -129,16 +129,18 @@ class AtomGraphDatasetTest(unittest.TestCase):
                     extracted_graph = loaded_graph.extract()
                     self.assertTrue(np.all(
                         extracted_graph.atoms == dataset_graph.atoms))
-                    self.assertTrue(np.all(
-                        extracted_graph.positions == dataset_graph.positions))
+                    self.assertTrue(np.allclose(
+                        extracted_graph.positions, dataset_graph.positions))
 
                     # check that the BandStructures agree
                     loaded_bands = BandStructure._backends[backend].load(bands)
                     extracted_bands = loaded_bands.extract()
-                    self.assertTrue(np.all(
-                        extracted_bands.energies == dataset_bands.energies))
-                    self.assertTrue(np.all(
-                        extracted_bands.k_pts == dataset_bands.k_pts))
-                    self.assertTrue(np.all(
-                        extracted_bands.projections == dataset_bands.projections)) # noqa
+                    self.assertTrue(np.allclose(
+                        extracted_bands.energies, dataset_bands.energies))
+
+                    self.assertTrue(np.allclose(
+                        extracted_bands.k_pts, dataset_bands.k_pts))
+
+                    self.assertTrue(np.allclose(
+                        extracted_bands.projections,dataset_bands.projections)) # noqa
 

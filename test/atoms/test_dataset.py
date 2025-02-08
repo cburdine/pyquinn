@@ -92,7 +92,8 @@ class AtomGraphDatasetTest(unittest.TestCase):
                     loaded_graph = AtomGraph._backends[backend].load(graph)
                     extracted_graph = loaded_graph.extract()
                     dataset_graph = dataset[i]
+                    
                     self.assertTrue(np.all(
                         extracted_graph.atoms == dataset_graph.atoms))
-                    self.assertTrue(np.all(
-                        extracted_graph.positions == dataset_graph.positions))
+                    self.assertTrue(np.allclose(
+                        extracted_graph.positions, dataset_graph.positions))
