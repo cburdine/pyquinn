@@ -7,7 +7,7 @@ from pyquinn.atoms.bandstructure_dataset import (
 )
 from pyquinn.atoms.atom_graph import AtomGraph
 from pyquinn.atoms.bandstructure import BandStructure
-from pyquinn.atoms.data import ATOMIC_SYMBOLS
+from pyquinn.atoms.atom_data import ATOMIC_SYMBOLS
 
 import numpy as np
 

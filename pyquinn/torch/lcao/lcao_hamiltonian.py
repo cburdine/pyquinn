@@ -1,12 +1,15 @@
 from pyquinn.torch.hamiltonian import HamiltonianModel
 from pyquinn.torch.eigensolver import Eigensolver
+from pyquinn.torch.atomwise import AtomwiseConv
 
 from pyquinn.torch.lcao.gto import (
     _ELEMENT_CHO_VALENCE_SHELLS,
     GTO_L_MAX,
     cho_ng_potential_overlap_matrix,
     cho_overlap_matrix_metadata,
-    _get_cho_orbital_name
+    cho_ng_norm_coeff,
+    _get_cho_orbital_name,
+    cho_ng
 )
 
 import torch
@@ -66,12 +69,15 @@ class LCAOModel(HamiltonianModel):
                                      f'in shell {i}, got: l = {l}')
 
                 shell_idxs[z, i] = l
-        return shell_idxs
+        return shell_idxs 
 
     @staticmethod
     def _make_logscale_basis_parameters(
             basis: str, basis_size: int, shells: dict, 
-            r_max: float = 5.0, r_min: float = 5e-2) -> torch.nn.Parameter:
+            r_max: float = 1.0, 
+            r_min: float = 0.2,
+            c_mean: float = 0.0,
+            c_std: float = 0.25) -> torch.nn.Parameter:
         """Constructs a set of trainable log-scale Gaussian orbital 
         parameters. """
 
@@ -93,7 +99,8 @@ class LCAOModel(HamiltonianModel):
 
         if basis == 'variable':
             logscale_alphas = nn.Parameter(
-                torch.ones(z_max+1, n_alpha_sets, basis_size)*log_alpha_r_max)
+                torch.ones(z_max+1, n_alpha_sets, 
+                           basis_size)*log_alpha_r_max, requires_grad=True)
             logscale_betas = nn.Parameter(
                 torch.zeros(z_max+1, n_alpha_sets, 1), requires_grad=False)
 
@@ -113,7 +120,11 @@ class LCAOModel(HamiltonianModel):
                 torch.ones(z_max+1, n_alpha_sets, 1)*beta_min_max, 
                 requires_grad=False)
 
-        logscale_cs = torch.randn(z_max, n_alpha_sets, basis_size)
+        c_params = \
+            torch.randn(z_max+1, n_alpha_sets, basis_size)*c_std + c_mean
+        logscale_cs = nn.Parameter(
+            torch.sort(c_params, descending=False)[0], 
+            requires_grad=True)
 
         return logscale_alphas, logscale_betas, logscale_cs
 
@@ -133,14 +144,14 @@ class LCAOModel(HamiltonianModel):
         return logscale_energies
 
     def __init__(self, 
-                 eigensolver: str | Eigensolver | None = 'torch_eigh',
+                 eigensolver: str | Eigensolver = 'torch_eigh',
                  spin: str = 'paired',
                  basis: str = 'even_tempered',
                  basis_size: int = 3,
                  potential_basis: str = 'even_tempered',
                  potential_basis_size: int = 5,
                  energy_scale: float = 1.0,
-                 orbital_shells: dict = {},
+                 orbital_shells: dict | None = None,
                  ) -> None:
         """Constructs a LCAO (Linear Combination of Atomic Orbitals) 
         Hamiltonian model. This model contains a fixed set of Gaussian 
@@ -149,7 +160,7 @@ class LCAOModel(HamiltonianModel):
         parameters may be frozen (i.e., have `requires_grad=False`).
 
         Args:
-            eigensolver (str | Eigensolver | None, optional): The Eigensolver 
+            eigensolver (str | Eigensolver, optional): The Eigensolver 
                 used. Defaults to 'torch_eigh'.
             spin (str, optional): The orbital basis spin. Defaults to 'paired'.
             basis (str, optional): The type of basis used. Defaults to 
@@ -180,6 +191,7 @@ class LCAOModel(HamiltonianModel):
         super().__init__(eigensolver=eigensolver)
 
         self.basis = basis
+        self.potential_basis = potential_basis
         self.basis_size = basis_size
         self.potential_basis_size = potential_basis_size
 
@@ -190,6 +202,7 @@ class LCAOModel(HamiltonianModel):
         self.spin = spin
 
         # use default valence shells to start and override with supplied values
+        orbital_shells = {} if orbital_shells is None else orbital_shells
         orbital_shells = _ELEMENT_CHO_VALENCE_SHELLS | orbital_shells
 
         # initialize shell index parameters
@@ -218,17 +231,107 @@ class LCAOModel(HamiltonianModel):
             LCAOModel._make_logscale_basis_parameters(
                 basis=potential_basis,
                 basis_size=potential_basis_size,
-                shells=potential_shells
+                shells=potential_shells,
+                c_std=0.15,
+                c_mean=-np.log(potential_basis_size) 
             )
 
         # initialize on-site logscale energies
         self.logscale_onsite_energies = \
             LCAOModel._make_logscale_energy_parameters(shells=orbital_shells)
 
+    def _get_c_normalization_coeffs(
+            self,
+            atomic_numbers: torch.IntTensor, 
+            alphas: torch.Tensor, 
+            cs: torch.Tensor):
+
+        shell_idxs = self.orbital_shell_idxs[atomic_numbers]
+        site_idxs, site_l_idxs = (shell_idxs >= 0).nonzero(as_tuple=True)
+
+        site_ls = shell_idxs[site_idxs, site_l_idxs]
+        site_alphas = alphas[site_idxs, site_l_idxs]
+        site_cs = cs[site_idxs, site_l_idxs]
+
+        site_c_norms = cho_ng_norm_coeff(
+            l=site_ls.unsqueeze(-1),
+            alphas=site_alphas.unsqueeze(-2),
+            alpha_idxs=torch.zeros_like(site_ls),
+            cs=site_cs.unsqueeze(-1)
+        )
+
+        c_norm_coeffs = torch.zeros_like(cs, requires_grad=False)
+        c_norm_coeffs[site_idxs, site_l_idxs] = 1/torch.sqrt(site_c_norms)
+
+        return c_norm_coeffs
+
+    def _get_logscale_basis_width_parameters(
+            self,
+            atomic_numbers: torch.IntTensor) -> tuple:
+
+        # get log-scale orbital parameters
+        base_logscale_alphas = self.logscale_orbital_alphas[atomic_numbers]
+        base_logscale_betas = self.logscale_orbital_betas[atomic_numbers]
+
+        beta_powers = torch.arange(
+            0, self.logscale_orbital_cs.shape[-1], 
+            device=base_logscale_betas.device).view(1, 1, -1)
+
+        base_logscale_v_gammas = self.logscale_potential_gammas[atomic_numbers]
+        base_logscale_v_betas = self.logscale_potential_betas[atomic_numbers]
+
+        v_beta_powers = torch.arange(0, self.logscale_potential_vs.shape[-1])\
+            .view(1, 1, -1)
+
+        logscale_alphas = \
+            base_logscale_alphas + base_logscale_betas*beta_powers
+
+        logscale_gammas = \
+            base_logscale_v_gammas + base_logscale_v_betas*v_beta_powers
+
+        return logscale_alphas, logscale_gammas
+
+    def _load_weights(self, name, other_model, freeze=False):
+        other_weights = getattr(other_model, name)
+        self_weights = getattr(self, name)
+        grad = False if freeze else other_weights.requires_grad
+        
+
+        if self_weights.shape != other_weights.shape:
+            raise ValueError(
+                f'Expected weights "{name}" '
+                f'to have shape {self_weights.shape}; '
+                f'got {other_weights.shape}.')
+        
+        setattr(self, name, nn.Parameter(
+            other_weights.detach().clone(), requires_grad=grad))
+
+    def _load_base_model_weights(self, base_model: 'LCAOModel', freeze=False):
+        
+        self._load_weights('logscale_orbital_alphas', base_model, freeze)
+        self._load_weights('logscale_orbital_betas', base_model, freeze)
+        self._load_weights('logscale_orbital_cs', base_model, freeze)
+
+        self._load_weights('logscale_potential_gammas', base_model, freeze)
+        self._load_weights('logscale_potential_betas', base_model, freeze)
+        self._load_weights('logscale_potential_vs', base_model, freeze)
+
+        self._load_weights('logscale_onsite_energies', base_model, freeze)
+    
+    def get_orbital_shells_dict(self) -> dict:
+
+        shells = {
+            i: list(l_vals[l_vals >= 0].detach().numpy())
+            for i, l_vals in enumerate(self.orbital_shell_idxs)
+            if i > 0
+        }
+
+        return shells
+
     def get_basis_parameters(self, 
                              atomic_numbers: torch.IntTensor, 
                              positions: torch.Tensor, 
-                             neighbors: torch.IntTensor
+                             neighbors: torch.IntTensor,
                              ) -> tuple:
         """Computes the Gaussian basis parameters of an atomic system.
 
@@ -258,27 +361,23 @@ class LCAOModel(HamiltonianModel):
                 coefficients (shape: [N_atoms, 1, N_basis])
         """
 
-        # get log-scale orbital parameters
-        logscale_alphas = self.logscale_orbital_alphas[atomic_numbers]
-        logscale_betas = self.logscale_orbital_betas[atomic_numbers]
+        logscale_alphas, logscale_gammas = \
+            self._get_logscale_basis_width_parameters(
+                atomic_numbers=atomic_numbers)
+
+        alphas = torch.exp(logscale_alphas)
+
+        # get normalized c coefficients:
         logscale_cs = self.logscale_orbital_cs[atomic_numbers]
+        cs_unnormed = torch.exp(logscale_cs)
+        cs = cs_unnormed * self._get_c_normalization_coeffs(
+            atomic_numbers=atomic_numbers,
+            alphas=alphas,
+            cs=cs_unnormed)
+        
+        gammas = torch.exp(logscale_gammas)
 
-        beta_powers = torch.arange(0, logscale_cs.shape[-1])\
-            .view(1, 1, -1)
-        alphas = torch.exp(logscale_alphas + logscale_betas*beta_powers)
-
-        cs = torch.sinh(logscale_cs)
-
-        # get log-scale potential parameters:
-        logscale_v_gammas = self.logscale_potential_gammas[atomic_numbers]
-        logscale_v_betas = self.logscale_potential_betas[atomic_numbers]
         logscale_vs = self.logscale_potential_vs[atomic_numbers]
-
-        v_beta_powers = torch.arange(0, logscale_vs.shape[-1])\
-            .view(1, 1, -1)
-
-        gammas = torch.exp(logscale_v_gammas + logscale_v_betas*v_beta_powers)
-
         vs = -self.energy_scale * torch.exp(logscale_vs)
 
         return alphas, cs, gammas, vs
@@ -286,7 +385,7 @@ class LCAOModel(HamiltonianModel):
     def get_onsite_energies(self,
                             atomic_numbers: torch.IntTensor, 
                             positions: torch.Tensor, 
-                            neighbors: torch.IntTensor
+                            neighbors: torch.IntTensor,
                             ) -> torch.Tensor:
         """Computes the on-site energies of an atomic system.
 
@@ -407,6 +506,63 @@ class LCAOModel(HamiltonianModel):
 
         return H
 
+    def atomic_orbital_amplitudes(
+        self,
+        atomic_numbers: torch.IntTensor,
+        positions: torch.Tensor,
+        neighbors: torch.Tensor,
+        site_idxs: torch.IntTensor,
+        orbital_idxs: torch.IntTensor,
+        x_pts: torch.Tensor):
+
+        data = dict(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+        )
+        
+        a, c, g, v = self.get_basis_parameters(**data)
+        
+        block_indices, _ = self.orbital_indices(**data)
+        quantum_numbers = self.orbital_quantum_numbers(**data)
+
+        shells = self.orbital_shell_idxs[atomic_numbers]
+        shell_site_idxs, shell_block_idxs = \
+            torch.nonzero(shells >= 0, as_tuple=True)
+        shell_ls = shells[shell_site_idxs, shell_block_idxs]
+
+        shell_block_idxs = torch.repeat_interleave(
+            shell_block_idxs, 
+            repeats=2*shell_ls+1)
+        
+        block_start_idxs = torch.searchsorted(
+            block_indices, input=site_idxs)
+
+        orbital_lms = quantum_numbers[block_start_idxs + orbital_idxs]
+
+        orbital_mus = positions[site_idxs]
+
+        orbital_shell_block_idxs = \
+            shell_block_idxs[block_start_idxs + orbital_idxs]
+
+        orbital_alphas = a[site_idxs, orbital_shell_block_idxs]
+        orbital_cs = c[site_idxs, orbital_shell_block_idxs]
+        
+        def cho_atmplitude(mu, lm, alphas, cs):
+            return cho_ng(x=x_pts, mu=mu,
+                          l=lm[0], m=lm[1],
+                          alphas=alphas, cs=cs)
+        
+        amplitudes_fn = torch.vmap(
+            cho_atmplitude, in_dims=0, out_dims=0, chunk_size=1)
+        
+        return amplitudes_fn(
+            orbital_mus, 
+            orbital_lms,
+            orbital_alphas,
+            orbital_cs)
+
+
     def hamiltonian_matrix(self, 
                            atomic_numbers: torch.IntTensor, 
                            positions: torch.Tensor, 
@@ -451,6 +607,7 @@ class LCAOModel(HamiltonianModel):
                 requires_grad=False)
             site_idxs, site_l_idxs, site_ls = \
                 self._get_block_basis_idxs(site, atomic_numbers)
+            
             site_data = cho_overlap_matrix_metadata(site_ls, sparse=sparse)
 
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
@@ -470,7 +627,9 @@ class LCAOModel(HamiltonianModel):
                 site_neighbors, H_idxs, H_blocksizes)
 
             # compute on-site diagonals:
-            H_site_diagonal = onsite_energies[site_idxs, site_l_idxs]
+            H_site_diagonal = torch.repeat_interleave(
+                input=onsite_energies[site_idxs, site_l_idxs],
+                repeats=2*site_ls+1)
 
             # compute neighborhood Hamiltonian matrix:
             H_neighborhood = cho_ng_potential_overlap_matrix(
@@ -499,11 +658,12 @@ class LCAOModel(HamiltonianModel):
             H_diagonals, H_components, H_component_idxs, 
             shape=(H_size, H_size), sparse=sparse)
 
-    def hamiltonian_key(self, 
-                        atomic_numbers: torch.IntTensor, 
-                        positions: torch.Tensor, 
-                        neighbors: torch.IntTensor
-                        ) -> list[str]:
+    def orbital_names(
+            self,
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            **kwargs) -> list[str]:
 
         key = []
         for z in atomic_numbers:
@@ -518,18 +678,74 @@ class LCAOModel(HamiltonianModel):
 
         return key
 
+    def orbital_indices(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor) -> tuple[
+                torch.IntTensor, torch.IntTensor]:
 
-class TightBindingModel(LCAOModel):
+        # compute index tensor of l values
+        l_values_padded = self.orbital_shell_idxs[atomic_numbers]
+
+        l_site_idxs, l_orbital_idxs = torch.nonzero(
+            l_values_padded >= 0, as_tuple=True)
+        l_values = l_values_padded[l_site_idxs, l_orbital_idxs]
+
+        site_idxs = torch.repeat_interleave(
+            l_site_idxs, repeats=2*l_values+1)
+        
+        # compute orbital indices
+        n_orbitals = torch.zeros_like(atomic_numbers)
+        n_orbitals.put_(l_site_idxs, 2*l_values+1, accumulate=True)
+
+        site_idxs, orbital_idxs = torch.nonzero(
+            torch.arange(torch.max(n_orbitals)).view(1, -1) <
+            n_orbitals.view(-1, 1), as_tuple=True)
+
+        return site_idxs, orbital_idxs
+
+    def orbital_quantum_numbers(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor) -> torch.Tensor:
+
+        # compute index tensor of l values
+        l_values_padded = self.orbital_shell_idxs[atomic_numbers]
+
+        l_site_idxs, l_orbital_idxs = torch.nonzero(
+            l_values_padded >= 0, as_tuple=True)
+        l_values = l_values_padded[l_site_idxs, l_orbital_idxs]
+        l_blocksizes = (2*l_values+1)
+
+        quantum_ls = l_values.repeat_interleave(l_blocksizes)
+        m_offsets = (torch.cumsum(l_blocksizes, dim=-1) - l_blocksizes)
+
+        quantum_ms = (
+            torch.arange(quantum_ls.shape[0], device=quantum_ls.device) -
+            torch.repeat_interleave(m_offsets, l_blocksizes) - quantum_ls
+        )
+        
+        orbital_quantum_numbers = torch.vstack((
+            quantum_ls,  # l (ang. quantum number)
+            quantum_ms  # m (mag. quantum number)
+        )).transpose(0, 1)
+
+        return orbital_quantum_numbers
+
+
+class TBModel(LCAOModel):
 
     def __init__(self, 
-                 eigensolver: str | Eigensolver | None = None,
+                 eigensolver: str | Eigensolver = 'torch_eigh',
                  spin='paired',
                  basis: str = 'even_tempered',
                  basis_size: int = 3,
                  potential_basis: str = 'even_tempered',
                  potential_basis_size: int = 5,
                  energy_scale: float = 1.0,
-                 orbital_shells: dict = {},
+                 orbital_shells: dict | None = None,
                  ) -> None:
 
         super().__init__(
@@ -540,7 +756,7 @@ class TightBindingModel(LCAOModel):
             potential_basis=potential_basis,
             potential_basis_size=potential_basis_size,
             energy_scale=energy_scale,
-            orbital_shells=orbital_shells
+            orbital_shells=orbital_shells,
         )
 
     def _get_neighborhood_hamiltonian_distances(
@@ -554,6 +770,27 @@ class TightBindingModel(LCAOModel):
         ])
 
         return H_neighborhood_dxs
+
+    def _get_block_image_basis_idxs(
+            self,
+            idxs: torch.IntTensor,
+            image_idxs: torch.IntTensor,
+            atomic_numbers: torch.IntTensor) -> tuple:
+
+        block_atoms = atomic_numbers[idxs]
+        _block_idxs, block_l_idxs = \
+            (self.orbital_shell_idxs[block_atoms] >= 0)\
+            .nonzero(as_tuple=True)
+
+        block_idxs = idxs[_block_idxs]
+        block_image_idxs = image_idxs[_block_idxs]
+
+        block_ls = self.orbital_shell_idxs[
+            atomic_numbers[block_idxs], 
+            block_l_idxs
+        ]
+
+        return block_idxs, block_image_idxs, block_l_idxs, block_ls
 
     def _build_bloch_hamiltonian(
             self,
@@ -647,6 +884,32 @@ class TightBindingModel(LCAOModel):
 
         return H
 
+    def get_onsite_energies(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor) -> torch.Tensor:
+
+        return super().get_onsite_energies(
+            atomic_numbers=atomic_numbers, 
+            positions=positions, 
+            neighbors=neighbors)
+
+    def get_basis_parameters(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor) -> tuple:
+        
+        return super().get_basis_parameters(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors)
+
     def hamiltonian_matrix(
             self, 
             atomic_numbers: torch.IntTensor, 
@@ -662,11 +925,20 @@ class TightBindingModel(LCAOModel):
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
-            self.get_basis_parameters(atomic_numbers, positions, neighbors)
+            self.get_basis_parameters(
+                atomic_numbers=atomic_numbers, 
+                positions=positions, 
+                neighbors=neighbors,
+                unit_cell=unit_cell,
+                unit_cell_images=unit_cell_images)
 
         # get on-site energies:
         onsite_energies = self.get_onsite_energies(
-            atomic_numbers, positions, neighbors)
+            atomic_numbers=atomic_numbers, 
+            positions=positions, 
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images)
 
         # convert unit_cell_images to float:
         unit_cell_images = unit_cell_images.to(torch.float)
@@ -694,53 +966,81 @@ class TightBindingModel(LCAOModel):
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site, H_idxs, H_blocksizes)
 
-            # retrieve neighborhood data:
-            site_neighbors_pad = neighbors[i]
-            site_neighbors = site_neighbors_pad[site_neighbors_pad >= 0]
-
-            neighbor_idxs, neighbor_l_idxs, neighbor_ls = \
-                self._get_block_basis_idxs(site_neighbors, atomic_numbers)
-
-            neighbor_data = cho_overlap_matrix_metadata(
-                neighbor_ls, sparse=True)
-
-            H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
-                site_neighbors, H_idxs, H_blocksizes)
-
             # compute on-site diagonals:
-            H_site_diagonal = onsite_energies[site_idxs, site_l_idxs]
-
-            # compute distances to neighbors across unit cell boundaries:
-            neighbor_positions = \
-                positions[neighbor_idxs] + \
-                unit_cell_images[neighbor_idxs, neighbor_l_idxs] @ unit_cell
-
-            # compute neighborhood Hamiltonian matrix:
-            H_neighborhood = cho_ng_potential_overlap_matrix(
-                mu_1=positions[site_idxs],
-                l_1=site_ls,
-                l_alphas_1=alphas[site_idxs, site_l_idxs],
-                l_cs_1=cs[site_idxs, site_l_idxs],
-                gammas_1=gammas[i],
-                vs_1=vs[i],
-                mu_2=neighbor_positions,
-                l_2=neighbor_ls,
-                l_alphas_2=alphas[neighbor_idxs, neighbor_l_idxs],
-                l_cs_2=cs[neighbor_idxs, neighbor_l_idxs],
-                cho_data_1=site_data,
-                cho_data_2=neighbor_data)
-
-            H_neighborhood_dxs = self._get_neighborhood_hamiltonian_distances(
-                neighbor_positions - positions[i],
-                neighbor_ls).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
-
-            H_neighborhood_idxs = torch.cartesian_prod(
-                H_site_idxs, H_neighbor_idxs)
-
+            H_site_diagonal = torch.repeat_interleave(
+                onsite_energies[site_idxs, site_l_idxs],
+                repeats=2*site_ls+1)
             H_diagonals.append(H_site_diagonal)
-            H_components.append(H_neighborhood.flatten())
-            H_component_idxs.append(H_neighborhood_idxs)
-            H_component_distances.append(H_neighborhood_dxs.reshape(-1, 3))
+
+            # retrieve neighborhood data:
+            site_neighbors_nz = (neighbors[i] >= 0)
+            site_neighbors = neighbors[i][site_neighbors_nz]
+            site_neighbor_images = unit_cell_images[i][site_neighbors_nz]
+
+            # handle if neighborhood is empty:
+            if site_neighbors.shape[0] == 0:
+                H_components.append(
+                    torch.zeros(
+                        (0), 
+                        device=H_site_diagonal.device,
+                        dtype=H_site_diagonal.dtype))
+                H_component_idxs.append(
+                    torch.zeros(
+                        (0, 2),
+                        dtype=site_neighbors.dtype,
+                        device=site_neighbors.device))
+                H_component_distances.append(
+                    torch.zeros(
+                        (0, 3),
+                        dtype=positions.dtype,
+                        device=positions.device))
+            else:
+                # otherwise, compute neighborhood overlap matrices:
+                neighbor_idxs, neighbor_images, \
+                    neighbor_l_idxs, neighbor_ls = \
+                    self._get_block_image_basis_idxs(
+                        site_neighbors, 
+                        site_neighbor_images, 
+                        atomic_numbers)
+
+                neighbor_data = cho_overlap_matrix_metadata(
+                    neighbor_ls, sparse=True)
+
+                H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
+                    site_neighbors, H_idxs, H_blocksizes)
+
+                # compute distances to neighbors across unit cell boundaries:
+                neighbor_positions = \
+                    positions[neighbor_idxs] + \
+                    neighbor_images @ unit_cell
+
+                # compute neighborhood Hamiltonian matrix:
+                H_neighborhood = cho_ng_potential_overlap_matrix(
+                    mu_1=positions[site_idxs],
+                    l_1=site_ls,
+                    l_alphas_1=alphas[site_idxs, site_l_idxs],
+                    l_cs_1=cs[site_idxs, site_l_idxs],
+                    gammas_1=gammas[i],
+                    vs_1=vs[i],
+                    mu_2=neighbor_positions,
+                    l_2=neighbor_ls,
+                    l_alphas_2=alphas[neighbor_idxs, neighbor_l_idxs],
+                    l_cs_2=cs[neighbor_idxs, neighbor_l_idxs],
+                    cho_data_1=site_data,
+                    cho_data_2=neighbor_data)
+
+                H_neighborhood_dxs = \
+                    self._get_neighborhood_hamiltonian_distances(
+                        neighbor_positions - positions[i],
+                        neighbor_ls
+                    ).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
+
+                H_neighborhood_idxs = torch.cartesian_prod(
+                    H_site_idxs, H_neighbor_idxs)
+
+                H_components.append(H_neighborhood.flatten())
+                H_component_idxs.append(H_neighborhood_idxs)
+                H_component_distances.append(H_neighborhood_dxs.reshape(-1, 3))
 
         return self._build_bloch_hamiltonian(
             H_diagonals, H_components, H_component_idxs,
@@ -770,7 +1070,7 @@ class TightBindingModel(LCAOModel):
         if sparse and H.ndim > 2:
             raise NotImplementedError(
                 'Diagonalization of sparse hamiltonians not supported '
-                'for TightBindingModels with specified k points.'
+                'for TBModels with specified k points.'
                 '(use sparse=False).')
 
         return self.eigensolver.diagonalize(H)
@@ -798,7 +1098,413 @@ class TightBindingModel(LCAOModel):
         if sparse and H.ndim > 2:
             raise NotImplementedError(
                 'Diagonalization of sparse hamiltonians not supported '
-                'for TightBindingModels with more than one k point. '
+                'for TBModels with more than one k point. '
                 '(Use sparse=False or query each k point individually.)')
 
         return self.eigensolver(H)
+
+    def forward(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            sparse: bool = False):
+
+        return self.eigenenergies(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            k_pts=k_pts,
+            sparse=sparse)
+
+
+def _make_atomiwise_nn(
+        nn: str | AtomwiseConv, 
+        out_features: int,
+        in_features: int | None = None,
+        name: str = 'nn',
+        z_max: int = 118,
+        nn_kwargs: dict | None = None):
+
+    nn_kwargs = {} if nn_kwargs is None else nn_kwargs
+        
+    # if AtomwiseConv instance given, check that input/output features are correct:
+    if isinstance(nn, AtomwiseConv):
+        if nn.in_features != in_features:
+            raise ValueError(
+                f'Error in creating AtomwiseConv model. '
+                f'Expected {name}.in_features == {in_features} (got {nn.in_features}).')
+
+        if nn.out_features != out_features:
+            raise ValueError(
+                f'Error in creating AtomwiseConv model. '
+                f'Expected {name}.out_features == {out_features} (got {nn.out_features}).'
+            )
+    elif isinstance(nn, str):
+        nn = AtomwiseConv.from_name(
+            module_name=nn,
+            out_features=out_features,
+            in_features=in_features,
+            z_max=z_max,
+            **nn_kwargs)
+    else:
+        raise ValueError(f'Unexpected type for module "{name}" (got {type(nn)}).')
+
+    return nn
+
+
+class VariationalLCAOModel(LCAOModel):
+
+    def __init__(self,
+                 variational_nn: str | AtomwiseConv = 'nnconv',
+                 onsite_nn: str | AtomwiseConv = 'nnconv',
+                 eigensolver: str | Eigensolver = 'torch_eigh',
+                 spin: str = 'paired',
+                 basis: str = 'even_tempered',
+                 basis_size: int = 3,
+                 potential_basis: str = 'even_tempered',
+                 potential_basis_size: int = 5,
+                 energy_scale: float = 1.0,
+                 onsite_weight: float = 1.0,
+                 variational_weight: float = 1.0,
+                 orbital_shells: dict | None = None,
+                 variational_nn_kwargs: dict | None = None,
+                 onsite_nn_kwargs: dict | None = None,
+                 ):
+        
+        super().__init__(
+            eigensolver=eigensolver,
+            spin=spin,
+            basis=basis,
+            basis_size=basis_size,
+            potential_basis=potential_basis,
+            potential_basis_size=potential_basis_size,
+            energy_scale=energy_scale,
+            orbital_shells=orbital_shells
+        )
+
+        n_shells = self.orbital_shell_idxs.shape[-1]
+        
+        in_features = (n_shells * self.basis_size) + \
+            self.potential_basis_size
+        variational_out_features = (n_shells * self.basis_size) + \
+            self.potential_basis_size
+        onsite_out_features = n_shells
+        
+        self.onsite_weight = onsite_weight
+        self.variational_weight = variational_weight
+
+        if onsite_nn_kwargs is None:
+            onsite_nn_kwargs = {} 
+        if variational_nn_kwargs is None:
+            variational_nn_kwargs = {}
+
+        self.onsite_nn = _make_atomiwise_nn(
+            nn=onsite_nn,
+            out_features=onsite_out_features,
+            in_features=in_features,
+            name='onsite_nn',
+            nn_kwargs=onsite_nn_kwargs,
+        )
+
+        self.variational_nn = _make_atomiwise_nn(
+            nn=variational_nn,
+            out_features=variational_out_features,
+            in_features=in_features,
+            name='variational_nn',
+            nn_kwargs=variational_nn_kwargs,
+        )
+
+    def get_onsite_energies(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor) -> torch.Tensor:
+        
+        # get alpha & gamma orbital parameters
+        logscale_alphas, logscale_gammas = \
+            self._get_logscale_basis_width_parameters(
+                atomic_numbers=atomic_numbers)
+
+        logscale_alphas_flat = \
+            logscale_alphas.view(atomic_numbers.shape[0], -1)
+        logscale_gammas_flat = \
+            logscale_gammas.view(atomic_numbers.shape[0], -1)
+
+        # combine to obtain input feature tensor to variational nn
+        nn_features_in = torch.cat(
+            (logscale_alphas_flat, logscale_gammas_flat), dim=-1)
+
+        # compute neighbor distances
+        neighbor_distances = positions[neighbors] - positions.unsqueeze(-2)
+
+        # apply variational nn
+        onsite_energy_perts = self.onsite_weight * self.onsite_nn(
+            atomic_numbers=atomic_numbers,
+            neighbors=neighbors,
+            neighbor_distances=neighbor_distances,
+            features=nn_features_in)
+
+        # compute total on-site energy
+        logscale_energies = self.logscale_onsite_energies[atomic_numbers]
+
+        return self.energy_scale * (
+            torch.sinh(logscale_energies) + onsite_energy_perts)
+
+    def get_basis_parameters(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor) -> tuple:
+        
+        # get alpha & gamma orbital parameters
+        logscale_alphas, logscale_gammas = \
+            self._get_logscale_basis_width_parameters(
+                atomic_numbers=atomic_numbers)
+        
+        alphas = torch.exp(logscale_alphas)
+        gammas = torch.exp(logscale_gammas)
+
+        logscale_alphas_flat = \
+            logscale_alphas.view(atomic_numbers.shape[0], -1)
+        logscale_gammas_flat = \
+            logscale_gammas.view(atomic_numbers.shape[0], -1)
+
+        # combine to obtain input feature tensor to variational nn
+        nn_features_in = torch.cat(
+            (logscale_alphas_flat, logscale_gammas_flat), dim=-1)
+
+        # compute neighbor distances
+        neighbor_distances = positions[neighbors] - positions.unsqueeze(-2)
+
+        # apply variational nn
+        nn_features_out = self.variational_weight * self.variational_nn(
+            atomic_numbers=atomic_numbers,
+            neighbors=neighbors,
+            neighbor_distances=neighbor_distances,
+            features=nn_features_in)
+
+        # unpack basis coefficient perturbations
+        c_perts_flat, v_perts_flat = torch.split(
+            nn_features_out, 
+            (logscale_alphas_flat.shape[-1], logscale_gammas_flat.shape[-1]),
+            dim=1)
+
+        # compute normalized c coeffficients
+        logscale_cs = self.logscale_orbital_cs[atomic_numbers]
+        cs_unnormed = torch.exp(logscale_cs) + \
+            c_perts_flat.reshape(logscale_cs.shape)
+        cs = cs_unnormed * self._get_c_normalization_coeffs(
+            atomic_numbers=atomic_numbers,
+            alphas=alphas,
+            cs=cs_unnormed)
+
+        # compute v coefficients
+        logscale_vs = self.logscale_potential_vs[atomic_numbers]
+        vs = -self.energy_scale * \
+            (torch.exp(logscale_vs) + v_perts_flat.reshape(logscale_vs.shape))
+
+        return alphas, cs, gammas, vs
+
+
+class VariationalTBModel(TBModel):
+    
+    def __init__(self,
+                 base_model: TBModel | None = None,
+                 freeze: bool = False,
+                 variational_nn: str | AtomwiseConv = 'nnconv',
+                 onsite_nn: str | AtomwiseConv = 'nnconv',
+                 onsite_weight: float = 1.0,
+                 variational_weight: float = 1.0,
+                 basis_weight: float = 1.0,
+                 variational_nn_kwargs: dict | None = None,
+                 onsite_nn_kwargs: dict | None = None,
+                 **base_model_kwargs):
+        
+        if base_model is not None:
+            super().__init__(
+                eigensolver=base_model.eigensolver,
+                spin=base_model.spin,
+                basis=base_model.basis,
+                basis_size=base_model.basis_size,
+                potential_basis=base_model.potential_basis,
+                potential_basis_size=base_model.potential_basis_size,
+                energy_scale=base_model.energy_scale,
+                orbital_shells=base_model.get_orbital_shells_dict(),
+                **base_model_kwargs
+            )
+            self._load_base_model_weights(base_model=base_model, freeze=freeze)
+        else:
+            super().__init__(**base_model_kwargs)
+
+        n_shells = self.orbital_shell_idxs.shape[-1]
+        
+        in_features = (n_shells * self.basis_size) + \
+            self.potential_basis_size
+        
+        variational_out_features = (
+            (n_shells * self.basis_size) +
+            (n_shells * self.logscale_orbital_alphas.size(-1)) +
+            self.potential_basis_size + 
+            self.logscale_potential_gammas.size(-1))
+        
+        onsite_out_features = n_shells
+        
+        self.onsite_weight = onsite_weight
+        self.variational_weight = variational_weight
+        self.basis_weight = basis_weight
+
+        if onsite_nn_kwargs is None:
+            onsite_nn_kwargs = {} 
+        if variational_nn_kwargs is None:
+            variational_nn_kwargs = {}
+
+        self.onsite_nn = _make_atomiwise_nn(
+            nn=onsite_nn,
+            out_features=onsite_out_features,
+            in_features=None,
+            name='onsite_nn',
+            nn_kwargs=onsite_nn_kwargs,
+        )
+
+        self.variational_nn = _make_atomiwise_nn(
+            nn=variational_nn,
+            out_features=variational_out_features,
+            in_features=None,
+            name='variational_nn',
+            nn_kwargs=variational_nn_kwargs,
+        )
+
+    def get_onsite_energies(
+            self, 
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor) -> torch.Tensor:
+        
+        # get alpha & gamma orbital parameters
+        logscale_alphas, logscale_gammas = \
+            self._get_logscale_basis_width_parameters(
+                atomic_numbers=atomic_numbers)
+
+        logscale_alphas_flat = \
+            logscale_alphas.view(atomic_numbers.shape[0], -1)
+        logscale_gammas_flat = \
+            logscale_gammas.view(atomic_numbers.shape[0], -1)
+
+        # combine to obtain input feature tensor to variational nn
+        nn_features_in = torch.cat(
+            (logscale_alphas_flat, logscale_gammas_flat), dim=-1)
+
+        # compute neighbor distances
+        unit_cell_images = unit_cell_images.to(torch.float)
+        neighbor_distances = positions[neighbors] + \
+            (unit_cell_images @ unit_cell) - \
+            positions.unsqueeze(-2)
+
+        # apply variational nn
+        onsite_energy_perts = self.onsite_weight * self.onsite_nn(
+            atomic_numbers=atomic_numbers,
+            neighbors=neighbors,
+            neighbor_distances=neighbor_distances,
+            features=None)
+
+        # compute total on-site energy
+        logscale_energies = self.logscale_onsite_energies[atomic_numbers]
+
+        return self.energy_scale * (
+            torch.sinh(logscale_energies) + onsite_energy_perts)
+
+    def get_basis_parameters(
+            self, 
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.IntTensor,
+            unit_cell: torch.IntTensor,
+            unit_cell_images: torch.Tensor) -> torch.Tensor:
+        
+        n_alpha_params = self.logscale_orbital_alphas[0].flatten().size(-1)
+        n_gamma_params = self.logscale_potential_gammas[0].flatten().size(-1)
+        alpha_params_shape = self.logscale_orbital_alphas[atomic_numbers].shape
+        gamma_params_shape = self.logscale_potential_gammas[atomic_numbers].shape
+
+        # get alpha & gamma orbital parameters
+        logscale_alphas, logscale_gammas = \
+            self._get_logscale_basis_width_parameters(
+                atomic_numbers=atomic_numbers)
+
+        logscale_alphas_flat = \
+            logscale_alphas.view(atomic_numbers.shape[0], -1)
+        logscale_gammas_flat = \
+            logscale_gammas.view(atomic_numbers.shape[0], -1)
+            
+        n_c_params = logscale_alphas_flat.shape[-1]
+        n_v_params = logscale_gammas_flat.shape[-1]
+
+        # combine to obtain input feature tensor to variational nn
+        # nn_features_in = torch.cat(
+        #     (logscale_alphas_flat, logscale_gammas_flat), dim=-1)
+
+        # compute neighbor distances
+        unit_cell_images = unit_cell_images.to(torch.float)
+        neighbor_distances = positions[neighbors] + \
+            (unit_cell_images @ unit_cell) - \
+            positions.unsqueeze(-2)
+
+        # apply variational nn
+        nn_features_out = self.variational_nn(
+            atomic_numbers=atomic_numbers,
+            neighbors=neighbors,
+            neighbor_distances=neighbor_distances,
+            features=None)
+
+        # unpack basis coefficient perturbations
+        c_perts_flat, alpha_perts_flat, v_perts_flat, gamma_perts_flat = \
+            torch.split(
+                nn_features_out,
+                (n_c_params, n_alpha_params, n_v_params, n_gamma_params),
+                dim=1)
+
+        # compute perturbed alpha and gammas
+        alphas = torch.clamp(
+            torch.exp(logscale_alphas) + 
+            self.basis_weight * alpha_perts_flat.reshape(alpha_params_shape), min=1e-3)
+        gammas = torch.clamp(
+            torch.exp(logscale_gammas) + 
+            self.basis_weight * gamma_perts_flat.reshape(gamma_params_shape), min=1e-3)
+
+        # compute normalized c coeffficients
+        logscale_cs = self.logscale_orbital_cs[atomic_numbers]
+        cs_unnormed = torch.exp(logscale_cs) + \
+            self.variational_weight * c_perts_flat.reshape(logscale_cs.shape)
+        cs = cs_unnormed * self._get_c_normalization_coeffs(
+            atomic_numbers=atomic_numbers,
+            alphas=alphas,
+            cs=cs_unnormed)
+
+        # compute v coefficients
+        logscale_vs = self.logscale_potential_vs[atomic_numbers]
+        vs = -self.energy_scale * \
+            (torch.exp(logscale_vs) + self.variational_weight*v_perts_flat.reshape(logscale_vs.shape))
+
+        return alphas, cs, gammas, vs
+        
+
+        
+        
+
+
+        
+
+        
+        
+        
+
+
+        

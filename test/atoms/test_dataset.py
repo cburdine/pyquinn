@@ -3,7 +3,6 @@ from tempfile import TemporaryDirectory
 
 from pyquinn.atoms.dataset import AtomGraphDataset, SUPPORTED_DATASET_BACKENDS
 from pyquinn.atoms.atom_graph import AtomGraph
-from pyquinn.atoms.data import ATOMIC_SYMBOLS
 
 import numpy as np
 
@@ -74,7 +73,6 @@ class AtomGraphDatasetTest(unittest.TestCase):
                 compiled_dataset = dataset.compile(
                     backend=backend, 
                     cache_dir=temp_dir)
-
 
                 self.assertEqual(
                     len(compiled_dataset.names), len(dataset.names))

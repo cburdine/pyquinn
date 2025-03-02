@@ -6,6 +6,7 @@ from pyquinn.atoms.bandstructure_dataset import (
 )
 from pyquinn.torch.dataset import TorchAtomGraphDataset
 from pyquinn.torch.bandstructure import TorchBandStructure
+from pyquinn.torch.atom_graph import TorchAtomGraph
 
 import os
 from glob import glob
@@ -15,7 +16,9 @@ import torch
 
 
 @BandStructureDataset.register_backend('torch')
-class TorchBandStructureDataset(BackendBandStructureDataset):
+class TorchBandStructureDataset(
+        BackendBandStructureDataset, 
+        torch.utils.data.Dataset):
 
     @staticmethod
     def _compile_bands(
@@ -122,6 +125,23 @@ class TorchBandStructureDataset(BackendBandStructureDataset):
             cache_dir=cache_dir)
 
         self.device = device
+
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, index):
+        graph = TorchAtomGraph.load(
+            filename=self.graphs[index],
+            device=self.device)
+        bands = TorchBandStructure.load(
+            filename=self.band_structures[index],
+            device=self.device)
+
+        return graph, bands
+
+    def items(self):
+        for i in range(len(self)):
+            yield self.names[i], self[i] 
 
     @staticmethod
     def load(

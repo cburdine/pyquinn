@@ -2,9 +2,10 @@
 from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
-from torch_geometric.nn import NNConv
+from torch_geometric.nn import NNConv, GraphNorm
 
 from pyquinn.torch.util import get_activation_fn
+
 
 def _get_neighbor_distance_edgelist(
         neighbors: torch.IntTensor, 
@@ -22,8 +23,10 @@ def _get_neighbor_distance_edgelist(
 
     return edgelist, edgelist_distances
 
+
 class RBFEmbedding(nn.Module):
-    def __init__(self, r_max: float = 5.0, r_points: int = 32):
+
+    def __init__(self, r_max: float = 5.0, r_points: int = 64):
 
         super(RBFEmbedding, self).__init__()
         self.register_buffer('r_pts', torch.linspace(0, r_max, r_points))
@@ -39,7 +42,7 @@ class NeighborEdgeNN(nn.Module):
 
     def __init__(
             self, 
-            edge_features: int, 
+            edge_features: int,
             in_features: int,
             out_features: int,
             layers: int = 2,
@@ -66,7 +69,51 @@ class NeighborEdgeNN(nn.Module):
         return z_edge
 
 
-class AtomwiseModel(nn.Module, ABC):
+class AtomwiseConv(nn.Module, ABC):
+
+    _modules = {}
+
+    @staticmethod
+    def register(name: str):
+        """Registers an AtomwiseConv subclass of this abstract class. You can
+        add a custom AtomwiseConv module by using the python decorator syntax as
+        follows:
+
+        .. code-block:: python
+
+            from pyquinn.torch import AtomwiseConv
+
+            @AtomwiseConv.register('my_conv_name')
+            class MyAtomwiseConv(AtomwiseConv):
+            
+                def forward(...):
+                    ...
+
+        Args:
+            name (str): AtomwiseConv class to be registered.
+        """
+        def decorator(subclass):
+            if name not in AtomwiseConv._modules:
+                AtomwiseConv._modules[name] = subclass
+            return subclass
+        return decorator
+
+    @staticmethod
+    def from_name(
+            module_name: str, 
+            in_features: int,
+            out_features: int | None = None,
+            z_max: int = 118,
+            module_kwargs: dict = {}):
+        
+        if module_name not in AtomwiseConv._modules:
+            raise ValueError(f'Unknown AtomwiseConv Type: {module_name}')
+
+        return AtomwiseConv._modules[module_name](
+            in_features=in_features, 
+            out_features=out_features,
+            z_max=z_max,
+            **module_kwargs)
 
     def __init__(
             self, 
@@ -83,16 +130,18 @@ class AtomwiseModel(nn.Module, ABC):
     @abstractmethod
     def forward(self,
                 atomic_numbers,
-                positions,
                 neighbors,
+                neighbor_distances,
                 features,
-                **kwargs):
+                **kwargs) -> tuple:
+
         raise NotImplementedError(
             "This method should be implemented in a "
             "subclass.")
 
 
-class AtomwiseNNConv(AtomwiseModel):
+@AtomwiseConv.register('nnconv')
+class AtomwiseNNConv(AtomwiseConv):
 
     def __init__(
             self,
@@ -101,9 +150,9 @@ class AtomwiseNNConv(AtomwiseModel):
             layers: int = 1,
             aggr: str = 'add',
             activation: str = 'leakyrelu',
-            neighbor_nn_layers: int = 2,
+            neighbor_nn_layers: int = 1,
             neighbor_nn_activation: str = 'leakyrelu',
-            r_max: float = 10.0,
+            r_max: float = 5.0,
             r_points: int = 32,
             z_max: int = 118):
 
@@ -148,6 +197,11 @@ class AtomwiseNNConv(AtomwiseModel):
 
         self.nnconv_layers = nnconv_layers
 
+        # self.norm_layers = nn.ModuleList([
+        #     GraphNorm(in_channels=out_channels)
+        #     for _ in range(layers)
+        # ])
+
     def forward(
             self,
             atomic_numbers: torch.IntTensor,
@@ -177,7 +231,9 @@ class AtomwiseNNConv(AtomwiseModel):
             x = self.activation(
                 layer(x, edge_index=bond_pairs, edge_attr=bond_features))
 
-        y = self.nnconv_layers[-1](
+        y_unnorm = self.nnconv_layers[-1](
             x, edge_index=bond_pairs, edge_attr=bond_features)
+        
+        y = y_unnorm  # self.norm_layers[-1](y_unnorm)
 
         return y

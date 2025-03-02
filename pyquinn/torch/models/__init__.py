@@ -1,0 +1,1 @@
+from pyquinn.torch.models.bandstructure_model import TorchBandStructureModel

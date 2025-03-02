@@ -1,4 +1,6 @@
 from pyquinn.torch.lcao.lcao_hamiltonian import (
     LCAOModel,
-    TightBindingModel,
+    TBModel,
+    VariationalLCAOModel,
+    VariationalTBModel
 )

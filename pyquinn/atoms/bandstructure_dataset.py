@@ -134,7 +134,7 @@ class BandStructureDataset(BandStructureDatasetBase):
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
             max_bands: int | None = None,
-            bands_backend_kwargs: dict = {},
+            bands_backend_kwargs: dict | None = None,
             **backend_kwargs):
 
         if backend not in BandStructureDataset._backends:
@@ -214,7 +214,7 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
             max_bands: int | None = None,
-            bands_backend_kwargs: dict = {},
+            bands_backend_kwargs: dict | None = None,
             **backend_kwargs):
         pass
 

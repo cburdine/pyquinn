@@ -3,7 +3,7 @@ import torch
 from math import factorial, sqrt, comb, gamma
 from pyquinn.torch.util import sparse_coo_block_diag
 
-GTO_L_MAX = 5
+GTO_L_MAX = 4
 """ Maximum angular momentum :math:`l` supported by default for 
 representations of gaussian atomic orbitals."""
 

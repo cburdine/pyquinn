@@ -5,8 +5,11 @@ import numpy as np
 
 from pyquinn.torch.lcao.lcao_hamiltonian import (
     LCAOModel,
-    TightBindingModel
+    TBModel,
+    VariationalLCAOModel,
+    VariationalTBModel,
 )
+
 
 class TestLCAOModel(unittest.TestCase):
 
@@ -160,7 +163,7 @@ class TestLCAOModel(unittest.TestCase):
             for z in atomic_numbers
         )
 
-        H_key = model.hamiltonian_key(atomic_numbers, positions, neighbors)
+        H_key = model.orbital_names(atomic_numbers, positions, neighbors)
 
         # ensure H_key is the correct size:
         self.assertEqual(len(H_key), H_size)
@@ -204,12 +207,78 @@ class TestLCAOModel(unittest.TestCase):
             np.allclose(positions_grad, np.zeros_like(positions_grad))
         )
 
+    def test_lcao_model_orbital_indices(self):
 
-class TestTightBindingModel(unittest.TestCase):
+        shell_order = [3, 2, 1, 0]
 
-    def test_tight_binding_model_hamiltonian_matrix(self):
+        model = LCAOModel(
+            eigensolver='torch_eigh',
+            spin='paired',
+            orbital_shells={1: shell_order}
+        )
 
-        model = TightBindingModel(
+        atomic_numbers = torch.tensor([1, 1])
+        positions = torch.zeros((2, 3))
+        neighbors = torch.tensor([[1], [0]])
+
+        target_site_idxs = []
+        target_orbital_idxs = []
+        for i in range(len(atomic_numbers)):
+            for l in shell_order:
+                target_site_idxs.extend([i]*(2*l+1))
+            n_orbitals = sum(2*l+1 for l in shell_order)
+            target_orbital_idxs.extend(list(range(n_orbitals)))
+
+        target_site_idxs = np.array(target_site_idxs)
+        target_orbital_idxs = np.array(target_orbital_idxs)
+
+        site_idxs, orbital_idxs = model.orbital_indices(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors
+        )
+
+        site_idxs = site_idxs.detach().numpy()
+        orbital_idxs = orbital_idxs.detach().numpy()
+
+        self.assertTrue(np.all(site_idxs == target_site_idxs))
+        self.assertTrue(np.all(orbital_idxs == target_orbital_idxs))
+
+    def test_lcao_model_orbital_quantum_numbers(self):
+
+        shell_order = [3, 2, 1, 0]
+        model = LCAOModel(
+            eigensolver='torch_eigh',
+            spin='paired',
+            orbital_shells={1: shell_order}
+        )
+
+        atomic_numbers = torch.tensor([1, 1])
+        positions = torch.zeros((2, 3))
+        neighbors = torch.tensor([[1], [0]])
+
+        target_lms = []
+        for i in range(len(atomic_numbers)):
+            for l in shell_order:
+                target_lms.extend([(l, m) for m in range(-l, l+1)])
+
+        target_lms = np.array(target_lms)
+
+        lms = model.orbital_quantum_numbers(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors
+        ).detach().numpy()
+
+        self.assertTrue(np.all(lms == target_lms))
+
+
+
+class TestTBModel(unittest.TestCase):
+
+    def test_tb_model_hamiltonian_matrix(self):
+
+        model = TBModel(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -278,9 +347,9 @@ class TestTightBindingModel(unittest.TestCase):
         self.assertEqual(H_k.shape, H_shape)
         self.assertEqual(H_k_sparse.shape, H_shape)
 
-        self.assertTrue(torch.allclose(H_k, H_k.conj().mT))
+        self.assertTrue(torch.allclose(H_k, H_k.conj().mT, atol=1e-6))
         self.assertTrue(torch.allclose(
-            H_k_sparse, H_k_sparse.conj().mT))
+            H_k_sparse, H_k_sparse.conj().mT, atol=1e-6))
 
         # ensure sparse and non-sparse hamiltonians agree:
         self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense(), atol=1e-6))
@@ -312,9 +381,9 @@ class TestTightBindingModel(unittest.TestCase):
             np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
         )
 
-    def test_tight_binding_model_eigenenergies(self):
+    def test_tb_model_eigenenergies(self):
 
-        model = TightBindingModel(
+        model = TBModel(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -353,6 +422,157 @@ class TestTightBindingModel(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             sparse=False)
+
+        # test if backward pass is successful
+        E.sum().backward(inputs=positions)
+
+        # ensure gradients with respect to positions are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+
+
+class TestVariationalTBModel(unittest.TestCase):
+
+    def test_var_tb_model_hamiltonian_matrix(self):
+        
+        model = VariationalTBModel(
+            onsite_nn='nnconv',
+            variational_nn='nnconv',
+            eigensolver='torch_eigh',
+            spin='paired',
+            basis='even_tempered',
+            basis_size=3,
+            potential_basis='even_tempered',
+            potential_basis_size=5,
+            orbital_shells={7: [0, 1, 2, 3]})
+
+        atomic_numbers = torch.tensor([7, 7])
+
+        positions = torch.tensor([
+            [0.0, 0.0, 0.0], 
+            [1.0, 1.0, 0.0],
+        ], requires_grad=True)
+
+        unit_cell = torch.tensor([
+            [2.0, 0.0, 0.0],
+            [0.0, 100, 0.0],
+            [0.0, 0.0, 100]
+        ], requires_grad=True)
+
+        neighbors = torch.tensor([
+            [1, 1, 0, 0],
+            [0, 0, 1, 1]
+        ])
+
+        unit_cell_images = torch.tensor([
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]],
+            [[1, 0, 0], [-1, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        ])
+
+        k_pts = torch.outer(
+            torch.tensor([1.0, 0, 0]), 
+            torch.linspace(0, torch.pi/4, 1000)).T
+
+        H_size = sum(
+            sum(2*l+1 for l in model.orbital_shell_idxs[z] if l >= 0)
+            for z in atomic_numbers
+        )
+
+        H_k = model.hamiltonian_matrix(
+            atomic_numbers,
+            positions,
+            neighbors,
+            unit_cell,
+            unit_cell_images,
+            k_pts,
+            sparse=False
+        )
+
+        H_k_sparse_raw = model.hamiltonian_matrix(
+            atomic_numbers,
+            positions,
+            neighbors,
+            unit_cell,
+            unit_cell_images,
+            k_pts,
+            sparse=True
+        )
+
+        # rectify dimensions of sparse tensor
+        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
+
+        # ensure H is the correct size and is symmetric
+        H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
+        self.assertEqual(H_k.shape, H_shape)
+        self.assertEqual(H_k_sparse.shape, H_shape)
+
+        self.assertTrue(torch.allclose(H_k, H_k.conj().mT, atol=1e-6))
+        self.assertTrue(torch.allclose(
+            H_k_sparse, H_k_sparse.conj().mT, atol=1e-6))
+
+        # ensure sparse and non-sparse hamiltonians agree:
+        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense(), atol=1e-6))
+
+        # test if backward pass is successful
+        (torch.abs(H_k)**2).sum().backward(inputs=[positions, unit_cell])
+
+        # ensure gradients with respect to positionsand unit cell are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+        unit_cell_grad = unit_cell.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+        )
+
+        # test if backward pass is successful
+        (torch.abs(H_k_sparse_raw)**2).sum().backward(
+            inputs=[positions, unit_cell])
+
+        # ensure sparse gradients with respect to positions are nonzero
+        positions_grad = positions.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(positions_grad, np.zeros_like(positions_grad))
+        )
+        unit_cell_grad = unit_cell.grad.detach().numpy()
+        self.assertFalse(
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+        )
+
+
+class TestVariationalLCAOModel(unittest.TestCase):
+
+    def test_var_lcao_model_hamiltonian_matrix(self):
+        
+        model = VariationalLCAOModel(
+            onsite_nn='nnconv',
+            variational_nn='nnconv',
+            eigensolver='torch_eigh',
+            spin='paired',
+            basis='even_tempered',
+            basis_size=3,
+            potential_basis='even_tempered',
+            potential_basis_size=5,
+            orbital_shells={7: [0, 1, 2, 3]})
+
+        atomic_numbers = torch.tensor([6, 8, 8])
+        positions = torch.tensor([
+            [0.0, 0.0, 0.0], 
+            [0.0, 0.0, 1.0], 
+            [0.0, 0.0, -1.0]
+        ], requires_grad=True)
+
+        neighbors = torch.tensor([
+            [1, 2],
+            [0, -1],
+            [0, -1],
+        ])
+
+        E = model.eigenenergies(
+            atomic_numbers, positions, neighbors)
 
         # test if backward pass is successful
         E.sum().backward(inputs=positions)

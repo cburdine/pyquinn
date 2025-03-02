@@ -3,7 +3,7 @@ from itertools import product
 import torch
 from torch.utils import benchmark
 
-from pyquinn.torch.lcao.lcao_hamiltonian import LCAOModel, TightBindingModel
+from pyquinn.torch.lcao.lcao_hamiltonian import LCAOModel, TBModel
 
 
 def _make_lcao_model_hamiltonian_args(
@@ -21,8 +21,8 @@ def _make_lcao_model_hamiltonian_args(
                       d_j.flatten()*atoms_per_dim + 
                       d_k.flatten()) % (atoms_per_dim**3)
 
-    neighbors = (torch.arange(positions.shape[0]).view(-1, 1)
-        + neighbor_d_idx.view(1, -1)) % (atoms_per_dim**3)
+    neighbors = (torch.arange(positions.shape[0]).view(-1, 1) +
+                 neighbor_d_idx.view(1, -1)) % (atoms_per_dim**3)
 
     return {
         'atomic_numbers': atomic_numbers, 

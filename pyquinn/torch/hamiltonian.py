@@ -80,12 +80,12 @@ class HamiltonianModel(nn.Module):
         raise NotImplementedError()
 
     @abstractmethod
-    def hamiltonian_key(self, 
-                        atomic_numbers: torch.IntTensor, 
-                        positions: torch.Tensor, 
-                        neighbors: torch.IntTensor,
-                        **kwargs
-                        ) -> list[str]:
+    def orbital_names(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            **kwargs) -> list[str]:
         """Returns a list of string labels for the entries of the Hamiltonian
            matrix. Entries in the Hamiltonian matrix are expected to follow the
            ordering of `atomic_numbers` and `neighbors`, though each site may
@@ -109,8 +109,76 @@ class HamiltonianModel(nn.Module):
 
         Returns:
             list[str]: A list of string labels for the entries of the 
-                       Hamiltonian matrix. Must have the same dimension 
-                       as the matrix.
+                       Hamiltonian matrix. Must have the same length 
+                       as the dimension of the Hamiltonian matrix.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def orbital_indices(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            **kwargs) -> tuple[torch.IntTensor, torch.IntTensor]:
+        """Returns a list of on-site orbital indices for the entries of the 
+           Hamiltonian matrix. Entries in the Hamiltonian matrix are 
+           expected to follow the ordering of `atomic_numbers` and `neighbors`, 
+           though each site may contain a variable number of orbitals.
+
+        Args:
+            atomic_numbers (torch.IntTensor): 
+                Atomic numbers of each site in the system (Hydrogen = 1, etc.).
+                (shape: [N_sites])
+            positions (torch.Tensor): Positions of atomic sites in 3D space
+                (shape: [N_sites, 3])
+            neighbors (torch.IntTensor): List of indices of neighboring 
+                                         (i.e. interacting) sites adjacent
+                                         to each site in the lattice.
+                                         Negative indices are ignored.
+                                         (shape: [N_sites, max_neighbors])
+
+        Returns:
+            tuple[torch.IntTensor, torch.IntTensor]: List of site indices i
+                (0 < i < N_sites) and orbital indices j corresponding
+                to entries in the Hamiltonian matrix. Both lists 
+                must have the same dimension as the Hamiltonian matrix.
+                
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def orbital_quantum_numbers(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            **kwargs) -> torch.Tensor:
+        """Returns a list of orbital quantum numbers for the entries of the 
+           Hamiltonian matrix. Entries in the matrix are expected to follow the
+           ordering of `atomic_numbers` and `neighbors`, though each site may
+           contain a variable number of orbitals.
+
+           The type of quantum numbers returned depends on the 
+
+        Args:
+            atomic_numbers (torch.IntTensor): 
+                Atomic numbers of each site in the system (Hydrogen = 1, etc.).
+                (shape: [N_sites])
+            positions (torch.Tensor): Positions of atomic sites in 3D space
+                (shape: [N_sites, 3])
+            neighbors (torch.IntTensor): List of indices of neighboring 
+                                         (i.e. interacting) sites adjacent
+                                         to each site in the lattice.
+                                         Negative indices are ignored.
+                                         (shape: [N_sites, max_neighbors])
+
+        Returns:
+            torch.Tensor: List of orbital quantum numbers corresponding to
+                entries in the Hamiltonian matrix. The first dimension
+                of this tensor must equal the dimension of the Hamiltonian
+                matrix.
+                
         """
         raise NotImplementedError()
 

@@ -1,8 +1,7 @@
 import unittest
 import numpy as np
 
-from pyquinn.atoms.data import ATOMIC_SYMBOLS
-
+from pyquinn.atoms.atom_data import ATOMIC_SYMBOLS
 from pyquinn.atoms.atom_graph import AtomGraph, SUPPORTED_BACKENDS
 
 

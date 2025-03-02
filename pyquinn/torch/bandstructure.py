@@ -10,7 +10,7 @@ class TorchBandStructure(BackendBandStructure):
             bands: BandStructure,
             max_k_pts: int | None = None,
             max_bands: int | None = None,
-            device: torch.dtype = torch.float32,
+            device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32):
 
         bands = bands.resample_bands(
@@ -59,6 +59,13 @@ class TorchBandStructure(BackendBandStructure):
             projections=self.projections.detach(),
             chemical_potential=self.chemical_potential.detach())
 
+    def copy(self):
+        return TorchBandStructure(
+            energies=self.energies.copy(),
+            k_pts=self.k_pts.copy(),
+            projections=self.projections.copy(),
+            chemical_potential=self.chemical_potential.copy())
+
     def to(self, **kwargs):
         return TorchBandStructure(
             energies=self.energies.to(**kwargs),
@@ -79,7 +86,7 @@ class TorchBandStructure(BackendBandStructure):
             filename: str, 
             device: torch.device | None = None) -> 'TorchBandStructure':
         
-        graph = torch.load(filename, map_location=device)
+        graph = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(graph, TorchBandStructure):
             raise IOError(
@@ -90,3 +97,7 @@ class TorchBandStructure(BackendBandStructure):
 
     def save(self, filename: str):
         torch.save(self, filename)
+
+    
+# add TorchBandStructure as safe to serialize
+torch.serialization.add_safe_globals([TorchBandStructure])

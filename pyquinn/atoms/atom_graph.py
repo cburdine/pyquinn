@@ -1,10 +1,11 @@
 import ase
+import ase.io
 import numpy as np
 import pickle
 from abc import abstractmethod, ABC
 
-from pyquinn.atoms.data import (
-    ATOMIC_MASSES, ATOMIC_NUMBERS, ATOMIC_SYMBOLS, 
+from pyquinn.atoms.atom_data import (
+    ATOMIC_NUMBERS, ATOMIC_SYMBOLS, 
     NATURAL_CUTOFFS_DICT, NATURAL_MASSES_DICT
 )
 from pyquinn.atoms.geometry import build_neighbor_list
@@ -119,7 +120,8 @@ class AtomGraph(AtomGraphBase):
         """Constructs an AtomGraph from an ase.Atoms object.
 
         Args:
-            atoms (ase.Atoms): An `ase.Atoms` object from which the AtomGraph will be constructed.
+            atoms (ase.Atoms): An `ase.Atoms` object from which the AtomGraph 
+                will be constructed.
             features (list[list[float]]):
             outputs: (list[list[float]]):
             graph_outputs (list[list[float]]):
@@ -597,6 +599,34 @@ class AtomGraph(AtomGraphBase):
         """
         raise NotImplementedError
 
+    def get_band_path(self, path: str | None = None, n_points: int = 1024):
+        """Generates a High-symmetry canonical band path based on the ASE
+        implementation of `ase.Cell.bandpath()`. The variable `path` specifies
+        a path in the first Brillouin zone, using the conventions specified in
+        the ASE Brillouin zone data page:
+
+        https://wiki.fysik.dtu.dk/ase/ase/dft/bztable.html
+
+        Args:
+            path (str | None, optional): High-symmetry path in the reciprocal 
+                space first Brillouin zone, consisting of special point
+                symbols, possibly separated by commas to indicate
+                jumps in the path. If None, the canonical path is used. 
+                Defaults to None.
+            n_points (int, optional): Number of points in the band path. 
+                Defaults to 1024.
+
+        Returns:
+            np.ndarray: A numpy array of reciprocal space points 
+                (shape: [n_points, 3])
+        """
+
+        graph_cell = self.to_ase().cell
+        frac_k_pts = graph_cell.bandpath(npoints=2048).kpts
+        cart_k_pts = graph_cell.reciprocal().cartesian_positions(frac_k_pts)
+
+        return cart_k_pts
+
     def compile(
             self,
             backend: str = 'torch', 
@@ -660,7 +690,7 @@ class AtomGraph(AtomGraphBase):
         """
         atoms = ase.Atoms(
             numbers=self._resolve_atomic_numbers(),
-            masses=self._resolve_atomic_masses(),
+            masses=self._resolve_masses(),
             positions=self.positions,
             cell=self.unit_cell,
             pbc=self.periodic)

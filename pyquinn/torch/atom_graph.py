@@ -2,7 +2,6 @@ from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
 from pyquinn.atoms.geometry import build_dense_neighbor_list
 import torch
 
-
 @AtomGraph.register_backend('torch')
 class TorchAtomGraph(BackendAtomGraph):
 
@@ -114,6 +113,23 @@ class TorchAtomGraph(BackendAtomGraph):
 
         return atom_graph
 
+    def copy(self):
+        atom_graph = TorchAtomGraph(
+            atomic_numbers=self.atomic_numbers.copy(),
+            positions=self.positions.copy(),
+            masses=self.masses.copy(),
+            unit_cell=self.unit_cell.copy(),
+            periodic=self.periodic.copy(),
+            features=self.features.copy(),
+            cutoffs=self.cutoffs.copy(),
+            compute_neighbors=False,
+        )
+
+        atom_graph.neighbors = self.neighbors.copy()
+        atom_graph.unit_cell_images = self.unit_cell_images.copy()
+
+        return atom_graph
+
     def to(self, **kwargs):
         
         atom_graph = TorchAtomGraph(
@@ -161,7 +177,7 @@ class TorchAtomGraph(BackendAtomGraph):
             TorchAtomGraph: The loaded TorchAtomGraph
         """
         
-        graph = torch.load(filename, map_location=device)
+        graph = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(graph, TorchAtomGraph):
             raise IOError(
@@ -180,3 +196,7 @@ class TorchAtomGraph(BackendAtomGraph):
         """
 
         torch.save(self, filename)
+
+
+# add TorchAtomGraph as safe to serialize
+torch.serialization.add_safe_globals([TorchAtomGraph])

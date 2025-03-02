@@ -1,9 +1,30 @@
 import torch
 from torch.nn.modules import activation
+from torch.optim import optimizer
 
 from typing import Callable
 
 Activation = Callable[..., torch.nn.Module]
+Optimizer = Callable[..., torch.optim.Optimizer]
+
+SUPPORTED_TORCH_OPTIMIZERS = {
+    'adadelta': torch.optim.Adadelta,
+    'adafactor': torch.optim.Adafactor,
+    'adagrad': torch.optim.Adagrad,
+    'adam': torch.optim.Adam,
+    'adamax': torch.optim.Adamax,
+    'adamw': torch.optim.AdamW,
+    'asgd': torch.optim.ASGD,
+    'lbfgs': torch.optim.LBFGS,
+    'nadam': torch.optim.NAdam,
+    'optimizer': torch.optim.Optimizer,
+    'radam': torch.optim.RAdam,
+    'rmsprop': torch.optim.RMSprop,
+    'rprop': torch.optim.Rprop,
+    'sgd': torch.optim.SGD,
+    'sparseadam': torch.optim.SparseAdam,
+}
+""" Dictionary of supported torch optimizers """
 
 
 def get_activation_fn(act: str) -> Activation:
@@ -13,10 +34,10 @@ def get_activation_fn(act: str) -> Activation:
         act (str): The name of the activation function (in lower case)
 
     Raises:
-        ValueError: _description_
+        ValueError: If the activation function name is invalid.
 
     Returns:
-        torch.nn.Module: _description_
+        torch.nn.Module: The activation function
     """
 
     # get list from activation submodule as lower-case
@@ -32,6 +53,26 @@ def get_activation_fn(act: str) -> Activation:
     else:
         raise ValueError(
             f"Cannot load activation function for string <{act}>.")
+
+
+def get_optimizer(opt: str) -> Optimizer:
+    """Gets a pytorch optimizer by name
+
+    Args:
+        opt (str): The name of the optimizer (in lower case)
+
+    Raises:
+        ValueError: If the optimizer name is invalid
+
+    Returns:
+        Optimizer: The desired optimizer class
+    """
+
+    if opt not in SUPPORTED_TORCH_OPTIMIZERS:
+        raise ValueError(f'Torch optimizer {opt} not supported; '
+                         f'expected one of {list(SUPPORTED_TORCH_OPTIMIZERS)}')
+    
+    return SUPPORTED_TORCH_OPTIMIZERS[opt]
 
 
 def sparse_csr_block_diag(*tensors):
@@ -80,9 +121,6 @@ def sparse_csr_block_diag(*tensors):
 
 
 def sparse_coo_block_diag(*tensors):
-
-    if not tensors:
-        raise ValueError("Input list of sparse tensors cannot be empty.")
 
     # Validate input tensors
     for t in tensors:

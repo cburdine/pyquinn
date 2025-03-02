@@ -51,7 +51,7 @@ class Eigensolver(nn.Module, ABC):
     @staticmethod
     def from_name(
             solver_name: str, 
-            solver_kwargs: dict = {}) -> 'Eigensolver':
+            solver_kwargs: dict | None = None) -> 'Eigensolver':
         """Loads an eigensolver with the given name from the set of 
         supported eigensolvers in :attr:`SUPPORTED_EIGENSOLVERS
         <pyquinn.torch.eigensolver.SUPPORTED_EIGENSOLVERS>`
@@ -70,6 +70,8 @@ class Eigensolver(nn.Module, ABC):
         """
         if solver_name not in Eigensolver._solvers:
             raise ValueError(f'Unknown Eigensolver Type: {solver_name}')
+
+        solver_kwargs = {} if solver_kwargs is None else solver_kwargs
 
         return Eigensolver._solvers[solver_name](**solver_kwargs)
 
