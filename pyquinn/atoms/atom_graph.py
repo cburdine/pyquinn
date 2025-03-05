@@ -559,7 +559,7 @@ class AtomGraph(AtomGraphBase):
                 representing the neighbors of each atom in the AtomGraph.
             - neighbor_vectors (list): a list of vectors corresponding to
                 the distance between each atom site and its neighbors. If
-                `return_images=True`, the returned values are integer
+                `return_images` is `True`, the returned values are integer
                 vectors corresponding to images of the unit cell.
         """
 
@@ -580,7 +580,8 @@ class AtomGraph(AtomGraphBase):
             if return_images:
                 neighbor_vectors.append(images_i)
             else:
-                distances = (
+                
+                distances = [] if len(neighbors_i) == 0 else (
                     (self.positions[neighbors_i] - self.positions[i]) + 
                     (images_i @ self.unit_cell))
                 neighbor_vectors.append(distances)

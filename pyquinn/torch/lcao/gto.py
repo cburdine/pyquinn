@@ -8,6 +8,29 @@ GTO_L_MAX = 4
 representations of gaussian atomic orbitals."""
 
 
+def _make_flat_tensors(tensor_list: list):
+
+    list_shapes = torch.vstack([
+        torch.tensor(lt.shape) 
+        for lt in tensor_list
+    ])
+    list_sizes = list_shapes.prod(-1)
+
+    list_idxs = torch.cumsum(list_sizes, dim=0) - list_sizes
+    list_flat = torch.cat([lt.flatten() for lt in tensor_list])
+
+    return (list_idxs, list_shapes, list_flat)
+
+
+def _get_flat_tensor(data, i):
+
+    idx_data, shape_data, flat_data = data
+    idx = idx_data[i]
+    shape = shape_data[i]
+
+    return flat_data[idx:idx+shape.prod()].view(*shape.unbind())
+
+
 def _make_gto_ijk_coeffs(l_max):
     """ Generates a tensor of coefficients corresponding to IJK values up
     to l=l_max"""
@@ -46,10 +69,10 @@ def _make_gto_ijk_values(l):
     ], requires_grad=False)
 
 
-_GTO_IJK_VALUES = {
-    l: _make_gto_ijk_values(l)
+_GTO_IJK_VALUES = [
+    _make_gto_ijk_values(l)
     for l in range(GTO_L_MAX+1)
-}
+]
 """ IJK values for each angular momentum  l up to l = GTO_L_MAX"""
 
 
@@ -157,12 +180,15 @@ def _make_gto_cho_tensor(l, ijks=None) -> torch.Tensor:
     return X
 
 
-_GTO_CHO_TENSORS = {
-    l: _make_gto_cho_tensor(l, _GTO_IJK_VALUES[l].detach().numpy())
+_GTO_CHO_TENSORS = [
+    _make_gto_cho_tensor(l, _GTO_IJK_VALUES[l].detach().numpy())
     for l in range(GTO_L_MAX+1)
-}
-""" Dictionary with matrices mapping gaussian bases to cubic harmonics for
+]
+""" List of matrices mapping gaussian bases to cubic harmonics for
 each l up to l=GTO_L_MAX."""
+
+_GTO_CHO_FLAT_TENSORS = _make_flat_tensors(_GTO_CHO_TENSORS)
+_GTO_IJK_FLAT_TENSORS = _make_flat_tensors(_GTO_IJK_VALUES)
 
 
 def gaussian_3d(
@@ -1121,10 +1147,12 @@ def cho_ng(
     """
 
     m_idx = l + m
-    X_lm = _GTO_CHO_TENSORS[l.item()][m_idx].view(-1)
+    X_l = _get_flat_tensor(_GTO_CHO_FLAT_TENSORS, l)
+    X_lm = X_l[m_idx].view(-1)
 
     X_lm_idx, = torch.nonzero(X_lm, as_tuple=True)
-    X_lm_ijks = _GTO_IJK_VALUES[l.item()][X_lm_idx].view(-1, 3)
+    X_ijks = _get_flat_tensor(_GTO_IJK_FLAT_TENSORS, l)
+    X_lm_ijks = X_ijks[X_lm_idx].view(-1, 3)
     X_lm_coeffs = X_lm[X_lm_idx].unsqueeze(-1)
 
     sto_3d_component = torch.vmap(

@@ -506,19 +506,20 @@ class LCAOModel(HamiltonianModel):
 
         return H
 
-    def atomic_orbital_amplitudes(
-        self,
-        atomic_numbers: torch.IntTensor,
-        positions: torch.Tensor,
-        neighbors: torch.Tensor,
-        site_idxs: torch.IntTensor,
-        orbital_idxs: torch.IntTensor,
-        x_pts: torch.Tensor):
+    def _get_site_orbital_data(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.Tensor,
+            site_idxs: torch.IntTensor,
+            orbital_idxs: torch.IntTensor,
+            **kwargs):
 
         data = dict(
             atomic_numbers=atomic_numbers,
             positions=positions,
             neighbors=neighbors,
+            **kwargs
         )
         
         a, c, g, v = self.get_basis_parameters(**data)
@@ -547,20 +548,39 @@ class LCAOModel(HamiltonianModel):
 
         orbital_alphas = a[site_idxs, orbital_shell_block_idxs]
         orbital_cs = c[site_idxs, orbital_shell_block_idxs]
+
+        return orbital_mus, orbital_lms, orbital_alphas, orbital_cs
+
+
+    def atomic_orbital_amplitudes(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.Tensor,
+            site_idxs: torch.IntTensor,
+            orbital_idxs: torch.IntTensor,
+            x_pts: torch.Tensor,
+            **kwargs):
+
+        orbital_mus, orbital_lms, orbital_alphas, orbital_cs = \
+            self._get_site_orbital_data(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors,
+                site_idxs=site_idxs,
+                orbital_idxs=orbital_idxs
+            )
         
-        def cho_atmplitude(mu, lm, alphas, cs):
-            return cho_ng(x=x_pts, mu=mu,
-                          l=lm[0], m=lm[1],
-                          alphas=alphas, cs=cs)
-        
-        amplitudes_fn = torch.vmap(
-            cho_atmplitude, in_dims=0, out_dims=0, chunk_size=1)
-        
-        return amplitudes_fn(
-            orbital_mus, 
-            orbital_lms,
-            orbital_alphas,
-            orbital_cs)
+        n_idxs = site_idxs.shape[0]
+        orbital_amplitudes = torch.zeros((n_idxs, x_pts.shape[0]))
+
+        for i in range(n_idxs):
+            orbital_amplitudes[i] = cho_ng(
+                x=x_pts, mu=orbital_mus[i],
+                l=orbital_lms[i, 0], m=orbital_lms[i, 1],
+                alphas=orbital_alphas[i], cs=orbital_cs[i])
+                    
+        return orbital_amplitudes.transpose(0, 1)
 
 
     def hamiltonian_matrix(self, 
@@ -568,6 +588,7 @@ class LCAOModel(HamiltonianModel):
                            positions: torch.Tensor, 
                            neighbors: torch.IntTensor,
                            sparse: bool = False,
+                           **kwargs
                            ) -> torch.Tensor:
         """_summary_
 
@@ -682,7 +703,8 @@ class LCAOModel(HamiltonianModel):
             self,
             atomic_numbers: torch.IntTensor,
             positions: torch.Tensor, 
-            neighbors: torch.IntTensor) -> tuple[
+            neighbors: torch.IntTensor,
+            **kwargs) -> tuple[
                 torch.IntTensor, torch.IntTensor]:
 
         # compute index tensor of l values
@@ -709,7 +731,8 @@ class LCAOModel(HamiltonianModel):
             self, 
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
-            neighbors: torch.IntTensor) -> torch.Tensor:
+            neighbors: torch.IntTensor,
+            **kwargs) -> torch.Tensor:
 
         # compute index tensor of l values
         l_values_padded = self.orbital_shell_idxs[atomic_numbers]
@@ -910,6 +933,130 @@ class TBModel(LCAOModel):
             positions=positions,
             neighbors=neighbors)
 
+    def atomic_orbital_amplitudes(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.Tensor, 
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.Tensor,
+            site_idxs: torch.IntTensor, 
+            orbital_idxs: torch.IntTensor, 
+            x_pts: torch.Tensor):
+        
+        orbital_mus, orbital_lms, orbital_alphas, orbital_cs = \
+            self._get_site_orbital_data(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors,
+                unit_cell=unit_cell,
+                unit_cell_images=unit_cell_images,
+                site_idxs=site_idxs,
+                orbital_idxs=orbital_idxs,
+            )
+        
+        n_idxs = site_idxs.shape[0]
+        orbital_amplitudes = torch.zeros((n_idxs, x_pts.shape[0]))
+        orbital_images = unit_cell_images[site_idxs]
+
+        for i in range(n_idxs):
+
+            orbital_amplitudes[i] = cho_ng(
+                x=x_pts, mu=orbital_mus[i],
+                l=orbital_lms[i, 0], m=orbital_lms[i, 1],
+                alphas=orbital_alphas[i], cs=orbital_cs[i])
+
+            # include any self-interactions (if exists)
+            site_neighbors = neighbors[site_idxs[i]]
+            self_neighbor_idxs = torch.nonzero(site_neighbors == site_idxs[i])
+
+            for j in self_neighbor_idxs:
+                orbital_amplitudes[i] += cho_ng(
+                    x=x_pts, 
+                    mu=orbital_mus[i] + (
+                        orbital_images[i, j].to(torch.float32) @ unit_cell),
+                    l=orbital_lms[i, 0], m=orbital_lms[i, 1],
+                    alphas=orbital_alphas[i], cs=orbital_cs[i])
+
+        return orbital_amplitudes.transpose(0, 1)
+
+    def bloch_orbital_amplitudes(
+            self,
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.Tensor, 
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.Tensor,
+            x_pts: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            eigenstate_idxs: torch.IntTensor | None = None,
+            eigenstates: torch.Tensor | None = None,
+            k_idxs: torch.IntTensor | None = None,
+            x_cutoff: float | None = None):
+
+        if eigenstates is None:
+            _, eigenstates = self.eigenstates(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors,
+                unit_cell=unit_cell,
+                unit_cell_images=unit_cell_images,
+                k_pts=k_pts,
+            )
+
+        if x_cutoff is None:
+            x_cutoff = 5.0
+
+        site_idxs, orbital_idxs = self.orbital_indices(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors
+        )
+
+        print(site_idxs, orbital_idxs)
+
+        x_center = torch.mean(x_pts, axis=0, keepdims=True)
+        x_radius = torch.max(
+            torch.sqrt(torch.square(x_pts - x_center).sum(-1)))
+
+        if k_pts is None:
+            k_pts = torch.zeros(3, device=positions.device)
+
+        if k_idxs is not None:
+            eigenstates = eigenstates[k_idxs]
+        
+        if eigenstate_idxs is not None:
+            eigenstates = eigenstates[..., eigenstate_idxs]
+
+        nearby_sites = (
+            torch.sqrt(torch.square(positions - x_center).sum(-1))
+            < x_radius + x_cutoff)
+
+        nearby_idx = nearby_sites[site_idxs]
+        nearby_site_idxs = site_idxs[nearby_idx]
+        nearby_orbital_idxs = orbital_idxs[nearby_idx]
+        nearby_eigenstates = eigenstates[..., nearby_idx, :]
+
+        amps = self.atomic_orbital_amplitudes(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            site_idxs=nearby_site_idxs,
+            orbital_idxs=nearby_orbital_idxs,
+            x_pts=x_pts
+        )
+
+        eigenstate_amps = torch.einsum(
+            'xi, ...ij -> ...xj',
+            amps.to(torch.complex64),
+            nearby_eigenstates
+        )
+
+        return eigenstate_amps
+
+
     def hamiltonian_matrix(
             self, 
             atomic_numbers: torch.IntTensor, 
@@ -921,7 +1068,7 @@ class TBModel(LCAOModel):
             sparse: bool = False) -> torch.Tensor:
 
         if k_pts is None:
-            k_pts = torch.zeros(3)
+            k_pts = torch.zeros(3, device=positions.device)
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
