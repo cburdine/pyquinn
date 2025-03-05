@@ -25,7 +25,7 @@ def _get_special_k_pts(
 
     # get the special points of the first Brillouin zone:
     special_kpts = {
-        name.replace('G', r'$\Gamma$'): 
+        name.replace('G', 'Γ'): 
             np.nonzero(
                 np.linalg.norm(k_pts - pt, axis=-1) <= 
                 special_radius)[0]
