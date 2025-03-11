@@ -2,6 +2,7 @@ from pyquinn.torch.atom_graph import TorchAtomGraph
 from pyquinn.torch.atomwise import AtomwiseConv
 
 import torch.nn as nn
+import torch
 
 
 class TorchAtomwiseModel(nn.Module):
@@ -9,6 +10,8 @@ class TorchAtomwiseModel(nn.Module):
     def __init__(
             self,
             atomwise_model: AtomwiseConv):
+
+        super().__init__()
 
         self.atomwise_model = atomwise_model
 
@@ -19,7 +22,7 @@ class TorchAtomwiseModel(nn.Module):
         
         positions = graph.positions
         neighbor_distances = positions[graph.neighbors] + \
-            (graph.unit_cell_images @ graph.unit_cell) - \
+            (graph.unit_cell_images.to(torch.float32) @ graph.unit_cell) - \
             positions.unsqueeze(-2)
 
         features_out = self.atomwise_model(
@@ -35,10 +38,13 @@ class TorchAtomwiseModel(nn.Module):
             masses=graph.masses,
             unit_cell=graph.unit_cell,
             periodic=graph.periodic,
+            features=graph.features,
             outputs=features_out,
             graph_outputs=graph.graph_outputs,
             cutoffs=graph.cutoffs,
             compute_neighbors=False)
+
+    
 
         
 

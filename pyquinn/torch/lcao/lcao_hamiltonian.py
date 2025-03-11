@@ -1013,8 +1013,6 @@ class TBModel(LCAOModel):
             neighbors=neighbors
         )
 
-        print(site_idxs, orbital_idxs)
-
         x_center = torch.mean(x_pts, axis=0, keepdims=True)
         x_radius = torch.max(
             torch.sqrt(torch.square(x_pts - x_center).sum(-1)))

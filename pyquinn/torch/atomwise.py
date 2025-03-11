@@ -101,7 +101,7 @@ class AtomwiseConv(nn.Module, ABC):
     @staticmethod
     def from_name(
             module_name: str, 
-            in_features: int,
+            in_features: int | None = None,
             out_features: int | None = None,
             z_max: int = 118,
             module_kwargs: dict = {}):
@@ -117,7 +117,7 @@ class AtomwiseConv(nn.Module, ABC):
 
     def __init__(
             self, 
-            out_features: int, 
+            out_features: int | None = None, 
             in_features: int | None = None,
             z_max: int = 118):
 
@@ -218,10 +218,9 @@ class AtomwiseNNConv(AtomwiseConv):
         bond_features = self.distance_embedding(bond_distances)
 
         # build atomic "one-hot" encoded features:
-        atom_features = torch.zeros(
-            atomic_numbers.shape[0], self.z_max+1, 
-            dtype=bond_features.dtype, device=atomic_numbers.device)
-        atom_features[:, atomic_numbers] += 1
+        atom_features = torch.nn.functional.one_hot(
+            atomic_numbers, num_classes=self.z_max+1
+        ).to(torch.float32)
         
         # combine features into feature tensors:
         x = atom_features if features is None else \
@@ -237,3 +236,6 @@ class AtomwiseNNConv(AtomwiseConv):
         y = y_unnorm  # self.norm_layers[-1](y_unnorm)
 
         return y
+
+
+import pyquinn.torch.e3nn.atomwise_e3

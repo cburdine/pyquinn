@@ -54,8 +54,7 @@ class BandStructure(BandStructureBase):
             energies: list[list[float]],
             k_pts: list[list[float]] | None = None,
             projections: list[list[list[float]]] | None = None,
-            chemical_potential: float | None = None,
-            projection_format: str = 'cho'):
+            chemical_potential: float | None = None):
 
         self.energies = energies
 
