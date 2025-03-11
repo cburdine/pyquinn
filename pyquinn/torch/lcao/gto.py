@@ -1147,11 +1147,11 @@ def cho_ng(
     """
 
     m_idx = l + m
-    X_l = _get_flat_tensor(_GTO_CHO_FLAT_TENSORS, l)
+    X_l = _GTO_CHO_TENSORS[l]  # _get_flat_tensor(_GTO_CHO_FLAT_TENSORS, l)
     X_lm = X_l[m_idx].view(-1)
 
     X_lm_idx, = torch.nonzero(X_lm, as_tuple=True)
-    X_ijks = _get_flat_tensor(_GTO_IJK_FLAT_TENSORS, l)
+    X_ijks = _GTO_IJK_VALUES[l]  # _get_flat_tensor(_GTO_IJK_FLAT_TENSORS, l)
     X_lm_ijks = X_ijks[X_lm_idx].view(-1, 3)
     X_lm_coeffs = X_lm[X_lm_idx].unsqueeze(-1)
 

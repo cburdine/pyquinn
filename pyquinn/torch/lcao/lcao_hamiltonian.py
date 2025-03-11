@@ -182,7 +182,7 @@ class LCAOModel(HamiltonianModel):
                 to model the :math:`l=0,l=0` and :math:`l=1` angular momenta of 
                 these orbitals. For any elements not specified in this 
                 dictionary, the valence shell orbitals are used.
-                Defaults to {}.
+                Defaults to None.
 
         Raises:
             ValueError: If invalid basis options are supplied.
@@ -296,7 +296,6 @@ class LCAOModel(HamiltonianModel):
         self_weights = getattr(self, name)
         grad = False if freeze else other_weights.requires_grad
         
-
         if self_weights.shape != other_weights.shape:
             raise ValueError(
                 f'Expected weights "{name}" '
@@ -354,7 +353,7 @@ class LCAOModel(HamiltonianModel):
             - alphas (torch.Tensor): A tensor of Gaussian orbital
                 width parameters (shape: [N_atoms, N_ls, N_basis]).
             - cs (torch.Tensor): A tensor of Gaussian orbital
-                coefficients (shape: [N_atoms, N_ls, N_basis]).
+                coefficients (shape: [N_atoms, N_cs, N_basis]).
             - gammas (torch.Tensor): A tensor of Gaussian
                 potential width parameters (shape: [N_atoms, 1, M_basis]).
             - vs (torch.Tensor): A tensor of Gaussian potential
@@ -581,7 +580,6 @@ class LCAOModel(HamiltonianModel):
                 alphas=orbital_alphas[i], cs=orbital_cs[i])
                     
         return orbital_amplitudes.transpose(0, 1)
-
 
     def hamiltonian_matrix(self, 
                            atomic_numbers: torch.IntTensor, 
