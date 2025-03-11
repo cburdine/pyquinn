@@ -17,12 +17,13 @@ def _get_irrep_transform_matrix(irreps: o3.Irreps):
 
     return D
 
+
 def _make_atomiwise_e3_nn(
-    nn: AtomwiseE3Conv | None = None, 
-    out_irreps: o3.Irreps,
-    name: str = 'e3_nn',
-    z_max: int = 118,
-    nn_kwargs: dict | None = None):
+        nn: AtomwiseE3Conv | None = None, 
+        out_irreps: o3.Irreps | None = None,
+        name: str = 'e3_nn',
+        z_max: int = 118,
+        nn_kwargs: dict | None = None):
 
     nn_kwargs = {} if nn_kwargs is None else nn_kwargs
 
@@ -39,8 +40,8 @@ def _make_atomiwise_e3_nn(
                 f'Expected {name}.out_features == {out_features} (got {nn.out_features}).'
             )
 
-def _make_shell_irrep_mapping(orbital_shell_idxs):
 
+def _make_shell_irrep_mapping(orbital_shell_idxs):
     pass
         
     
@@ -78,8 +79,6 @@ class VariationalE3TBModel(TBModel):
         shell_ls, shell_l_idxs, shell_l_counts = torch.unique(
             self.orbital_shell_idxs, -1)
 
-        
-        
         
         in_features = (n_shells * self.basis_size) + \
             self.potential_basis_size
