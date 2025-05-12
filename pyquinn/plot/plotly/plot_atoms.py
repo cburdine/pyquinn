@@ -5,10 +5,8 @@ from pyquinn.atoms.atom_data import (
 )
 import numpy as np
 from scipy.interpolate import griddata
-
-import plotly.express as px
 import plotly.graph_objects as go
-from plotly.colors import sample_colorscale
+
 
 def _make_sphere(xyz, r, resolution=10):
     u, v = np.mgrid[0:2*np.pi:resolution*2j, 0:np.pi:resolution*1j]
@@ -81,8 +79,6 @@ def _get_isosurface_mesh(mesh_xyz, mesh_values, iso_val, mesh_data):
 
     mesh_shape, mesh_spacing = _infer_shape_and_spacing(mesh_xyz)
     V = mesh_values.reshape(mesh_shape)
-
-
 
     surface_xyz, surface_ijk, _, _ = \
         measure.marching_cubes(V, level=iso_val, spacing=mesh_spacing)
