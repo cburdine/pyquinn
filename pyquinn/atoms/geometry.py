@@ -1,5 +1,72 @@
 import numpy as np
 from ase.neighborlist import primitive_neighbor_list
+from ase import Atoms
+
+
+def get_special_k_pts(
+        unit_cell: np.ndarray,
+        periodic: np.ndarray,
+        k_pts: np.ndarray,
+        path: str | None = None,
+        special_radius: float = None):
+    
+    if special_radius is None:
+        special_radius = 1.1*np.median(
+            np.linalg.norm(k_pts[:-1] - k_pts[1:], axis=-1))
+
+    # get the canonical band path and k-points (in fractional coordinates)
+    ase_cell = Atoms(cell=unit_cell, pbc=periodic).cell
+    rcell = ase_cell.reciprocal()
+    band_path = ase_cell.bandpath(path=path, npoints=256)
+
+    path_pts = {}
+    for name, pt in band_path.special_points.items():
+        path_pts[name] = rcell.cartesian_positions(pt)
+
+    # get the special points of the first Brillouin zone
+    special_kpts = {
+        name.replace('G', 'Γ'): 
+            np.nonzero(
+                np.linalg.norm(k_pts - pt, axis=-1) <= 
+                special_radius)[0]
+        for name, pt in path_pts.items()
+    }
+    
+    return special_kpts
+
+
+def get_special_kpath_folds(
+        special_kpts: dict, 
+        kpts_x: np.ndarray | None = None, 
+        x_radius: float | None = None):
+    
+    # construct fold points
+    fold_pts = []
+    for label, idxs in special_kpts.items():
+        for i in idxs:
+            x = i if kpts_x is None else kpts_x[i]
+            fold_pts.append((x, label))
+    
+    fold_pts.sort()
+    folds = [f[0] for f in fold_pts]
+    fold_tokens = [(f[1],) for f in fold_pts]
+
+    # Handle if the same special point was labeled twice consecutively
+    if x_radius is not None:
+        dx = (np.diff(folds) <= x_radius).nonzero()[0]
+        for i in dx:
+            if fold_tokens[i][-1] != fold_tokens[i+1][-1]:
+                fold_tokens[i+1] = (fold_tokens[i] + fold_tokens[i+1])
+            else:
+                fold_tokens[i+1] = fold_tokens[i]
+            fold_tokens[i] = tuple()
+
+    # Gather all nonempty fold labels
+    folds = np.array(folds)
+    fold_labels = np.array(['|'.join(t) for t in fold_tokens])
+    labeled_idxs = (fold_labels != '')
+    
+    return folds[labeled_idxs], fold_labels[labeled_idxs]
 
 
 def build_neighbor_list(

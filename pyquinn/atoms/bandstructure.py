@@ -2,6 +2,7 @@ import pickle
 from abc import abstractmethod, ABC
 
 import numpy as np
+from scipy.special import erf
 
 
 SUPPORTED_BANDSTRUCTURE_BACKENDS = []
@@ -17,6 +18,16 @@ class BandStructureBase:
 class BandStructure(BandStructureBase):
 
     _backends = {}
+
+    _dos_smearing = [
+        'gaussian',
+        'fermi-dirac'
+    ]
+
+    _idos_smearing = [
+        'gaussian',
+        'fermi-dirac'
+    ]
 
     @staticmethod
     def register_backend(name: str):
@@ -133,7 +144,7 @@ class BandStructure(BandStructureBase):
             max_bands=max_bands,
             **backend_kwargs)
 
-    def resample_bands(
+    def downsample_bands(
             self, 
             max_k_pts: int | None = None,
             max_bands: int | None = None) -> 'BandStructure':
@@ -164,6 +175,194 @@ class BandStructure(BandStructureBase):
             projections=projections,
             chemical_potential=chemical_potential
         )
+
+    def _gaussian_dos(
+            self, 
+            band_energies: np.ndarray,
+            energy: np.ndarray, 
+            sigma: float,
+            projections: np.ndarray,
+            weight: float) -> np.ndarray:
+        
+        # compute Gaussian dos
+        unnorm_dos = np.sum(
+            projections * np.exp(-((energy - band_energies)/sigma)**2), axis=1)
+        dos = weight * unnorm_dos / (np.sqrt(np.pi) * sigma)
+
+        return dos
+
+    def _gaussian_idos(
+            self, 
+            band_energies: np.ndarray,
+            energy: np.ndarray, 
+            sigma: float,
+            projections: np.ndarray,
+            weight: float) -> np.ndarray:
+        
+        # compute Gaussian dos
+        unnorm_dos = np.sum(
+            projections * 0.5*(1.0 + erf((energy - band_energies)/sigma)), axis=1)
+        dos = weight * unnorm_dos
+
+        return dos
+
+    def _fermi_dirac_dos(
+            self,
+            band_energies: np.ndarray,
+            energy: np.ndarray, 
+            sigma: float,
+            projections: np.ndarray | float,
+            weight: float) -> np.ndarray:
+
+        # compute Fermi-Dirac dos
+        unnorm_dos = np.sum(
+            projections / (1.0 + np.cosh((energy - band_energies)/sigma)), 
+            axis=1)
+
+        dos = weight * unnorm_dos / (2*sigma)
+        return dos
+
+    def _fermi_dirac_idos(
+            self,
+            band_energies: np.ndarray,
+            energy: np.ndarray, 
+            sigma: float,
+            projections: np.ndarray | float,
+            weight: float) -> np.ndarray:
+
+        # compute Fermi-Dirac dos
+        unnorm_dos = np.sum(
+            projections * (
+                0.5 + 0.5*np.tanh((energy - band_energies)/(2*sigma))), 
+            axis=1)
+
+        dos = weight * unnorm_dos
+        return dos
+
+    def _get_dos_data(
+            self,
+            energy: np.ndarray,  
+            projections: np.ndarray | None = None):
+
+        if projections is not None and not np.isscalar(projections):
+
+            if projections.shape[:2] != self.energies.shape[:2]:
+                raise ValueError(
+                    'Expected first two dimensions of projections'
+                    ' to match self.energies. (projections shape '
+                    f'{projections.shape} incompatible with '
+                    f'{self.energies.shape}.)')
+
+            projections = projections.reshape(
+                (1, self.energies.size) + projections.shape[2:])
+            energy = energy.reshape((-1,) + (1,)*(projections.ndim-1))
+            band_energies = self.energies.reshape(
+                (1, -1)+(1,)*(projections.ndim-2))
+        else:
+            projections = np.array(1.0)
+            energy = energy.reshape((-1, 1))
+            band_energies = self.energies.reshape(1, -1)
+        
+        return band_energies, energy, projections
+
+    def _default_sigma(self):
+        E_min = self.energies.min()
+        E_max = self.energies.max()
+        N = self.energies.size
+       
+        sigma = (E_max - E_min)/np.sqrt(N)
+
+        return sigma
+
+    def dos(
+            self,
+            energy: np.ndarray | float = 0.0,
+            smearing: str = 'gaussian',
+            sigma: float | None = None,
+            spin_mult: float = 1.0,
+            projections: np.ndarray | None = None) -> np.ndarray:
+        
+        energy = np.array(energy)
+        weight = np.array(spin_mult / self.k_pts.shape[0])
+        sigma = self._default_sigma() if sigma is None else sigma
+
+        band_energies, energy, projections = \
+            self._get_dos_data(energy, projections)
+        
+        if smearing == 'gaussian':
+            return self._gaussian_dos(
+                band_energies, energy, sigma, projections, weight)
+        elif smearing == 'fermi-dirac':
+            return self._fermi_dirac_dos(
+                band_energies, energy, sigma, projections, weight)
+        else:
+            raise ValueError(
+                f'Unknown smearing type {smearing} '
+                f'(expected one of {self._idos_smearing}).')
+            
+    def idos(
+            self,
+            energy: np.ndarray | float = 0.0,
+            smearing: str = 'gaussian',
+            sigma: float | None = None,
+            spin_mult: float = 1.0,
+            projections: np.ndarray | None = None) -> np.ndarray:
+        
+        energy = np.array(energy)
+        weight = np.array(spin_mult / self.k_pts.shape[0])
+        sigma = self._default_sigma() if sigma is None else sigma
+        
+        band_energies, energy, projections = \
+            self._get_dos_data(energy, projections)
+
+        if smearing == 'gaussian':
+            return self._gaussian_idos(
+                band_energies, energy, sigma, projections, weight)
+        elif smearing == 'fermi-dirac':
+            return self._fermi_dirac_idos(
+                band_energies, energy, sigma, projections, weight)
+        else:
+            raise ValueError(
+                f'Unknown smearing type {smearing} '
+                f'(expected one of {self._dos_smearing}).')
+
+    def idos_level(
+            self,
+            n: np.ndarray,
+            smearing: str = 'fermi-dirac',
+            sigma: float = None,
+            spin_mult: float = 1.0,
+            E_guess: np.ndarray | None = None, 
+            max_evals: int = 64) -> np.ndarray:
+
+        n_max = self.energies.shape[1]*spin_mult
+        E_min, E_max = self.energies.min(), self.energies.max()
+        E_range = E_max - E_min
+
+        E_level = E_guess if E_guess is not None \
+            else (n/n_max)*E_range + E_min
+
+        for i in range(max_evals):
+            n_eval = self.idos(
+                E_level, 
+                smearing=smearing,
+                sigma=sigma,
+                spin_mult=spin_mult)
+            delta_E = (E_range)/2**(i+1)
+            delta_E[n_eval > n] *= -1
+
+            E_level += delta_E
+
+        return E_level
+
+    def band_gap(self, energy: np.ndarray | float = 0.0) -> np.ndarray:
+        _band_energies = np.sort(self.energies.flatten())
+        i = np.searchsorted(_band_energies, energy, side='right') - 1
+        i_above = np.minimum(i + 1, _band_energies.size-1)
+
+        gaps = _band_energies[i_above] - _band_energies[i]
+
+        return gaps
 
     def extract(self) -> 'BandStructure':
         return self

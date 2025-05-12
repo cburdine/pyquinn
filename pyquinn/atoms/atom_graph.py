@@ -600,7 +600,7 @@ class AtomGraph(AtomGraphBase):
         """
         raise NotImplementedError
 
-    def get_band_path(self, path: str | None = None, n_points: int = 1024):
+    def get_band_path(self, path: str | None = None, n_points: int = 2048) -> np.ndarray:
         """Generates a High-symmetry canonical band path based on the ASE
         implementation of `ase.Cell.bandpath()`. The variable `path` specifies
         a path in the first Brillouin zone, using the conventions specified in
@@ -623,10 +623,56 @@ class AtomGraph(AtomGraphBase):
         """
 
         graph_cell = self.to_ase().cell
-        frac_k_pts = graph_cell.bandpath(npoints=2048).kpts
+        frac_k_pts = graph_cell.bandpath(path=path, npoints=n_points).kpts
         cart_k_pts = graph_cell.reciprocal().cartesian_positions(frac_k_pts)
 
         return cart_k_pts
+
+    def get_rcell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
+        """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
+        the reciprocal unit cell.
+
+        Args:
+            size (tuple[int] | int, optional): A tuple of three ints (or a single int)
+                specifying the Monhorst-Pack mesh size. If a single int is passed, this
+                is used as the size of each mesh dimension. Defaults to 5.
+
+        Returns:
+            np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
+        """
+        from ase.dft.kpoints import monkhorst_pack
+
+        if isinstance(size, int):
+            size = (size, size, size)
+        
+        graph_cell = self.to_ase().cell
+        frac_mesh = monkhorst_pack(size)
+        k_mesh = graph_cell.reciprocal().cartesian_positions(frac_mesh)
+
+        return k_mesh
+
+    def get_cell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
+        """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
+        the reciprocal unit cell.
+
+        Args:
+            size (tuple[int] | int, optional): A tuple of three ints (or a single int)
+                specifying the Monhorst-Pack mesh size. If a single int is passed, this
+                is used as the size of each mesh dimension. Defaults to 5.
+
+        Returns:
+            np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
+        """
+        from ase.dft.kpoints import monkhorst_pack
+
+        if isinstance(size, int):
+            size = (size, size, size)
+        
+        graph_cell = self.to_ase().cell
+        frac_mesh = monkhorst_pack(size)
+        k_mesh = graph_cell.cartesian_positions(frac_mesh)
+
+        return k_mesh
 
     def compile(
             self,

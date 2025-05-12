@@ -61,7 +61,7 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_material'
+html_theme = 'piccolo_theme'
 
 # Set link name generated in the top bar.
 html_title = 'PyQuinn'
@@ -70,6 +70,13 @@ html_title = 'PyQuinn'
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+
+# Add custom CSS theme
+def setup(app):
+    app.add_css_file('custom.css')
+    app.add_js_file('custom.js')
+
 
 # Material theme options (see theme.conf for more information)
 html_theme_options = {
