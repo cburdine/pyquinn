@@ -219,7 +219,8 @@ class LCAOModel(HamiltonianModel):
             LCAOModel._make_logscale_basis_parameters(
                 basis=basis,
                 basis_size=basis_size,
-                shells=orbital_shells
+                shells=orbital_shells,
+                c_std=1/np.sqrt(basis_size)
             )
 
         # initialize log-scale potential gaussian parameters
@@ -233,7 +234,7 @@ class LCAOModel(HamiltonianModel):
                 basis_size=potential_basis_size,
                 shells=potential_shells,
                 c_std=0.15,
-                c_mean=-np.log(potential_basis_size) 
+                c_mean=-np.log(potential_basis_size)
             )
 
         # initialize on-site logscale energies
@@ -368,7 +369,7 @@ class LCAOModel(HamiltonianModel):
 
         # get normalized c coefficients:
         logscale_cs = self.logscale_orbital_cs[atomic_numbers]
-        cs_unnormed = torch.exp(logscale_cs)
+        cs_unnormed = torch.sinh(logscale_cs)
         cs = cs_unnormed * self._get_c_normalization_coeffs(
             atomic_numbers=atomic_numbers,
             alphas=alphas,
@@ -549,7 +550,6 @@ class LCAOModel(HamiltonianModel):
         orbital_cs = c[site_idxs, orbital_shell_block_idxs]
 
         return orbital_mus, orbital_lms, orbital_alphas, orbital_cs
-
 
     def atomic_orbital_amplitudes(
             self,
@@ -1052,7 +1052,6 @@ class TBModel(LCAOModel):
 
         return eigenstate_amps
 
-
     def hamiltonian_matrix(
             self, 
             atomic_numbers: torch.IntTensor, 
@@ -1440,7 +1439,7 @@ class VariationalLCAOModel(LCAOModel):
 
         # compute normalized c coeffficients
         logscale_cs = self.logscale_orbital_cs[atomic_numbers]
-        cs_unnormed = torch.exp(logscale_cs) + \
+        cs_unnormed = torch.sinh(logscale_cs) + \
             c_perts_flat.reshape(logscale_cs.shape)
         cs = cs_unnormed * self._get_c_normalization_coeffs(
             atomic_numbers=atomic_numbers,
@@ -1624,7 +1623,7 @@ class VariationalTBModel(TBModel):
 
         # compute normalized c coeffficients
         logscale_cs = self.logscale_orbital_cs[atomic_numbers]
-        cs_unnormed = torch.exp(logscale_cs) + \
+        cs_unnormed = torch.sinh(logscale_cs) + \
             self.variational_weight * c_perts_flat.reshape(logscale_cs.shape)
         cs = cs_unnormed * self._get_c_normalization_coeffs(
             atomic_numbers=atomic_numbers,

@@ -13,7 +13,7 @@ class TorchBandStructure(BackendBandStructure):
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32):
 
-        bands = bands.resample_bands(
+        bands = bands.downsample_bands(
             max_k_pts=max_k_pts, 
             max_bands=max_bands)
 
@@ -71,8 +71,7 @@ class TorchBandStructure(BackendBandStructure):
             energies=self.energies.to(**kwargs),
             k_pts=self.k_pts.to(**kwargs),
             projections=self.projections.to(**kwargs),
-            chemical_potential=self.chemical_potential.to(**kwargs)
-        )
+            chemical_potential=self.chemical_potential.to(**kwargs))
 
     def extract(self) -> BandStructure:
         return BandStructure(

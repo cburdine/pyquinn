@@ -74,6 +74,7 @@ class AtomwisePool(nn.Module, ABC):
             "This method should be implemented in a "
             "subclass.")
 
+
 @AtomwisePool.register('arithmetic')
 class ArithmeticPool(AtomwisePool):
 
@@ -87,7 +88,7 @@ class ArithmeticPool(AtomwisePool):
     def __init__(
             self,
             aggr='sum',
-            out_features: int = 1,
+            out_features: int | None = None,
             in_features: int | None = None,
             z_max: int = 118):
 
@@ -104,5 +105,5 @@ class ArithmeticPool(AtomwisePool):
             atomic_numbers: torch.IntTensor,
             features: torch.Tensor | None = None) -> torch.Tensor:
 
-        return self._aggr_ops[self.aggr](features, dim=-1)
+        return self._aggr_ops[self.aggr](features, dim=0)
     

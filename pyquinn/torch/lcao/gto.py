@@ -11,7 +11,7 @@ representations of gaussian atomic orbitals."""
 def _make_flat_tensors(tensor_list: list):
 
     list_shapes = torch.vstack([
-        torch.tensor(lt.shape) 
+        torch.tensor(lt.shape)
         for lt in tensor_list
     ])
     list_sizes = list_shapes.prod(-1)
@@ -114,7 +114,7 @@ _GTO_ALPHA_TENSOR = _make_gto_alpha_tensor(GTO_L_MAX)
 def _make_gto_cho_tensor(l, ijks=None) -> torch.Tensor:
     """Generates a matrix mapping the basis of l2-normalized gaussian
     functions with i+j+k=l to the basis of orthonormal 2l+1 cubic
-    harmonics with angular momentum l
+    yharmonics with angular momentum l
 
     Args:
         l (int): Angular momentum of gaussian basis functions (l = i+j+k)
@@ -186,6 +186,39 @@ _GTO_CHO_TENSORS = [
 ]
 """ List of matrices mapping gaussian bases to cubic harmonics for
 each l up to l=GTO_L_MAX."""
+
+
+def _make_gto_e3_cho_tensor(l, cho_tensor=None, ijks=None):
+
+    if ijks is None:
+        ijks = _make_gto_ijk_values(l)
+    if cho_tensor is None:
+        cho_tensor = _make_gto_cho_tensor(l, ijks)
+
+    e3_ijk_blocks = []
+    e3_cho_blocks = []
+
+    for cho_row in cho_tensor:
+        ijk_idx = cho_row.nonzero(as_tuple=True)
+        e3_ijk_blocks.append(ijks[ijk_idx])
+        e3_cho_blocks.append(cho_row[ijk_idx])
+
+    e3_ijks = torch.vstack(e3_ijk_blocks)
+    e3_cho_tensor = torch.block_diag(*e3_cho_blocks)
+
+    return e3_cho_tensor, e3_ijks
+
+
+_GTO_E3_CHO_TENSORS = []
+_GTO_E3_IJK_VALUES = []
+
+for l in range(GTO_L_MAX+1):
+    e3_cho_tensor, e3_ijks = _make_gto_e3_cho_tensor(
+        l, _GTO_CHO_TENSORS[l], 
+        _GTO_IJK_VALUES[l])
+    _GTO_E3_CHO_TENSORS.append(e3_cho_tensor)
+    _GTO_E3_IJK_VALUES.append(e3_ijks)
+
 
 _GTO_CHO_FLAT_TENSORS = _make_flat_tensors(_GTO_CHO_TENSORS)
 _GTO_IJK_FLAT_TENSORS = _make_flat_tensors(_GTO_IJK_VALUES)
@@ -1196,13 +1229,12 @@ def cho_ng_norm_coeff(
 
 def cho_overlap_matrix_metadata(
         l_i: torch.Tensor,
-        transpose: bool = False,
         sparse: bool = False) -> tuple:
     """Computes the necessary metadata tensors for a single dimension 
     (i.e. rows or columns) of a cubic harmonic orbital overlap matrix.
 
     Args:
-        l_i (torch.Tensor): A 1D sequence of angular momenta `l`
+        l_i (torch.IntTensor): A 1D sequence of angular momenta `l`
                             in the overlap matrix (shape: [I]).
         sparse (bool): If True, returns a sparse representation of
                        the cho_tensor, which is recommended if l_i
@@ -1215,13 +1247,13 @@ def cho_overlap_matrix_metadata(
         - cho_tensor (torch.Tensor): 
             A matrix representing the transformation 
             from cartesian to CHO orbitals.
-        - l_ijk (torch.Tensor): 
+        - l_ijk (torch.IntTensor): 
             A list of all cartesian ijk values for which 
             overlap orbitals are computed.
-        - l_alpha_idxs (torch.Tensor): 
+        - l_alpha_idxs (torch.IntTensor): 
             A list of indices corresponding to the alpha 
             values indexed for each block.
-        - l_block_idxs (torch.Tensor): 
+        - l_block_idxs (torch.IntTensor): 
             A tensor of starting indices for
             each block in the overlap matrix.
     """
@@ -1244,16 +1276,84 @@ def cho_overlap_matrix_metadata(
     ], dim=-1)
 
     # dynamically construct overlap matrix block indices
-    l_block_idxs = torch.cumsum(torch.tensor([
+    l_block_sizes = torch.tensor([
         _GTO_CHO_TENSORS[l.item()].shape[0]
         for l in l_i
-    ]), dim=-1)
+    ])
+    l_block_idxs = torch.cumsum(l_block_sizes, dim=-1) - l_block_sizes
 
     return cho_tensor, l_ijk, l_alpha_idxs, l_block_idxs
 
 
+def e3_cho_overlap_matrix_metadata(
+        l_i: torch.Tensor,
+        sparse: bool = True) -> tuple:
+    """Computes the necessary metadata tensors for a single dimension
+       (i.e. rows or columns) of a cubic harmonic orbital overlap matrix
+       where the orbital coefficients are equivariant, meaning they 
+       vary within each block.
+
+    Args:
+        l_i (torch.IntTensor): A 1D sequence of angular momenta `l`
+                            in the overlap matrix (shape: [I]).
+        sparse (bool, optional): If True, returns a sparse representation of
+                       the cho_tensor, which is recommended if l_i
+                       is long and contains large l values. Defaults
+                       to False.. Defaults to True.
+
+    Returns:
+        tuple: A tuple containing the following:
+
+        - cho_tensor (torch.Tensor): 
+            A matrix representing the transformation 
+            from cartesian to CHO orbitals.
+        - l_ijk (torch.ntTensor): 
+            A list of all cartesian ijk values for which 
+            overlap orbitals are computed.
+        - l_alpha_idxs (torch.ntTensor): 
+            A list of indices corresponding to the alpha 
+            values indexed for each block.
+        - l_block_idxs (torch.IntTensor): 
+            A tensor of starting indices for
+            each block in the overlap matrix.
+        - c_block_tensor (torch.IntTensor)
+    """
+
+    # dynamically construct block cho transformation matrix
+    cho_tensor_blocks = (_GTO_E3_CHO_TENSORS[l.item()] for l in l_i)
+
+    if sparse:
+        cho_tensor = sparse_coo_block_diag(*cho_tensor_blocks)
+    else:
+        cho_tensor = torch.block_diag(*cho_tensor_blocks)
+
+    # dynamically construct ijk indices
+    l_ijk = torch.cat([_GTO_E3_IJK_VALUES[l.item()] for l in l_i], dim=-2)
+
+    # dynamically construct block alpha indices and coefficients
+    l_alpha_idxs = torch.cat([
+        torch.tensor([i]*_GTO_E3_IJK_VALUES[l.item()].shape[0])
+        for i, l in enumerate(l_i)
+    ], dim=-1)
+
+    # dynamically construct overlap matrix block indices
+    c_block_sizes = torch.tensor([
+        _GTO_E3_CHO_TENSORS[l.item()].shape[0]
+        for l in l_i
+    ])
+    c_idxs = torch.cumsum(c_block_sizes, dim=0) - c_block_sizes
+
+    # dynamically construct block c indices:
+    l_c_idxs = torch.cat([
+        c_idx + _GTO_E3_CHO_TENSORS[l.item()].nonzero()[:, 0]
+        for l, c_idx in zip(l_i, c_idxs)
+    ])
+
+    return cho_tensor, l_ijk, l_alpha_idxs, l_c_idxs
+
+
 def _cho_block_data(l_i: torch.Tensor, 
-                    l_cs_i: torch.Tensor, 
+                    l_cs_i: torch.Tensor,
                     cho_data: tuple = None) -> tuple:
     """ Builds the data necessary for a cho block overlap matrix. The
         alpha and c values are padded to fit the batch size."""
@@ -1331,7 +1431,7 @@ def cho_ng_overlap_matrix(
 
     l_block_cs_1 = l_cs_1[l_alpha_idxs_1, :]
     l_block_cs_2 = l_cs_2[l_alpha_idxs_2, :]
-
+    
     M = sto_ng_overlap_matrix(
         mu_1, l_ijk_1,
         l_alphas_1, l_alpha_idxs_1, l_block_cs_1,
@@ -1416,6 +1516,164 @@ def cho_ng_potential_overlap_matrix(
     return M_X
 
 
+def e3_cho_ng_overlap_matrix(
+        mu_1: torch.Tensor, 
+        l_1: torch.IntTensor,
+        l_alphas_1: torch.Tensor,
+        e3_cs_1: torch.Tensor,
+        mu_2: torch.Tensor,
+        l_2: torch.IntTensor,
+        l_alphas_2: torch.Tensor,
+        e3_cs_2: torch.Tensor,
+        e3_cho_data_1: tuple = None,
+        e3_cho_data_2: tuple = None) -> torch.Tensor:
+    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
+    between different sites with different angular momenta blocks.
+    The blocks are evaluated for a set of alpha coefficients that are
+    fixed for each angular momentum value l, but where the coefficients 
+    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+
+    The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
+    must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
+    in `l_1` and `l_2` respectively. It is recommended that the 
+    coefficients are determined through some e3-equivariant function 
+    of the coordination
+    geometry.
+
+    Args:
+        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
+        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
+                               (shape: [I_1])
+        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
+                                   (shape: [I_1, N_1])
+        e3_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
+                               (shape: [C_1, N_1])
+        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
+        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
+                               (shape: [I_2])
+        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
+                                   (shape: [I_2, N_2])
+        e3_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
+                               (shape: [C_2, N_2])
+        e3_cho_data_1 (tuple, optional): Precomputed data tuple returned from a
+                                  call to 
+                                  `e3_cho_overlap_matrix_metadata(l_1)`.
+                                  Defaults to None.
+        e3_cho_data_2 (tuple, optional): Precomputed data tuple returned from a
+                                  call to 
+                                  `e3_cho_overlap_matrix_metadata(l_2)`.
+                                  Defaults to None.
+
+
+    Returns:
+        torch.Tensor: Pairwise overlap matrix of orbitals 
+                      (shape: [H_1, H_2]).
+    """
+    e3_cho_tensor_1, e3_ijk_1, e3_alpha_idxs_1, e3_c_idxs_1 = \
+        e3_cho_data_1 if e3_cho_data_1 is not None else \
+        e3_cho_overlap_matrix_metadata(l_1)
+
+    e3_cho_tensor_2, e3_ijk_2, e3_alpha_idxs_2, e3_c_idxs_2 = \
+        e3_cho_data_2 if e3_cho_data_2 is not None else \
+        e3_cho_overlap_matrix_metadata(l_2)
+
+    cs_1 = e3_cs_1[e3_c_idxs_1]
+    cs_2 = e3_cs_2[e3_c_idxs_2]
+
+    M = sto_ng_overlap_matrix(
+        mu_1, e3_ijk_1,
+        l_alphas_1, e3_alpha_idxs_1, cs_1,
+        mu_2, e3_ijk_2,
+        l_alphas_2, e3_alpha_idxs_2, cs_2)
+
+    M_X = e3_cho_tensor_1 @ M @ e3_cho_tensor_2.T
+
+    return M_X
+
+
+def e3_cho_ng_potential_overlap_matrix(
+        mu_1: torch.Tensor, 
+        l_1: torch.IntTensor,
+        l_alphas_1: torch.Tensor,
+        e3_cs_1: torch.Tensor,
+        gammas_1: torch.Tensor,
+        vs_1: torch.Tensor,
+        mu_2: torch.Tensor,
+        l_2: torch.IntTensor,
+        l_alphas_2: torch.Tensor,
+        e3_cs_2: torch.Tensor,
+        e3_cho_data_1: tuple = None,
+        e3_cho_data_2: tuple = None) -> torch.Tensor:
+    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
+    between blocks of orbitals under the influence of 
+    a cartesian potential function centered at the first orbital. 
+    The blocks are evaluated for a set of alpha coefficients that are
+    fixed for each angular momentum value l, but where the coefficients 
+    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+
+    The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
+    must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
+    in `l_1` and `l_2` respectively. It is recommended that the 
+    coefficients are determined through some e3-equivariant function 
+    of the coordination
+    geometry.
+
+    Args:
+        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
+        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
+                               (shape: [I_1])
+        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
+                                   (shape: [I_1, N_1])
+        e3_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
+                               (shape: [C_1, N_1])
+        gammas_1: (torch.Tensor): Gaussian widths of potential 1
+                                  (shape: [M_1])
+        vs_1: (torch.Tensor): Gaussian coefficients of potential 1
+                                  (shape: [M_1])
+        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
+        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
+                               (shape: [I_2])
+        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
+                                   (shape: [I_2, N_2])
+        e3_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
+                               (shape: [C_2, N_2])
+        e3_cho_data_1 (tuple, optional): Precomputed data tuple returned from a
+                                  call to 
+                                  `e3_cho_overlap_matrix_metadata(l_1)`.
+                                  Defaults to None.
+        e3_cho_data_2 (tuple, optional): Precomputed data tuple returned from a
+                                  call to 
+                                  `e3_cho_overlap_matrix_metadata(l_2)`.
+                                  Defaults to None.
+        
+    Returns:
+        torch.Tensor: Pairwise overlap matrix
+                      (shape: [H_1, H_2]).
+    """
+    
+    e3_cho_tensor_1, e3_ijk_1, e3_alpha_idxs_1, e3_c_idxs_1 = \
+        e3_cho_data_1 if e3_cho_data_1 is not None else \
+        e3_cho_overlap_matrix_metadata(l_1)
+
+    e3_cho_tensor_2, e3_ijk_2, e3_alpha_idxs_2, e3_c_idxs_2 = \
+        e3_cho_data_2 if e3_cho_data_2 is not None else \
+        e3_cho_overlap_matrix_metadata(l_2)
+
+    cs_1 = e3_cs_1[e3_c_idxs_1]
+    cs_2 = e3_cs_2[e3_c_idxs_2]
+
+    M = sto_ng_potential_overlap_matrix(
+        mu_1, e3_ijk_1,
+        l_alphas_1, e3_alpha_idxs_1, cs_1,
+        gammas_1, vs_1,
+        mu_2, e3_ijk_2,
+        l_alphas_2, e3_alpha_idxs_2, cs_2)
+
+    M_X = e3_cho_tensor_1 @ M @ e3_cho_tensor_2.T
+
+    return M_X
+
+
 def cho_ng_block_overlap_matrix(
         mu_1: torch.Tensor, l_1: torch.IntTensor,
         l_alphas_1: torch.Tensor, 
@@ -1428,6 +1686,9 @@ def cho_ng_block_overlap_matrix(
     """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
     between batches of identically-sized blocks of orbitals 
     with fixed angular momenta l.
+
+    (This function is currently unused, but may be helpful in the future
+     if a large fixed basis is used for all sites.)
 
     Args:
         mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
@@ -1495,6 +1756,9 @@ def cho_ng_block_potential_overlap_matrix(
     between blocks of orbitals under the influence of 
     a cartesian potential function centered at the first orbital. 
     The blocks are evaluated for a fixed set of angular momenta l.
+
+    (This function is currently unused, but may be helpful in the future
+     if a large fixed basis is used for all sites.)
 
     Args:
         mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])

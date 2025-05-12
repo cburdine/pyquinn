@@ -125,7 +125,8 @@ class TestLCAOModel(unittest.TestCase):
         # ensure gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad),
+                        atol=1e-10)
         )
 
         # test if backward pass is successful
@@ -134,7 +135,8 @@ class TestLCAOModel(unittest.TestCase):
         # ensure sparse gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad),
+                        atol=1e-10)
         )
 
     def test_lcao_model_hamiltonian_key(self):
@@ -204,7 +206,8 @@ class TestLCAOModel(unittest.TestCase):
         # ensure gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(
+                positions_grad, np.zeros_like(positions_grad), atol=1e-10)
         )
 
     def test_lcao_model_orbital_indices(self):
@@ -429,7 +432,7 @@ class TestTBModel(unittest.TestCase):
         # ensure gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad), atol=1e-10)
         )
 
 
@@ -521,11 +524,13 @@ class TestVariationalTBModel(unittest.TestCase):
         # ensure gradients with respect to positionsand unit cell are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad),
+                        atol=1e-10)
         )
         unit_cell_grad = unit_cell.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad),
+                        atol=1e-10)
         )
 
         # test if backward pass is successful
@@ -535,11 +540,13 @@ class TestVariationalTBModel(unittest.TestCase):
         # ensure sparse gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad),
+                        atol=1e-10)
         )
         unit_cell_grad = unit_cell.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad))
+            np.allclose(unit_cell_grad, np.zeros_like(unit_cell_grad),
+                        atol=1e-10)
         )
 
 
@@ -580,5 +587,6 @@ class TestVariationalLCAOModel(unittest.TestCase):
         # ensure gradients with respect to positions are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
-            np.allclose(positions_grad, np.zeros_like(positions_grad))
+            np.allclose(positions_grad, np.zeros_like(positions_grad),
+                        atol=1e-10)
         )

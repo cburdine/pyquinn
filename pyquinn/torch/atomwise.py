@@ -148,7 +148,7 @@ class AtomwiseNNConv(AtomwiseConv):
             out_features: int,
             in_features: int | None = None,
             layers: int = 1,
-            aggr: str = 'add',
+            aggr: str = 'mean',
             activation: str = 'leakyrelu',
             neighbor_nn_layers: int = 1,
             neighbor_nn_activation: str = 'leakyrelu',
@@ -236,6 +236,3 @@ class AtomwiseNNConv(AtomwiseConv):
         y = y_unnorm  # self.norm_layers[-1](y_unnorm)
 
         return y
-
-
-import pyquinn.torch.e3nn.atomwise_e3

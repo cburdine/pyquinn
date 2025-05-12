@@ -9,7 +9,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import numpy as np
-
 from tqdm import tqdm
 
 
@@ -107,7 +106,7 @@ class TorchBandStructureModel(nn.Module):
             graph: TorchAtomGraph, 
             band_structure: TorchBandStructure,
             use_projections: bool = False,
-            projection_lambda: float = 1.0):
+            projection_weight: float = 1.0):
 
         if use_projections:
 
@@ -122,7 +121,7 @@ class TorchBandStructureModel(nn.Module):
                 pred_projections=pred_projections,
                 target_projections=band_structure.projections)
 
-            loss = band_loss + projection_lambda * projection_loss
+            loss = band_loss + projection_weight * projection_loss
             
         else:
             pred_bands = self.bands(
@@ -179,16 +178,21 @@ class TorchBandStructureModel(nn.Module):
 
         return bands, band_projections
 
+    @staticmethod
+    def _collate_batch(batch):
+        return batch
+    
     def fit(self,
             train_dataset: TorchBandStructureDataset,
             val_dataset: TorchBandStructureDataset | None = None,
             epochs: int = 100,
+            batch_size: int = 1,
             lr: float = 1e-3,
             optimizer: str = 'adam',
             optimizer_kwargs: dict | None = None,
             verbosity: int = 2,
             use_projections: bool = False,
-            projection_lambda: float = 0.1) -> dict:
+            projection_weight: float = 0.1) -> dict:
         
         # initialize optimizer:
         if optimizer_kwargs is None:
@@ -199,7 +203,8 @@ class TorchBandStructureModel(nn.Module):
         optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
 
         train_dl = DataLoader(
-            train_dataset, batch_size=None, shuffle=True, num_workers=1)
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=1,
+            collate_fn=TorchBandStructureModel._collate_batch)
         val_dl = DataLoader(
             val_dataset, batch_size=None, shuffle=False)
 
@@ -220,15 +225,18 @@ class TorchBandStructureModel(nn.Module):
 
             if verbosity >= 2:
                 print(f'Epoch {n}:')
-            for graph, band_structure in dataset_iter(train_dl):
+            
+            for batch in dataset_iter(train_dl):
 
                 # try:
                 # compute loss
-                loss = self._compute_loss(
-                    graph=graph,
-                    band_structure=band_structure,
-                    use_projections=use_projections,
-                    projection_lambda=projection_lambda)
+                loss = sum(
+                    self._compute_loss(
+                        graph=graph,
+                        band_structure=band_structure,
+                        use_projections=use_projections,
+                        projection_weight=projection_weight)
+                    for graph, band_structure in batch) / batch_size
 
                 loss.backward()
                 optim.step()
@@ -249,26 +257,30 @@ class TorchBandStructureModel(nn.Module):
             val_losses = []
 
             with torch.no_grad():
-                for graph, band_structure in dataset_iter(train_dl):
+                for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    loss = self._compute_loss(
-                        graph=graph,
-                        band_structure=band_structure,
-                        use_projections=use_projections,
-                        projection_lambda=projection_lambda)
+                    loss = sum(
+                        self._compute_loss(
+                            graph=graph,
+                            band_structure=band_structure,
+                            use_projections=use_projections,
+                            projection_weight=projection_weight)
+                        for graph, band_structure in batch) / batch_size
 
                     train_losses.append(loss.detach().numpy())
 
                 if val_dataset is not None:
-                    for graph, band_structure in dataset_iter(val_dl):
+                    for batch in dataset_iter(val_dl):
                         
                         # compute validation loss
-                        loss = self._compute_loss(
-                            graph=graph, 
-                            band_structure=band_structure, 
-                            use_projections=use_projections, 
-                            projection_lambda=projection_lambda)
+                        loss = sum(
+                            self._compute_loss(
+                                graph=graph, 
+                                band_structure=band_structure, 
+                                use_projections=use_projections, 
+                                projection_weight=projection_weight)
+                            for graph, band_structure in batch) / batch_size
 
                         val_losses.append(loss.detach().numpy())
 

@@ -99,6 +99,20 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
         self.device = device
 
+    def __len__(self):
+        return len(self.graphs)
+
+    def __getitem__(self, index):
+        graph = TorchAtomGraph.load(
+            filename=self.graphs[index],
+            device=self.device)
+
+        return graph
+
+    def items(self):
+        for i in range(len(self)):
+            yield self.names[i], self[i]
+
     @staticmethod
     def load(
             cache_dir: str,
