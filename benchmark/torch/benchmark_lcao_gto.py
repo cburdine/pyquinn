@@ -51,11 +51,11 @@ def _make_gto_potential_overlap_args(
 
 python_cho_ng_overlap_matrix = cho_ng_overlap_matrix
 compiled_cho_ng_overlap_matrix = \
-    torch.compile(cho_ng_overlap_matrix)
+    torch.compile(cho_ng_overlap_matrix, dynamic=True)
 
 python_cho_ng_potential_overlap_matrix = cho_ng_potential_overlap_matrix
 compiled_cho_ng_potential_overlap_matrix = \
-    torch.compile(cho_ng_potential_overlap_matrix)
+    torch.compile(cho_ng_potential_overlap_matrix, dynamic=True)
 
 
 def benchmark_cho_overlap(results):
@@ -162,6 +162,9 @@ def benchmark_cho_potential_overlap(results):
 if __name__ == '__main__':
 
     results = []
+
+    # set cache size limit to maximum number of benchmark experiments
+    torch._dynamo.config.cache_size_limit = 16
 
     benchmark_cho_overlap(results)
     benchmark_cho_potential_overlap(results)
