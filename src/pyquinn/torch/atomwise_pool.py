@@ -106,4 +106,3 @@ class ArithmeticPool(AtomwisePool):
             features: torch.Tensor | None = None) -> torch.Tensor:
 
         return self._aggr_ops[self.aggr](features, dim=0)
-    

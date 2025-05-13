@@ -52,9 +52,9 @@ python3 ./benchmark/torch/benchmark_lcao_gto.py
 ## Feature TODO List:
 
 - [x] Add basic functionality of the `torch.lcao.gto` subpackage 
-- [ ] Add basic support for spin-paired states in the `LCAOModel` and `TBModel` modules.
-- [ ] Implement support for spin-polarized states in the `LCAOModel` and `TBModel` modules.
+- [x] Add basic support for spin-paired states in the `LCAOModel` and `TBModel` modules.
 - [ ] Add support for evaluating $\hat{x}$ and $\hat{p}$ matrices in the `LCAOModel` and `TBModel` modules. 
+- [ ] Implement support for spin-polarized states in the `LCAOModel` and `TBModel` modules.
 
 ## Development TODO List:
 

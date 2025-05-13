@@ -46,8 +46,8 @@ class AtomGraph(AtomGraphBase):
         (e.g. total energy).
 
     Example:
-        This is an example of how an `AtomGraph` object can be constructed and 
-        then compiled to the PyTorch (`torch`) backend. 
+        Here is an example of how an `AtomGraph` object can be constructed and 
+        then compiled to the PyTorch (`torch`) backend.
 
         .. code-block:: python
 

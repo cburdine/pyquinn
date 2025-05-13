@@ -3,6 +3,7 @@ from pyquinn.torch.atomwise import AtomwiseConv
 from pyquinn.torch.atomwise_pool import AtomwisePool
 from pyquinn.torch.dataset import AtomGraphDataset
 from pyquinn.torch.util import get_optimizer
+from pyquinn.models import ModelBase
 
 import torch.nn as nn
 import torch
@@ -11,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 
 
-class TorchAtomwiseModel(nn.Module):
+class TorchAtomwiseModel(nn.Module, ModelBase):
 
     def __init__(
             self,

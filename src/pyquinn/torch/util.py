@@ -17,7 +17,6 @@ SUPPORTED_TORCH_OPTIMIZERS = {
     'asgd': torch.optim.ASGD,
     'lbfgs': torch.optim.LBFGS,
     'nadam': torch.optim.NAdam,
-    'optimizer': torch.optim.Optimizer,
     'radam': torch.optim.RAdam,
     'rmsprop': torch.optim.RMSprop,
     'rprop': torch.optim.Rprop,

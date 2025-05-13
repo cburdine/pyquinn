@@ -299,7 +299,3 @@ class TorchBandStructureModel(nn.Module):
             history[k] = np.array(v)
 
         return history
-            
-
-            
-

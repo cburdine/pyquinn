@@ -1,5 +1,5 @@
-from pyquinn.torch.lcao.lcao_hamiltonian import TBModel
-from pyquinn.torch.e3nn.atomwise_e3 import AtomwiseE3Conv, _scalar_irreps
+from pyquinn.backends.torch.lcao.lcao_hamiltonian import TBModel
+from pyquinn.torch.lcao.atomwise_e3 import AtomwiseE3Conv, _scalar_irreps
 from pyquinn.torch.lcao.gto import (
     e3_cho_ng_potential_overlap_matrix, 
     e3_cho_overlap_matrix_metadata,
