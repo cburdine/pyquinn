@@ -1,13 +1,12 @@
 import unittest
 from tempfile import TemporaryDirectory
 
-from pyquinn.atoms.bandstructure_dataset import (
+from pyquinn.types.bandstructure_dataset import (
     BandStructureDataset,
     SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS
 )
-from pyquinn.atoms.atom_graph import AtomGraph
-from pyquinn.atoms.bandstructure import BandStructure
-from pyquinn.atoms.atom_data import ATOMIC_SYMBOLS
+from pyquinn.types.atom_graph import AtomGraph
+from pyquinn.types.bandstructure import BandStructure
 
 import numpy as np
 

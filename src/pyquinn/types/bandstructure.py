@@ -1,13 +1,16 @@
 import pickle
 from abc import abstractmethod, ABC
 
+from pyquinn.types.backend import _load_backend_object
+
 import numpy as np
 from scipy.special import erf
 
 
-SUPPORTED_BANDSTRUCTURE_BACKENDS = []
-""" The full list of bandstructure backends 
-    supported by default"""
+SUPPORTED_BANDSTRUCTURE_BACKENDS = {
+    'torch': 'pyquinn.torch.types.TorchBandStructure'
+}
+""" The supported backend BandStructure objects"""
 
 
 class BandStructureBase:
@@ -33,8 +36,6 @@ class BandStructure(BandStructureBase):
     def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in BandStructure._backends:
-                SUPPORTED_BANDSTRUCTURE_BACKENDS.append(name)
             BandStructure._backends[name] = subclass
             return subclass
         return decorator
@@ -136,7 +137,12 @@ class BandStructure(BandStructureBase):
         self._validate_energies()
 
         if backend not in BandStructure._backends:
-            raise ValueError(f'Unknown Backend Type: {backend}')
+            if backend in SUPPORTED_BANDSTRUCTURE_BACKENDS:
+                path = SUPPORTED_BANDSTRUCTURE_BACKENDS[backend]
+                BandStructure._backends[backend] = \
+                    _load_backend_object(backend, path)
+            else:
+                raise ValueError(f'Unknown Backend Type: {backend}')
 
         return BandStructure._backends[backend].compile(
             bands=self,
@@ -201,7 +207,8 @@ class BandStructure(BandStructureBase):
         
         # compute Gaussian dos
         unnorm_dos = np.sum(
-            projections * 0.5*(1.0 + erf((energy - band_energies)/sigma)), axis=1)
+            projections * 0.5*(1.0 + erf((energy - band_energies)/sigma)), 
+            axis=1)
         dos = weight * unnorm_dos
 
         return dos
@@ -409,4 +416,4 @@ class BackendBandStructure(ABC, BandStructureBase):
 
 
 # import supported BackendBandStructures
-import pyquinn.torch.bandstructure # noqa
+#import pyquinn.torch.types.bandstructure # noqa

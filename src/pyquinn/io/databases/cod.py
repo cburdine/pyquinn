@@ -4,7 +4,7 @@ from contextlib import ExitStack
 import tempfile
 
 from pyquinn.io.data_source import Database
-from pyquinn.atoms import AtomGraph
+from pyquinn.types import AtomGraph
 
 
 class COD(Database):

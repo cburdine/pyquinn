@@ -4,7 +4,7 @@ import warnings
 import numpy as np
 import torch
 
-from pyquinn.torch.eigensolver import (
+from pyquinn.torch.nn.eigensolver import (
     Eigensolver, SUPPORTED_EIGENSOLVERS,
     EighEigensolver,
     LobpcgEigensolver

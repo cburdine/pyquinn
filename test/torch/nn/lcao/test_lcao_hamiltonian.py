@@ -3,7 +3,7 @@ import torch
 
 import numpy as np
 
-from pyquinn.torch.lcao.lcao_hamiltonian import (
+from pyquinn.torch.nn.lcao import (
     LCAOModel,
     TBModel,
     VariationalLCAOModel,

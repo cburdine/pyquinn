@@ -5,12 +5,11 @@ import torch
 from torch_geometric.utils import scatter
 import numpy as np
 
-from pyquinn.torch.atomwise import (
+from pyquinn.torch.nn.atomwise import (
     AtomwiseConv, 
     _get_neighbor_distance_edgelist
 )
 from pyquinn.torch.util import get_activation_fn
-from pyquinn.torch.lcao.gto import _ELEMENT_CHO_VALENCE_SHELLS
 
 
 def _scalar_irreps(n: int | None):
@@ -207,155 +206,155 @@ class AtomwiseE3Conv(AtomwiseConv):
         return f_out
 
 
-class AtomicOrbitalE3Conv(AtomwiseE3Conv):
+# class AtomicOrbitalE3Conv(AtomwiseE3Conv):
 
-    @staticmethod
-    def _make_orbital_shells_irrep_map(
-            orbital_shells: dict, 
-            z_max: int = 118) -> torch.tensor:
+#     @staticmethod
+#     def _make_orbital_shells_irrep_map(
+#             orbital_shells: dict, 
+#             z_max: int = 118) -> torch.tensor:
 
-        # determine how many instances of each irrep (shell) are needed
-        l_max = max(np.max(l_arr) for l_arr in orbital_shells.keys())
-        l_unique_shell_counts = np.zeros(l_max+1, dtype=np.int64)
-        shell_l_counts = {}
+#         # determine how many instances of each irrep (shell) are needed
+#         l_max = max(np.max(l_arr) for l_arr in orbital_shells.keys())
+#         l_unique_shell_counts = np.zeros(l_max+1, dtype=np.int64)
+#         shell_l_counts = {}
 
-        for z, l_arr in orbital_shells.items():
-            if z <= z_max:
-                l_counts = np.zeros(l_max+1, dtype=np.int64)
-                ls, counts = np.unique_counts(l_arr)
-                ls_nz = (ls >= 0)
-                ls, counts = ls[ls_nz], counts[ls_nz]
-                l_counts[ls] += counts
-                shell_l_counts[z] = l_counts
-                l_unique_shell_counts = \
-                    np.maximum(l_unique_shell_counts, l_counts)
+#         for z, l_arr in orbital_shells.items():
+#             if z <= z_max:
+#                 l_counts = np.zeros(l_max+1, dtype=np.int64)
+#                 ls, counts = np.unique_counts(l_arr)
+#                 ls_nz = (ls >= 0)
+#                 ls, counts = ls[ls_nz], counts[ls_nz]
+#                 l_counts[ls] += counts
+#                 shell_l_counts[z] = l_counts
+#                 l_unique_shell_counts = \
+#                     np.maximum(l_unique_shell_counts, l_counts)
 
-        # determine the minimal set of unique shells for building irreps
-        l_unique_idxs = np.cumsum(l_unique_shell_counts) - \
-            l_unique_shell_counts
-        l_unique_shells = np.zeros(l_unique_shell_counts.sum(), dtype=np.int64)
-        for l, count in enumerate(l_unique_shell_counts):
-            idx = l_unique_idxs[l]
-            l_unique_shells[idx:idx+count] = l
+#         # determine the minimal set of unique shells for building irreps
+#         l_unique_idxs = np.cumsum(l_unique_shell_counts) - \
+#             l_unique_shell_counts
+#         l_unique_shells = np.zeros(l_unique_shell_counts.sum(), dtype=np.int64)
+#         for l, count in enumerate(l_unique_shell_counts):
+#             idx = l_unique_idxs[l]
+#             l_unique_shells[idx:idx+count] = l
         
-        # populate unique shell map, which maps unique irreps -> shells
-        # (shells with an index of -1 are ignored)
-        l_unique_shell_map = np.full((z_max + 1, l_unique_shells.shape[0]), -1)
-        for z, l_arr in orbital_shells.items():
-            if z <= z_max:
-                l_counts = np.zeros(l_max+1, dtype=np.int64)
-                for l in l_arr:
-                    if l >= 0:
-                        l_unique_shell_map[z, l_unique_idxs[l]+l_counts[l]]
-                        l_counts[l] += 1
+#         # populate unique shell map, which maps unique irreps -> shells
+#         # (shells with an index of -1 are ignored)
+#         l_unique_shell_map = np.full((z_max + 1, l_unique_shells.shape[0]), -1)
+#         for z, l_arr in orbital_shells.items():
+#             if z <= z_max:
+#                 l_counts = np.zeros(l_max+1, dtype=np.int64)
+#                 for l in l_arr:
+#                     if l >= 0:
+#                         l_unique_shell_map[z, l_unique_idxs[l]+l_counts[l]]
+#                         l_counts[l] += 1
         
-        l_unique_shells = torch.tensor(l_unique_shells, dtype=torch.int64)
-        l_unique_shell_map = torch.tensor(
-            l_unique_shell_map, dtype=torch.int64)
+#         l_unique_shells = torch.tensor(l_unique_shells, dtype=torch.int64)
+#         l_unique_shell_map = torch.tensor(
+#             l_unique_shell_map, dtype=torch.int64)
 
-        return l_unique_shells, l_unique_shell_map
+#         return l_unique_shells, l_unique_shell_map
 
-    def __init__(
-            self,
-            orbital_shells: dict | None = None,
-            out_orbital_features: int = 1,
-            in_features: o3.Irreps | None = None,
-            hidden_orbital_features: int = 16,
-            layers: int = 1,
-            activation: str = 'leakyrelu',
-            o3_basis: str = 'xyz',
-            l_max: int = 2,
-            r_max: float = 5.0,
-            r_points: int = 32,
-            z_max: int = 118):
+#     def __init__(
+#             self,
+#             orbital_shells: dict | None = None,
+#             out_orbital_features: int = 1,
+#             in_features: o3.Irreps | None = None,
+#             hidden_orbital_features: int = 16,
+#             layers: int = 1,
+#             activation: str = 'leakyrelu',
+#             o3_basis: str = 'xyz',
+#             l_max: int = 2,
+#             r_max: float = 5.0,
+#             r_points: int = 32,
+#             z_max: int = 118):
 
-        if not isinstance(in_features, o3.Irreps):
-            in_features = _scalar_irreps(in_features)
-        self.site_feature_irreps = in_features
+#         if not isinstance(in_features, o3.Irreps):
+#             in_features = _scalar_irreps(in_features)
+#         self.site_feature_irreps = in_features
 
-        # use default valence shells to start and override with supplied values
-        orbital_shells = {} if orbital_shells is None else orbital_shells
-        orbital_shells = _ELEMENT_CHO_VALENCE_SHELLS | orbital_shells
+#         # use default valence shells to start and override with supplied values
+#         orbital_shells = {} if orbital_shells is None else orbital_shells
+#         orbital_shells = _ELEMENT_CHO_VALENCE_SHELLS | orbital_shells
 
-        self.unique_shells, self.unique_shells_map = \
-            AtomicOrbitalE3Conv._make_orbital_shells_irrep_map(
-                orbital_shells=orbital_shells,
-                z_max=z_max)
+#         self.unique_shells, self.unique_shells_map = \
+#             AtomicOrbitalE3Conv._make_orbital_shells_irrep_map(
+#                 orbital_shells=orbital_shells,
+#                 z_max=z_max)
 
-        self.in_orbital_irreps = o3.Irreps([
-            (1, (int(l), (-1)**int(l))) for l in self.unique_shells
-        ])
+#         self.in_orbital_irreps = o3.Irreps([
+#             (1, (int(l), (-1)**int(l))) for l in self.unique_shells
+#         ])
 
-        self.out_orbital_irreps = o3.Irreps([
-            (out_orbital_features, (int(l), (-1)**int(l)))
-            for l in self.unique_shells
-        ])
+#         self.out_orbital_irreps = o3.Irreps([
+#             (out_orbital_features, (int(l), (-1)**int(l)))
+#             for l in self.unique_shells
+#         ])
 
-        self.hidden_orbital_irreps = o3.Irreps([
-            (hidden_orbital_features, (int(l), (-1)**int(l)))
-            for l in self.unique_shells
-        ])
+#         self.hidden_orbital_irreps = o3.Irreps([
+#             (hidden_orbital_features, (int(l), (-1)**int(l)))
+#             for l in self.unique_shells
+#         ])
 
-        super().__init__(
-            out_features=self.out_orbital_irreps,
-            in_features=self.site_feature_irreps+self.in_orbital_irreps,
-            hidden_features=self.hidden_orbital_irreps,
-            layers=layers,
-            activation=activation,
-            o3_basis=o3_basis,
-            l_max=l_max,
-            r_max=r_max,
-            r_points=r_points,
-            z_max=z_max
-        )
+#         super().__init__(
+#             out_features=self.out_orbital_irreps,
+#             in_features=self.site_feature_irreps+self.in_orbital_irreps,
+#             hidden_features=self.hidden_orbital_irreps,
+#             layers=layers,
+#             activation=activation,
+#             o3_basis=o3_basis,
+#             l_max=l_max,
+#             r_max=r_max,
+#             r_points=r_points,
+#             z_max=z_max
+#         )
 
-    def forward(
-            self,
-            atomic_numbers,
-            neighbors,
-            neighbor_distances,
-            features,
-            **kwargs):
+#     def forward(
+#             self,
+#             atomic_numbers,
+#             neighbors,
+#             neighbor_distances,
+#             features,
+#             **kwargs):
 
-        # generate edge list between neighboring atoms (the "bond pairs")
-        bond_pairs, bond_distances = \
-            _get_neighbor_distance_edgelist(
-                neighbors=neighbors, distances=neighbor_distances)
+#         # generate edge list between neighboring atoms (the "bond pairs")
+#         bond_pairs, bond_distances = \
+#             _get_neighbor_distance_edgelist(
+#                 neighbors=neighbors, distances=neighbor_distances)
 
-        atom_neighbors = torch.sum(neighbors >= 0, dim=-1, keepdim=True)
+#         atom_neighbors = torch.sum(neighbors >= 0, dim=-1, keepdim=True)
         
-        # combine features into a feature tensor
-        atom_features = self._get_atom_features(atomic_numbers, features)
+#         # combine features into a feature tensor
+#         atom_features = self._get_atom_features(atomic_numbers, features)
 
-        f = torch.cat(atom_features)
+#         f = torch.cat(atom_features)
 
-        # get the "bond features" from the atomic distances
-        bond_features = e3nn.math.soft_one_hot_linspace(
-            bond_distances.norm(dim=1),
-            start=0.0,
-            end=self.r_max,
-            number=self.r_points,
-            basis='smooth_finite',
-            cutoff=True,
-        )
+#         # get the "bond features" from the atomic distances
+#         bond_features = e3nn.math.soft_one_hot_linspace(
+#             bond_distances.norm(dim=1),
+#             start=0.0,
+#             end=self.r_max,
+#             number=self.r_points,
+#             basis='smooth_finite',
+#             cutoff=True,
+#         )
 
-        sh = o3.spherical_harmonics(
-            self.neighbor_irreps, 
-            bond_distances,
-            normalize=True, 
-            normalization='component')
+#         sh = o3.spherical_harmonics(
+#             self.neighbor_irreps, 
+#             bond_distances,
+#             normalize=True, 
+#             normalization='component')
 
-        for tp, edge_nn in zip(self.irrep_tps, self.edge_nns):
-            tp_weights = edge_nn(bond_features)
-            f = scatter(
-                tp(f[bond_pairs[0]], sh, tp_weights),
-                bond_pairs[1],
-                dim=0,
-                dim_size=atomic_numbers.shape[0]).div(atom_neighbors**0.5)
+#         for tp, edge_nn in zip(self.irrep_tps, self.edge_nns):
+#             tp_weights = edge_nn(bond_features)
+#             f = scatter(
+#                 tp(f[bond_pairs[0]], sh, tp_weights),
+#                 bond_pairs[1],
+#                 dim=0,
+#                 dim_size=atomic_numbers.shape[0]).div(atom_neighbors**0.5)
 
-        f_out = f @ self.D_output_transform
+#         f_out = f @ self.D_output_transform
 
-        return f_out
+#         return f_out
 
         
 

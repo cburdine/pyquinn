@@ -1,17 +1,18 @@
 from abc import ABC, abstractmethod
 
-from pyquinn.atoms.atom_graph import AtomGraph
-from pyquinn.atoms.dataset import AtomGraphDataset
-from pyquinn.atoms.bandstructure import BandStructure
+from pyquinn.types import (
+    AtomGraph, AtomGraphDataset, BandStructure
+)
+from pyquinn.types.backend import _load_backend_object
 
 from tqdm import tqdm
 from glob import glob
 import os
-import numpy as np
 
-SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = []
-""" The full list of dataset backends supported by default"""
-
+SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = {
+    'torch': 'pyquinn.torch.types.TorchBandStructureDataset'
+}
+""" The supported backend BandStructureDataset objects"""
 
 class BandStructureDatasetBase:
     """ Base class for BandStructureDataset instances"""
@@ -25,8 +26,6 @@ class BandStructureDataset(BandStructureDatasetBase):
     def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in BandStructureDataset._backends:
-                SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS.append(name)
             BandStructureDataset._backends[name] = subclass
             return subclass
         return decorator
@@ -138,7 +137,12 @@ class BandStructureDataset(BandStructureDatasetBase):
             **backend_kwargs):
 
         if backend not in BandStructureDataset._backends:
-            raise ValueError(f'Unknown Backend Type: {backend}')
+            if backend in SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS:
+                path = SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS[backend]
+                BandStructureDataset._backends[backend] = \
+                    _load_backend_object(backend, path)
+            else:
+                raise ValueError(f'Unknown Backend Type: {backend}')
 
         # verify all names are unique:
         self._validate_names()
@@ -226,6 +230,3 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
     @abstractmethod
     def load(cache_dir: str):
         pass
-
-# import supported BackendBandStructureDatasets
-import pyquinn.torch.bandstructure_dataset # noqa

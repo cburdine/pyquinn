@@ -1,5 +1,7 @@
-from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
-from pyquinn.atoms.atom_data import (
+from pyquinn.types import AtomGraph
+from pyquinn.types.atom_graph import BackendAtomGraph
+
+from pyquinn.util.data import (
     ATOM_COLORS, ATOMIC_NUMBERS, ATOMIC_COVALENT_RADII,
     ATOMIC_SYMBOLS
 )

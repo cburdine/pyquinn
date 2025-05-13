@@ -1,6 +1,8 @@
-from pyquinn.atoms.dataset import AtomGraphDataset, BackendAtomGraphDataset
-from pyquinn.atoms.atom_graph import AtomGraph
-from pyquinn.torch.atom_graph import TorchAtomGraph
+from pyquinn.types.dataset import (
+    AtomGraphDataset, BackendAtomGraphDataset
+)
+from pyquinn.types import AtomGraph
+from pyquinn.torch.types import TorchAtomGraph
 
 import torch
 from torch.utils.data import Dataset

@@ -1,11 +1,8 @@
 import unittest
-import torch
 import numpy as np
 
-from pyquinn.torch.e3nn.lcao_hamiltonian_e3 import (
-    VariationalE3TBModel,
-    _make_shell_irrep_map
-)
+from pyquinn.torch.nn.lcao import VariationalE3TBModel
+from pyquinn.torch.nn.lcao.lcao_hamiltonian_e3 import _make_shell_irrep_map
 
 
 class TestVariationalTBModel(unittest.TestCase):

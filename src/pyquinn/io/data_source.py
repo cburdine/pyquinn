@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 from contextlib import ExitStack
 import re
 
-from pyquinn.atoms.atom_graph import AtomGraph
-from pyquinn.atoms.atom_data import ATOMIC_NUMBERS
+from pyquinn.types import AtomGraph
+from pyquinn.util.data import ATOMIC_NUMBERS
+
 
 class DataSource(ABC):
 

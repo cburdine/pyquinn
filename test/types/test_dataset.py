@@ -1,8 +1,8 @@
 import unittest
 from tempfile import TemporaryDirectory
 
-from pyquinn.atoms.dataset import AtomGraphDataset, SUPPORTED_DATASET_BACKENDS
-from pyquinn.atoms.atom_graph import AtomGraph
+from pyquinn.types.dataset import AtomGraphDataset, SUPPORTED_DATASET_BACKENDS
+from pyquinn.types.atom_graph import AtomGraph
 
 import numpy as np
 

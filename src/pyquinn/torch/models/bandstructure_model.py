@@ -1,7 +1,7 @@
-from pyquinn.torch.atom_graph import TorchAtomGraph
-from pyquinn.torch.lcao.lcao_hamiltonian import TBModel, VariationalTBModel
-from pyquinn.torch.bandstructure_dataset import TorchBandStructureDataset
-from pyquinn.torch.bandstructure import TorchBandStructure
+from pyquinn.torch.types.atom_graph import TorchAtomGraph
+from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBModel, VariationalTBModel
+from pyquinn.torch.types.bandstructure_dataset import TorchBandStructureDataset
+from pyquinn.torch.types.bandstructure import TorchBandStructure
 from pyquinn.torch.util import get_optimizer
 
 import torch

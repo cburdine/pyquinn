@@ -4,7 +4,7 @@ import warnings
 import numpy as np
 import torch
 
-from pyquinn.torch.atomwise import (
+from pyquinn.torch.nn import (
     AtomwiseNNConv
 )
 

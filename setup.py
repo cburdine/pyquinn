@@ -6,12 +6,15 @@ INSTALL_REQUIRES = [
     'tqdm',
     'ase',
     'torch',
-    'torch_geometric'
+    'torch_geometric',
+    'e3nn'
 ]
 
 setup(
     name='pyquinn',
     version='0.1',
     install_requires=INSTALL_REQUIRES,
-    packages=find_packages()
+    description='A package for building Quantum-Informed Neural Networks.',
+    packages=find_packages(where='src'),
+    package_dir={'': 'src'},  # Tells setuptools that packages are inside src/
 )

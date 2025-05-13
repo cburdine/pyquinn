@@ -1,5 +1,5 @@
-from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
-from pyquinn.atoms.geometry import build_dense_neighbor_list
+from pyquinn.types.atom_graph import AtomGraph, BackendAtomGraph
+from pyquinn.util.geometry import build_dense_neighbor_list
 import torch
 
 @AtomGraph.register_backend('torch')

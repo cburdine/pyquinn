@@ -2,7 +2,7 @@ import unittest
 
 import torch
 import numpy as np
-from pyquinn.torch.lcao.gto import (
+from pyquinn.torch.nn.lcao.gto import (
     _make_gto_cho_tensor, 
     gaussian_3d, l1_gaussian_3d, l2_gaussian_3d, 
     gto, sto_ng, potential_gto, potential_ng, sto_ng_norm_coeff,

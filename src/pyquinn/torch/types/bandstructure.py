@@ -1,5 +1,4 @@
-from pyquinn.atoms.bandstructure import BandStructure, BackendBandStructure
-
+from pyquinn.types.bandstructure import BandStructure, BackendBandStructure
 import torch
 
 @BandStructure.register_backend('torch')

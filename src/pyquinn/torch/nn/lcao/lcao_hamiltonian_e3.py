@@ -1,6 +1,8 @@
-from pyquinn.backends.torch.lcao.lcao_hamiltonian import TBModel
-from pyquinn.torch.lcao.atomwise_e3 import AtomwiseE3Conv, _scalar_irreps
-from pyquinn.torch.lcao.gto import (
+from pyquinn.torch.nn.lcao import TBModel
+from pyquinn.torch.nn import AtomwiseE3Conv
+
+from pyquinn.torch.nn.atomwise_e3 import _scalar_irreps
+from pyquinn.torch.nn.lcao.gto import (
     e3_cho_ng_potential_overlap_matrix, 
     e3_cho_overlap_matrix_metadata,
     cho_ng_norm_coeff
@@ -19,7 +21,8 @@ def _make_atomwise_e3_nn(
 
     nn_kwargs = {} if nn_kwargs is None else nn_kwargs
 
-    # if AtomwiseConv instance given, check that input/output features are correct:
+    # if AtomwiseConv instance given, check that input/output features 
+    # are correct
     if isinstance(nn, AtomwiseE3Conv):
         if nn.in_irreps.dim != in_irreps.dim:
             raise ValueError(

@@ -1,12 +1,13 @@
-from pyquinn.atoms.bandstructure import BandStructure
-from pyquinn.atoms.dataset import AtomGraphDataset
-from pyquinn.atoms.bandstructure_dataset import (
+from pyquinn.types import BandStructure, AtomGraphDataset
+from pyquinn.types.bandstructure_dataset import (
     BandStructureDataset, 
     BackendBandStructureDataset
 )
-from pyquinn.torch.dataset import TorchAtomGraphDataset
-from pyquinn.torch.bandstructure import TorchBandStructure
-from pyquinn.torch.atom_graph import TorchAtomGraph
+from pyquinn.torch.types import (
+    TorchAtomGraphDataset,
+    TorchBandStructure,
+    TorchAtomGraph,
+)
 
 import os
 from glob import glob

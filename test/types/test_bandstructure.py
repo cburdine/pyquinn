@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-from pyquinn.atoms.bandstructure import BandStructure
+from pyquinn.types.bandstructure import BandStructure
 
 
 class BandStructureTest(unittest.TestCase):

@@ -4,14 +4,17 @@ import numpy as np
 import pickle
 from abc import abstractmethod, ABC
 
-from pyquinn.atoms.atom_data import (
+from pyquinn.util.data import (
     ATOMIC_NUMBERS, ATOMIC_SYMBOLS, 
     NATURAL_CUTOFFS_DICT, NATURAL_MASSES_DICT
 )
-from pyquinn.atoms.geometry import build_neighbor_list
+from pyquinn.util.geometry import build_neighbor_list
+from pyquinn.types.backend import _load_backend_object
 
-SUPPORTED_BACKENDS = []
-""" The full list of backends supported by default"""
+SUPPORTED_BACKENDS = {
+    'torch': 'pyquinn.torch.types.TorchAtomGraph'
+}
+""" The supported backend AtomGraph objects"""
 
 
 class AtomGraphBase:
@@ -95,17 +98,12 @@ class AtomGraph(AtomGraphBase):
                 def extract(...):
                     ...
 
-        The registered backend will be added to 
-        :attr:`SUPPORTED_BACKENDS
-        <pyquinn.atoms.SUPPORTED_BACKENDS>`
-
         Args:
             name (str): BackendAtomGraph class to be registered.
         """
 
         def decorator(subclass):
-            if name not in AtomGraph._backends:
-                SUPPORTED_BACKENDS.append(name)
+            
             AtomGraph._backends[name] = subclass
             return subclass
         return decorator
@@ -600,7 +598,10 @@ class AtomGraph(AtomGraphBase):
         """
         raise NotImplementedError
 
-    def get_band_path(self, path: str | None = None, n_points: int = 2048) -> np.ndarray:
+    def get_band_path(
+            self, 
+            path: str | None = None, 
+            n_points: int = 2048) -> np.ndarray:
         """Generates a High-symmetry canonical band path based on the ASE
         implementation of `ase.Cell.bandpath()`. The variable `path` specifies
         a path in the first Brillouin zone, using the conventions specified in
@@ -633,9 +634,10 @@ class AtomGraph(AtomGraphBase):
         the reciprocal unit cell.
 
         Args:
-            size (tuple[int] | int, optional): A tuple of three ints (or a single int)
-                specifying the Monhorst-Pack mesh size. If a single int is passed, this
-                is used as the size of each mesh dimension. Defaults to 5.
+            size (tuple[int] | int, optional): A tuple of three ints 
+                (or a single int) specifying the Monhorst-Pack mesh 
+                size. If a single int is passed, this is used as the size 
+                of each mesh dimension. Defaults to 5.
 
         Returns:
             np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
@@ -656,9 +658,10 @@ class AtomGraph(AtomGraphBase):
         the reciprocal unit cell.
 
         Args:
-            size (tuple[int] | int, optional): A tuple of three ints (or a single int)
-                specifying the Monhorst-Pack mesh size. If a single int is passed, this
-                is used as the size of each mesh dimension. Defaults to 5.
+            size (tuple[int] | int, optional): A tuple of three ints 
+                (or a single int) specifying the Monhorst-Pack mesh 
+                size. If a single int is passed, this is used as the 
+                size of each mesh dimension. Defaults to 5.
 
         Returns:
             np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
@@ -716,7 +719,12 @@ class AtomGraph(AtomGraphBase):
         atomic_numbers = self._resolve_atomic_numbers(symbols)
 
         if backend not in AtomGraph._backends:
-            raise ValueError(f'Unknown Backend Type: {backend}')
+            if backend in SUPPORTED_BACKENDS:
+                path = SUPPORTED_BACKENDS[backend]
+                AtomGraph._backends[backend] = \
+                    _load_backend_object(backend, path)
+            else:
+                raise ValueError(f'Unknown Backend Type: {backend}')
 
         return AtomGraph._backends[backend].compile(
             graph=self,
@@ -869,6 +877,3 @@ class BackendAtomGraph(ABC, AtomGraphBase):
             filename (str): The name of the pickle file to save.
         """
         pass
-
-# import supported BackendAtomGraphs
-import pyquinn.torch.atom_graph # noqa

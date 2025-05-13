@@ -1,9 +1,22 @@
-
+from pyquinn.types.atom_graph import AtomGraph, BackendAtomGraph
 
 _PLOT_ATOMS_BACKENDS = [
     'plotly',
     'mpl'
 ]
+
+def _get_backend(backend: str) -> 'plotter':
+
+    if backend == 'mpl':
+        import pyquinn.plot.mpl as plotter
+    elif backend == 'plotly'
+        import pyquinn.plot.plotly as plotter
+    else:
+        raise ValueError(
+            f'Unknown backend type {backend} for plot_atoms() '
+            f'(expected one of {_PLOT_ATOMS_BACKENDS}).')
+
+    return plotter
 
 def plot_atoms(
         atoms: AtomGraph | BackendAtomGraph,
@@ -17,14 +30,6 @@ def plot_atoms(
         show: bool = True,
         **backend_kwargs):
 
-    if backend == 'mpl':
-        from pyquinn.plot.mpl as plotter
-    elif backend == 'plotly'
-        import pyquinn.plot.plotly as plotter
-    else:
-        raise ValueError(
-            f'Unknown backend type {backend} for plot_atoms() '
-            f'(expected one of {_PLOT_ATOMS_BACKENDS}).')
 
     return plotter.plot_atoms(
         atoms=atoms,

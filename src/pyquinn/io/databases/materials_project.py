@@ -4,7 +4,7 @@ from contextlib import ExitStack
 import numpy as np
 
 from pyquinn.io.data_source import Database
-from pyquinn.atoms import AtomGraph, BandStructure
+from pyquinn.types import AtomGraph, BandStructure
 
 
 class MaterialsProject(Database):

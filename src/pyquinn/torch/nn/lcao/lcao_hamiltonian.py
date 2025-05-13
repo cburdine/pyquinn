@@ -1,8 +1,8 @@
-from pyquinn.torch.hamiltonian import HamiltonianModel
-from pyquinn.torch.eigensolver import Eigensolver
-from pyquinn.torch.atomwise import AtomwiseConv
+from pyquinn.torch.nn.hamiltonian import HamiltonianModel
+from pyquinn.torch.nn.eigensolver import Eigensolver
+from pyquinn.torch.nn.atomwise import AtomwiseConv
 
-from pyquinn.torch.lcao.gto import (
+from pyquinn.torch.nn.lcao.gto import (
     _ELEMENT_CHO_VALENCE_SHELLS,
     GTO_L_MAX,
     cho_ng_potential_overlap_matrix,

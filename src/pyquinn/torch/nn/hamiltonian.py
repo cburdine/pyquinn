@@ -4,7 +4,7 @@ from abc import abstractmethod
 import torch.nn as nn
 import torch
 
-from pyquinn.torch.eigensolver import Eigensolver
+from pyquinn.torch.nn.eigensolver import Eigensolver
 
 
 class HamiltonianModel(nn.Module):

@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod
 import os
 
-from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
+from pyquinn.types import AtomGraph
+from pyquinn.types.backend import _load_backend_object
 
 from tqdm import tqdm
 from glob import glob
 
-SUPPORTED_DATASET_BACKENDS = []
-""" The full list of dataset backends supported by default"""
+SUPPORTED_DATASET_BACKENDS = {
+    'torch': 'pyquinn.torch.types.TorchAtomGraphDataset'
+}
+""" The supported backend AtomGraphDataset objects"""
 
 
 class AtomGraphDatasetBase:
@@ -22,8 +25,6 @@ class AtomGraphDataset(AtomGraphDatasetBase):
     def register_backend(name: str):
 
         def decorator(subclass):
-            if name not in AtomGraphDataset._backends:
-                SUPPORTED_DATASET_BACKENDS.append(name)
             AtomGraphDataset._backends[name] = subclass
             return subclass
         return decorator
@@ -131,7 +132,11 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             **backend_kwargs) -> 'BackendAtomGraphDataset':
 
         if backend not in AtomGraphDataset._backends:
-            raise ValueError(f'Unknown Backend Type: {backend}')
+            if backend in SUPPORTED_DATASET_BACKENDS:
+                path = SUPPORTED_DATASET_BACKENDS[backend]
+                AtomGraphDataset[backend] = _load_backend_object(backend, path)
+            else:
+                raise ValueError(f'Unknown Backend Type: {backend}')
 
         # verify all names are unique:
         self._validate_names()
@@ -212,4 +217,4 @@ class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
         pass
 
 # import supported BackendAtomGraphDatasets
-import pyquinn.torch.dataset # noqa
+#import pyquinn.torch.types.dataset # noqa

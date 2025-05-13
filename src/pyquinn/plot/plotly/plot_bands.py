@@ -1,6 +1,10 @@
-from pyquinn.atoms.atom_graph import AtomGraph, BackendAtomGraph
-from pyquinn.atoms.bandstructure import BandStructure, BackendBandStructure
-from pyquinn.atoms.geometry import get_special_k_pts, get_special_kpath_folds
+from pyquinn.types import AtomGraph, BandStructure
+from pyquinn.types.atom_graph import BackendAtomGraph
+from pyquinn.types.bandstructure import BackendBandStructure
+from pyquinn.util.geometry import (
+    get_special_k_pts, 
+    get_special_kpath_folds
+)
 
 import plotly.graph_objects as go
 import numpy as np

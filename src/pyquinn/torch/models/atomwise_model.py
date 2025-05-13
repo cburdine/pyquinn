@@ -1,7 +1,7 @@
-from pyquinn.torch.atom_graph import TorchAtomGraph
-from pyquinn.torch.atomwise import AtomwiseConv
-from pyquinn.torch.atomwise_pool import AtomwisePool
-from pyquinn.torch.dataset import AtomGraphDataset
+from pyquinn.torch.types import TorchAtomGraph
+from pyquinn.torch.nn.atomwise import AtomwiseConv
+from pyquinn.torch.nn.atomwise_pool import AtomwisePool
+from pyquinn.torch.types.dataset import AtomGraphDataset
 from pyquinn.torch.util import get_optimizer
 from pyquinn.models import ModelBase
 
