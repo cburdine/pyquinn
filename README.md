@@ -1,9 +1,13 @@
 # PyQuinn
 A Framework for Quantum-Informed Neural Networks Framework in Pytorch
 
+## About
+---
+
+(Package summary will go here)
 
 ## Development
-
+---
 This package is stil under development, so our development procedures are likely to change in the near future until we have settled on a 
 good set of standard practices. 
 
@@ -15,11 +19,18 @@ pip install -e .
 ```
 (For now, an editable install with the `-e` flag is sufficient for development. As the package grows larger, we may recommend something different.)
 
+### (Optional) Installing Development Tools
+In order to run the full set of development tools, you will need to install the dependencies in `dev/requirements.txt`:
+```
+pip install -r dev/requirements.txt
+```
+
 ### Running Tests
 
 In this directory, run:
 ```
 python3 -m unittest discover
+
 ```
 
 ### Linting
@@ -28,8 +39,9 @@ We are currently using [flake8](https://flake8.pycqa.org/en/latest/) for linting
 
 To lint all files, run the command:
 ```
-flake8 ./pyquinn/
+flake8 src/pyquinn/
 ```
+Many IDEs (such as VS Code also support )
 
 ### Building Documentation
 
@@ -38,13 +50,16 @@ We are curently building documentation using [sphinx](https://www.sphinx-doc.org
 make html
 ```
 
-You can view the static html documentation in a web browser by opening `docs/build/html/index.html`.
+You can view the static html documentation in a web browser by opening `docs/build/html/index.html` or by running a local server with the command
+```
+python -m http.server --directory docs/build/html
+```
 
 ### Run Benchmarks
 
 The benchmarks are currently standalone executable python files in the `benchmark/` directory. For example, to run the benchmarks for the `pyquinn.torch.lcao.gto` submodule, run the command
 ```
-python3 ./benchmark/torch/benchmark_lcao_gto.py
+python3 benchmark/torch/benchmark_lcao_gto.py
 ```
 
 ---

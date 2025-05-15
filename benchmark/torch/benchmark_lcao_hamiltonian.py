@@ -3,7 +3,7 @@ from itertools import product
 import torch
 from torch.utils import benchmark
 
-from pyquinn.torch.lcao.lcao_hamiltonian import LCAOModel, TBModel
+from pyquinn.torch.nn.lcao import LCAOModel
 
 
 def _make_lcao_model_hamiltonian_args(
@@ -46,7 +46,7 @@ compiled_lcao_models = {
 def benchmark_lcao_model_hamiltonian(results):
 
     num_threads = torch.get_num_threads()
-    print(f'Benchmarking LCAOModel.hamiltonian_matrix() on {num_threads} threads...')
+    print(f'Benchmarking LCAOModel.hamiltonian_matrix() on {num_threads} threads...') # noqa
 
     def _run_benchmark(n, m, size, results, threads=None):
 

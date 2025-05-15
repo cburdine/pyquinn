@@ -2,7 +2,7 @@ import torch
 from torch.utils import benchmark
 
 
-from pyquinn.torch.lcao.gto import (
+from pyquinn.torch.nn.lcao.gto import (
     cho_overlap_matrix_metadata,
     cho_ng_overlap_matrix,
     cho_ng_potential_overlap_matrix,

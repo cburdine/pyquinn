@@ -29,9 +29,9 @@ API Quick Reference
     :toctree: generated
     :recursive:
 
-    pyquinn.torch.eigensolver
-    pyquinn.torch.hamiltonian
-    pyquinn.torch.lcao
+    pyquinn.torch.nn.eigensolver
+    pyquinn.torch.nn.hamiltonian
+    pyquinn.torch.nn.lcao
 
 
 
