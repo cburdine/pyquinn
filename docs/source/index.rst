@@ -11,31 +11,16 @@ Welcome to PyQuinn's documentation!
 
 For installation instructions, see the :doc:`usage` section.
 
-.. note::
-
-   This project is under active development.
-
 .. toctree::
    :maxdepth: 1
-   :caption: Contents:
+   :caption: **Table of Contents:**
    
-   usage
+   quickstart
    api
 
-API Quick Reference
--------------------
-
-.. autosummary::
-    :toctree: generated
-    :recursive:
-
-    pyquinn.torch.nn.eigensolver
-    pyquinn.torch.nn.hamiltonian
-    pyquinn.torch.nn.lcao
 
 
-
-Indices and Tables
+Quick Reference
 ------------------
 
 * :ref:`genindex`
