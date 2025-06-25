@@ -71,11 +71,10 @@ class COD(Database):
 
     def get_atomgraphs_with_elements(
             self, 
-            elements: list[str] | str,
-            contains_all: bool = True) -> dict[str, AtomGraph]:
+            elements: list[str] | str) -> dict[str, AtomGraph]:
         
         # retrieve structure ids
-        cod_ids = self.get_atomgraph_ids_with_elements(elements, contains_all)
+        cod_ids = self.get_atomgraph_ids_with_elements(elements)
 
         # retrieve all structures
         atomgraphs = {}
@@ -90,11 +89,10 @@ class COD(Database):
 
     def get_atomgraph_ids_with_elements(
             self, 
-            elements: list[str] | str, 
-            contains_all: bool = True) -> list[str]:
+            elements: list[str] | str) -> list[str]:
 
         # parse list of elements
-        elements = Database._parse_element_list(elements)
+        elements = self._parse_element_list(elements)
 
         # validate and trim element list (COD only supports 8 elements):
         if not elements:
@@ -104,8 +102,7 @@ class COD(Database):
                             f'(got: {len(elements)}).')
         
         params = {f'el{i+1}': sym for i, sym in enumerate(elements)}
-        if contains_all:
-            params['strictmax'] = str(len(elements))
+        params['strictmax'] = str(len(elements))
 
         # perform search
         results = self.search(params)

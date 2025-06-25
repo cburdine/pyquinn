@@ -76,7 +76,7 @@ def _get_isosurface_mesh(mesh_xyz, mesh_values, iso_val, mesh_data):
     except ImportError:
         raise ImportError(
             'Package "scikit-image" (skimage) must be installed to '
-            'visualize complex isosurfaces. '
+            'visualize complex isosurfaces with the plotly backend. '
             'Please install with "pip install scikit-image".')
 
     mesh_shape, mesh_spacing = _infer_shape_and_spacing(mesh_xyz)
@@ -98,12 +98,12 @@ def _get_isosurface_mesh(mesh_xyz, mesh_values, iso_val, mesh_data):
 
 def _infer_shape_and_spacing(mesh_xyz):
     x_unique, x_counts = np.unique(mesh_xyz[:, 0], return_counts=True)
-    y_unique, y_counts = np.unique(mesh_xyz[:, 0], return_counts=True)
-    z_unique, z_counts = np.unique(mesh_xyz[:, 0], return_counts=True)
+    y_unique, y_counts = np.unique(mesh_xyz[:, 1], return_counts=True)
+    z_unique, z_counts = np.unique(mesh_xyz[:, 2], return_counts=True)
 
-    x_spacing = np.unique(np.diff(x_unique))
-    y_spacing = np.unique(np.diff(x_unique))
-    z_spacing = np.unique(np.diff(z_unique))
+    x_spacing = np.unique(np.diff(np.sort(x_unique)))
+    y_spacing = np.unique(np.diff(np.sort(y_unique)))
+    z_spacing = np.unique(np.diff(np.sort(z_unique)))
 
     axis_data = [
         ('x', x_counts, x_spacing), 
@@ -134,6 +134,7 @@ def plot_atoms(
         atoms: AtomGraph | BackendAtomGraph, 
         bond_factor: float = 1.1,
         radius_factor: float = 0.5,
+        atom_resolution: int = 10,
         hide_atoms: bool = False,
         hide_bonds: bool = False,
         hide_unit_cell: bool = False,
@@ -156,7 +157,8 @@ def plot_atoms(
 
             # make sphere
             xyz = atoms.positions[i]
-            (X, Y, Z) = _make_sphere(xyz, radius)
+            (X, Y, Z) = _make_sphere(
+                xyz, radius, resolution=atom_resolution)
 
             # asdd sphere surface
             data.append(go.Surface(
@@ -286,8 +288,8 @@ def plot_atomic_isosurface(
             go.Mesh3d(
                 x=surf_xyz[:, 0], y=surf_xyz[:, 1], z=surf_xyz[:, 2],
                 i=surf_ijk[:, 0], j=surf_ijk[:, 1], k=surf_ijk[:, 2],
-                intensity=(np.angle(surf_data) + np.pi)/(2*np.pi),
-                colorscale='phase',
+                intensity=(np.angle(surf_data)/(2*np.pi)) % 1.0,
+                colorscale='HSV',
                 cmin=0, cmax=1,
                 opacity=alpha,
                 showscale=True,
@@ -297,6 +299,9 @@ def plot_atomic_isosurface(
     else:
         colorscale = None if color is None \
             else [[0, color], [1, color]]
+
+        if iso_value is None:
+            iso_value = np.abs(mesh_values).mean()
 
         data.append(
             go.Isosurface(
@@ -321,5 +326,3 @@ def plot_atomic_isosurface(
     fig.update_layout(scene=dict(aspectmode='data'))
 
     return fig
-
-

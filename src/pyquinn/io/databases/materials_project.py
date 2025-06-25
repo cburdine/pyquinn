@@ -78,7 +78,7 @@ class MaterialsProject(Database):
                                 'set in the environment variable $MP_API_KEY')
 
         self._cache_dir = tempfile.TemporaryDirectory()
-        self.mp_connector = MPRester(mp_api_key)
+        self.mp_connector = MPRester(mp_api_key, mute_progress_bars=True)
         self._stack = ExitStack()
 
     def __enter__(self):
@@ -170,8 +170,7 @@ class MaterialsProject(Database):
     def get_atomgraphs_with_elements(
             self, 
             elements: list[str] | str,
-            max_ehull: float | None = None,
-            contains_all: bool = True) -> dict[str, AtomGraph]:
+            max_ehull: float | None = None) -> dict[str, AtomGraph]:
         """Retrieves a list of all AtomGraphs containing either some or
         all of the supplied list of elements.
 
@@ -186,8 +185,6 @@ class MaterialsProject(Database):
                 (either in list form or in a string separated by commas)
             max_ehull (float, optional): The maximum allowed energy above hull.
                 If None, no limit is imposed. Defaults to None.
-            contains_all (bool, optional): If true, requires matches to 
-                contain all specified elements. Defaults to True.
 
         Returns:
             dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph) 
@@ -201,7 +198,7 @@ class MaterialsProject(Database):
         docs = self.mp_connector.summary.search(
             elements=elements,
             energy_above_hull=(0.0, max_ehull),
-            num_elements=len(elements) if contains_all else None,
+            num_elements=len(elements),
             fields=['material_id', 'structure'])
 
         # cache and parse structures
@@ -218,8 +215,7 @@ class MaterialsProject(Database):
     def get_atomgraph_ids_with_elements(
             self, 
             elements: list[str],
-            max_ehull: float | None = None,
-            contains_all: bool = True) -> list[str]:
+            max_ehull: float | None = None) -> list[str]:
         """Retrieves the IDs associated with all AtomGraphs containing 
         either some or all of the supplied list of elements.
 
@@ -228,8 +224,6 @@ class MaterialsProject(Database):
                 (either in list form or in a string separated by commas)
             max_ehull (float, optional): The maximum allowed energy above hull.
                 If None, no limit is imposed. Defaults to None.
-            contains_all (bool, optional): If true, requires matches to 
-                contain all specified elements. Defaults to True.
 
         Returns:
             list[str]: A list of Materials Project IDs associated with
@@ -243,7 +237,7 @@ class MaterialsProject(Database):
         docs = self.mp_connector.summary.search(
             elements=elements, 
             energy_above_hull=(0.0, max_ehull),
-            num_elements=len(elements) if contains_all else None,
+            num_elements=len(elements),
             fields=['material_id'])
 
         return [str(doc.material_id) for doc in docs]
@@ -277,7 +271,7 @@ class MaterialsProject(Database):
                 each data entry is formatted as a dictionary. 
         """
 
-        # ensure mp ids are retured in query:
+        # ensure mp ids are returned in query:
         params = params.copy()
         if 'fields' in params and ('material_id' not in params['fields']):
             params['fields'] = list(params['fields'])
@@ -333,8 +327,7 @@ class MaterialsProject(Database):
     def get_thermodynamic_data_with_elements(
             self, 
             elements: list[str], 
-            max_ehull: float | None = None,
-            contains_all: bool = True) -> dict:
+            max_ehull: float | None = None) -> dict:
         """Retrieves the thermodynamic data associated with all materials
         containing either some or all of the supplied list of elements.
 
@@ -354,7 +347,7 @@ class MaterialsProject(Database):
         docs = self.mp_connector.summary.search(
             elements=elements, 
             energy_above_hull=(0.0, max_ehull),
-            num_elements=len(elements) if contains_all else None,
+            num_elements=len(elements),
             fields=['material_id'] + self._thermodynamic_fields)
 
         results = {}

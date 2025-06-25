@@ -8,7 +8,7 @@ A Framework for Quantum-Informed Neural Networks Framework in Pytorch
 
 ## Development
 ---
-This package is stil under development, so our development procedures are likely to change in the near future until we have settled on a 
+This package is still under development, so our development procedures are likely to change in the near future until we have settled on a 
 good set of standard practices. 
 
 ### Installation
@@ -67,9 +67,9 @@ python3 benchmark/torch/benchmark_lcao_gto.py
 ## Feature TODO List:
 
 - [x] Add basic functionality of the `torch.lcao.gto` subpackage 
-- [x] Add basic support for spin-paired states in the `LCAOModel` and `TBModel` modules.
-- [ ] Add support for evaluating $\hat{x}$ and $\hat{p}$ matrices in the `LCAOModel` and `TBModel` modules. 
-- [ ] Implement support for spin-polarized states in the `LCAOModel` and `TBModel` modules.
+- [x] Add basic support for spin-paired states in the `LCAOHamiltonian` and `TBHamiltonian` modules.
+- [ ] Add support for evaluating $\hat{x}$ and $\hat{p}$ matrices in the `LCAOHamiltonian` and `TBHamiltonian` modules. 
+- [ ] Implement support for spin-polarized states in the `LCAOHamiltonian` and `TBHamiltonian` modules.
 
 ## Development TODO List:
 
