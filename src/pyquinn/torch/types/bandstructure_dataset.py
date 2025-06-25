@@ -8,11 +8,11 @@ from pyquinn.torch.types import (
     TorchBandStructure,
     TorchAtomGraph,
 )
+from pyquinn.io.stdout import progress_bar
 
 import os
 from glob import glob
 
-from tqdm import tqdm
 import torch
 
 
@@ -75,7 +75,7 @@ class TorchBandStructureDataset(
         torch_graphs = []
         torch_band_structures = []
 
-        for name, (graph, bands) in tqdm(dataset.items(), total=len(dataset)):
+        for name, (graph, bands) in progress_bar(dataset.items(), total=len(dataset)):
 
             # compile and add graph
             torch_graphs.append(
@@ -165,7 +165,7 @@ class TorchBandStructureDataset(
 
     def save(self, cache_dir: str):
 
-        _dataset_iter = tqdm(zip(
+        _dataset_iter = progress_bar(zip(
             self.names, self.graphs, self.band_structures
         ), total=len(self.names))
 

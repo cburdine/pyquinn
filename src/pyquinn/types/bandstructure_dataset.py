@@ -4,8 +4,8 @@ from pyquinn.types import (
     AtomGraph, AtomGraphDataset, BandStructure
 )
 from pyquinn.types.backend import _load_backend_object
+from pyquinn.io.stdout import progress_bar
 
-from tqdm import tqdm
 from glob import glob
 import os
 
@@ -174,7 +174,7 @@ class BandStructureDataset(BandStructureDatasetBase):
 
     def save(self, dir: str):
 
-        for name, (graph, bands) in tqdm(self.items(), total=len(self)):
+        for name, (graph, bands) in progress_bar(self.items(), total=len(self)):
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
             BandStructureDataset._save_bands(bands=bands, name=name, dir=dir)
 

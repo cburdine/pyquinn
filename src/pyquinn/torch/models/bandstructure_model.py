@@ -1,27 +1,28 @@
 from pyquinn.torch.types.atom_graph import TorchAtomGraph
-from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBModel, VariationalTBModel
+from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian, VariationalTBHamiltonian
 from pyquinn.torch.types.bandstructure_dataset import TorchBandStructureDataset
 from pyquinn.torch.types.bandstructure import TorchBandStructure
 from pyquinn.torch.util import get_optimizer
+from pyquinn.io.stdout import progress_bar
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+
 import numpy as np
-from tqdm import tqdm
 
 
 class TorchBandStructureModel(nn.Module):
 
     def __init__(
             self, 
-            bands_model: TBModel | None = None,
+            bands_model: TBHamiltonian | None = None,
             **model_kwargs):
 
         super().__init__()
 
-        self.bands_model = VariationalTBModel(**model_kwargs) \
+        self.bands_model = VariationalTBHamiltonian(**model_kwargs) \
             if bands_model is None else bands_model
 
     def forward(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
@@ -45,6 +46,36 @@ class TorchBandStructureModel(nn.Module):
             projections=projections,
             chemical_potential=chemical_potential,
         )
+
+    def orbital_indices(
+        self, 
+        graph: TorchAtomGraph
+    ) -> tuple[torch.IntTensor, torch.IntTensor]:
+        return self.bands_model.orbital_indices(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images)
+
+    def orbital_quantum_numbers(
+        self, 
+        graph: TorchAtomGraph
+    ) -> torch.IntTensor:
+        return self.bands_model.orbital_quantum_numbers(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images)
+
+    def orbital_names(self, graph: TorchAtomGraph) -> list[str]:
+        return self.bands_model.orbital_names(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images)
 
     def hamiltonian_matrix(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
         return self.bands_model.hamiltonian_matrix(
@@ -178,6 +209,46 @@ class TorchBandStructureModel(nn.Module):
 
         return bands, band_projections
 
+    def atomic_orbital_amplitudes(
+            self,
+            graph: TorchAtomGraph,
+            x_pts: torch.Tensor,
+            site_idxs: torch.IntTensor,
+            orbital_idxs: torch.Tensor):
+
+        return self.bands_model.atomic_orbital_amplitudes(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images,
+            site_idxs=site_idxs,
+            orbital_idxs=orbital_idxs,
+            x_pts=x_pts,
+        )
+
+    def bloch_orbital_amplitudes(
+            self,
+            graph: TorchAtomGraph,
+            x_pts: torch.Tensor,
+            k_pts: torch.Tensor,
+            eigenstate_idxs: torch.IntTensor | None = None,
+            sigenstates: torch.IntTensor | None = None):
+
+        return self.bands_model.bloch_orbital_amplitudes(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images,
+            x_pts=x_pts,
+            k_pts=k_pts,
+            eigenstate_idxs=eigenstate_idxs,
+            eigenstates=eigenstates,
+            k_idxs=k_idxs,
+            x_cutoff=x_cutoff,
+        )
+
     @staticmethod
     def _collate_batch(batch):
         return batch
@@ -218,8 +289,8 @@ class TorchBandStructureModel(nn.Module):
             if p.requires_grad:
                 p.register_hook(lambda grad: torch.nan_to_num(grad, nan=0.0))
 
-        epoch_iter = tqdm if verbosity == 1 else (lambda x: x)
-        dataset_iter = tqdm if verbosity >= 2 else (lambda x: x)
+        epoch_iter = progress_bar if verbosity == 1 else (lambda x: x)
+        dataset_iter = progress_bar if verbosity >= 2 else (lambda x: x)
 
         for n in epoch_iter(range(epochs)):
 
@@ -299,3 +370,7 @@ class TorchBandStructureModel(nn.Module):
             history[k] = np.array(v)
 
         return history
+
+
+# add TorchBandStructureModel as safe to serialize
+torch.serialization.add_safe_globals([TorchBandStructureModel])

@@ -1307,10 +1307,10 @@ def e3_cho_overlap_matrix_metadata(
         - cho_tensor (torch.Tensor): 
             A matrix representing the transformation 
             from cartesian to CHO orbitals.
-        - l_ijk (torch.ntTensor): 
+        - l_ijk (torch.IntTensor): 
             A list of all cartesian ijk values for which 
             overlap orbitals are computed.
-        - l_alpha_idxs (torch.ntTensor): 
+        - l_alpha_idxs (torch.IntTensor): 
             A list of indices corresponding to the alpha 
             values indexed for each block.
         - l_block_idxs (torch.IntTensor): 

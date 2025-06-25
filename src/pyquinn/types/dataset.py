@@ -3,8 +3,8 @@ import os
 
 from pyquinn.types import AtomGraph
 from pyquinn.types.backend import _load_backend_object
+from pyquinn.io.stdout import progress_bar
 
-from tqdm import tqdm
 from glob import glob
 
 SUPPORTED_DATASET_BACKENDS = {
@@ -167,7 +167,7 @@ class AtomGraphDataset(AtomGraphDatasetBase):
 
     def save(self, dir: str):
 
-        for name, graph in tqdm(self.items(), total=len(self)):
+        for name, graph in progress_bar(self.items(), total=len(self)):
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
 
     @staticmethod

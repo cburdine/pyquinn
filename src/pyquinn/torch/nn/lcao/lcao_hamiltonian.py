@@ -1,4 +1,4 @@
-from pyquinn.torch.nn.hamiltonian import HamiltonianModel
+from pyquinn.torch.nn.hamiltonian import Hamiltonian
 from pyquinn.torch.nn.eigensolver import Eigensolver
 from pyquinn.torch.nn.atomwise import AtomwiseConv
 
@@ -18,23 +18,25 @@ import torch.nn as nn
 import numpy as np
 
 
-class LCAOModel(HamiltonianModel):
-    r"""LCAO (Linear Combination of Atomic Orbitals) Hamiltonian.
-    This model contains a fixed set of Gaussian 
+class LCAOHamiltonian(Hamiltonian):
+    r"""A LCAO (Linear Combination of Atomic Orbitals) Hamiltonian
+    Kernel.
+
+    This module contains a fixed set of Gaussian 
     orbital parameters, which are trainable `torch.nn.Parameter`
-    values. This model constructs a mean-field Hamiltonian for 
+    values. This module constructs a mean-field Hamiltonian for 
     a non-periodic atomic system with using a minimal basis of 
     Gaussian cubic harmonic orbitals at each site. 
-    The Hamiltonian it contructs is real-valued and symmetric.
+    The Hamiltonian it constructs is real-valued and symmetric.
 
-    When computing the Hamiltonian, this model computes the overlap
+    When computing the Hamiltonian, this module computes the overlap
     matrices of each neighboring orbital state with an on-site 
     pseudopotential that is expanded as a set of Gaussian functions:
 
         .. math::
             H_{ij} = \langle \phi_i | V_i + V_j \phi_j \rangle
 
-    This model currently supports the following eigensolvers:
+    This module currently supports the following eigensolvers:
         - `torch_eigh`
 
     """
@@ -84,9 +86,10 @@ class LCAOModel(HamiltonianModel):
         z_max = max(shells.keys())
         n_alpha_sets = max(len(l_list) for l_list in shells.values())
 
-        if basis not in LCAOModel.BASIS_OPTIONS:
-            raise ValueError(f'Basis must be one of {LCAOModel.BASIS_OPTIONS},'
-                             f' got: {basis}.')
+        if basis not in LCAOHamiltonian.BASIS_OPTIONS:
+            raise ValueError(
+                f'Basis must be one of {LCAOHamiltonian.BASIS_OPTIONS},'
+                f' got: {basis}.')
         if basis_size <= 0:
             raise ValueError('Basis size must be a positive integer.')
         if r_max <= 0 or r_min <= 0 or r_min >= r_max:
@@ -154,7 +157,7 @@ class LCAOModel(HamiltonianModel):
                  orbital_shells: dict | None = None,
                  ) -> None:
         """Constructs a LCAO (Linear Combination of Atomic Orbitals) 
-        Hamiltonian model. This model contains a fixed set of Gaussian 
+        Hamiltonian kernel. This module contains a fixed set of Gaussian 
         orbital parameters, which are trainable `torch.nn.Parameter`
         values. Depending on the basis options specified, these 
         parameters may be frozen (i.e., have `requires_grad=False`).
@@ -172,7 +175,7 @@ class LCAOModel(HamiltonianModel):
             potential_basis_size (int, optional): The number of Gaussians
                 used in the potential basis representation. Defaults to 5.
             energy_scale (float, optional): The scale multiple of energy used. 
-                If the model is trained on different energy units (such as
+                If the module is trained on different energy units (such as
                 Hartree versus eV units), this scalar may need to be adjusted.
                 Defaults to 1.0.
             orbital_shells (dict, optional): A dictionary mapping atomic 
@@ -195,9 +198,9 @@ class LCAOModel(HamiltonianModel):
         self.basis_size = basis_size
         self.potential_basis_size = potential_basis_size
 
-        if spin not in LCAOModel.SPIN_OPTIONS:
+        if spin not in LCAOHamiltonian.SPIN_OPTIONS:
             raise ValueError(
-                f'Spin must be one of {LCAOModel.SPIN_OPTIONS}, got: {spin}')
+                f'Spin must be one of {LCAOHamiltonian.SPIN_OPTIONS}, got: {spin}')
 
         self.spin = spin
 
@@ -206,7 +209,7 @@ class LCAOModel(HamiltonianModel):
         orbital_shells = _ELEMENT_CHO_VALENCE_SHELLS | orbital_shells
 
         # initialize shell index parameters
-        self.orbital_shell_idxs = LCAOModel._make_shell_idxs(orbital_shells)
+        self.orbital_shell_idxs = LCAOHamiltonian._make_shell_idxs(orbital_shells)
 
         self.z_max = max(orbital_shells.keys())
 
@@ -216,7 +219,7 @@ class LCAOModel(HamiltonianModel):
         self.logscale_orbital_alphas,\
             self.logscale_orbital_betas,\
             self.logscale_orbital_cs = \
-            LCAOModel._make_logscale_basis_parameters(
+            LCAOHamiltonian._make_logscale_basis_parameters(
                 basis=basis,
                 basis_size=basis_size,
                 shells=orbital_shells,
@@ -229,7 +232,7 @@ class LCAOModel(HamiltonianModel):
         self.logscale_potential_gammas,\
             self.logscale_potential_betas,\
             self.logscale_potential_vs = \
-            LCAOModel._make_logscale_basis_parameters(
+            LCAOHamiltonian._make_logscale_basis_parameters(
                 basis=potential_basis,
                 basis_size=potential_basis_size,
                 shells=potential_shells,
@@ -239,7 +242,7 @@ class LCAOModel(HamiltonianModel):
 
         # initialize on-site logscale energies
         self.logscale_onsite_energies = \
-            LCAOModel._make_logscale_energy_parameters(shells=orbital_shells)
+            LCAOHamiltonian._make_logscale_energy_parameters(shells=orbital_shells)
 
     def _get_c_normalization_coeffs(
             self,
@@ -306,7 +309,7 @@ class LCAOModel(HamiltonianModel):
         setattr(self, name, nn.Parameter(
             other_weights.detach().clone(), requires_grad=grad))
 
-    def _load_base_model_weights(self, base_model: 'LCAOModel', freeze=False):
+    def _load_base_model_weights(self, base_model: 'LCAOHamiltonian', freeze=False):
         
         self._load_weights('logscale_orbital_alphas', base_model, freeze)
         self._load_weights('logscale_orbital_betas', base_model, freeze)
@@ -571,7 +574,10 @@ class LCAOModel(HamiltonianModel):
             )
         
         n_idxs = site_idxs.shape[0]
-        orbital_amplitudes = torch.zeros((n_idxs, x_pts.shape[0]))
+        orbital_amplitudes = torch.zeros(
+            (n_idxs, x_pts.shape[0]), 
+            device=positions.device,
+            dtype=positions.dtype)
 
         for i in range(n_idxs):
             orbital_amplitudes[i] = cho_ng(
@@ -756,7 +762,7 @@ class LCAOModel(HamiltonianModel):
         return orbital_quantum_numbers
 
 
-class TBModel(LCAOModel):
+class TBHamiltonian(LCAOHamiltonian):
 
     def __init__(self, 
                  eigensolver: str | Eigensolver = 'torch_eigh',
@@ -1212,7 +1218,7 @@ class TBModel(LCAOModel):
         if sparse and H.ndim > 2:
             raise NotImplementedError(
                 'Diagonalization of sparse hamiltonians not supported '
-                'for TBModels with specified k points.'
+                'for TBHamiltonians with specified k points.'
                 '(use sparse=False).')
 
         return self.eigensolver.diagonalize(H)
@@ -1240,7 +1246,7 @@ class TBModel(LCAOModel):
         if sparse and H.ndim > 2:
             raise NotImplementedError(
                 'Diagonalization of sparse hamiltonians not supported '
-                'for TBModels with more than one k point. '
+                'for TBHamiltonians with more than one k point. '
                 '(Use sparse=False or query each k point individually.)')
 
         return self.eigensolver(H)
@@ -1300,7 +1306,7 @@ def _make_atomiwise_nn(
     return nn
 
 
-class VariationalLCAOModel(LCAOModel):
+class VariationalLCAOHamiltonian(LCAOHamiltonian):
 
     def __init__(self,
                  variational_nn: str | AtomwiseConv = 'nnconv',
@@ -1454,10 +1460,10 @@ class VariationalLCAOModel(LCAOModel):
         return alphas, cs, gammas, vs
 
 
-class VariationalTBModel(TBModel):
+class VariationalTBHamiltonian(TBHamiltonian):
     
     def __init__(self,
-                 base_model: TBModel | None = None,
+                 base_model: TBHamiltonian | None = None,
                  freeze: bool = False,
                  variational_nn: str | AtomwiseConv = 'nnconv',
                  onsite_nn: str | AtomwiseConv = 'nnconv',

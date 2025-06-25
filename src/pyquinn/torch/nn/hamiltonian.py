@@ -7,12 +7,12 @@ import torch
 from pyquinn.torch.nn.eigensolver import Eigensolver
 
 
-class HamiltonianModel(nn.Module):
-    """Abstract base class for a Pytorch Hamiltonian Model.
-    This class represents a Hamiltonian of a quantum system 
-    that is parameterized by a neural network.
+class Hamiltonian(nn.Module):
+    """Abstract base class for a Pytorch Hamiltonian Kernel.
 
-    All subclasses of this class must at a minimum provide an
+    This class represents a Hamiltonian of a quantum system 
+    that is parameterized by a neural network. All subclasses 
+    of this class must at a minimum provide an
     implementation of
 
     `get_hamiltonian_matrix()`
@@ -28,7 +28,7 @@ class HamiltonianModel(nn.Module):
     """
 
     def __init__(self, eigensolver: str | Eigensolver | None = None):
-        """Constructor for a `HamiltonianModel` instance with an associated 
+        """Constructor for a `Hamiltonian` instance with an associated 
         `pyquinn.torch.Eigensolver` instance. All Hamiltonian instances are
         required to call this super constructor with the given eigensolver 
         name.
@@ -38,7 +38,7 @@ class HamiltonianModel(nn.Module):
 
         Args:
             eigensolver (str | Eigensolver | None, optional): The Eigensolver
-                associated with this HamiltonianModel.
+                associated with this Hamiltonian.
         """
 
         super().__init__()

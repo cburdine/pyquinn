@@ -4,11 +4,11 @@ from pyquinn.torch.nn.atomwise_pool import AtomwisePool
 from pyquinn.torch.types.dataset import AtomGraphDataset
 from pyquinn.torch.util import get_optimizer
 from pyquinn.models import ModelBase
+from pyquinn.io.stdout import progress_bar
 
 import torch.nn as nn
 import torch
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 import numpy as np
 
 
@@ -140,8 +140,8 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
             'validation_loss': [],
         }
 
-        epoch_iter = tqdm if verbosity == 1 else (lambda x: x)
-        dataset_iter = tqdm if verbosity >= 2 else (lambda x: x)
+        epoch_iter = progress_bar if verbosity == 1 else (lambda x: x)
+        dataset_iter = progress_bar if verbosity >= 2 else (lambda x: x)
 
         for n in epoch_iter(range(epochs)):
 
@@ -208,8 +208,10 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
             history[k] = np.array(v)
 
         return history
-        
 
+
+# add TorchAtomwiseModel as safe to serialize
+torch.serialization.add_safe_globals([TorchAtomwiseModel])
 
 
     

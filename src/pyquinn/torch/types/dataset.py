@@ -3,10 +3,11 @@ from pyquinn.types.dataset import (
 )
 from pyquinn.types import AtomGraph
 from pyquinn.torch.types import TorchAtomGraph
+from pyquinn.io.stdout import progress_bar
+
 
 import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
 
 import os
 from glob import glob
@@ -76,7 +77,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
                 device=device,
                 dtype=dtype,
                 idx_dtype=idx_dtype)
-            for name, graph in tqdm(
+            for name, graph in progress_bar(
                 dataset.items(), total=len(dataset))
         ]
 
@@ -134,7 +135,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
     def save(self, cache_dir: str):
 
-        _dataset_iter = tqdm(zip(
+        _dataset_iter = progress_bar(zip(
             self.names, self.graphs
         ), total=len(self.names))
 

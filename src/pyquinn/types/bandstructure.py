@@ -1,7 +1,11 @@
 import pickle
 from abc import abstractmethod, ABC
+from typing import Any
 
 from pyquinn.types.backend import _load_backend_object
+from pyquinn.types.atom_graph import (
+    AtomGraph, BackendAtomGraph
+)
 
 import numpy as np
 from scipy.special import erf
@@ -218,12 +222,13 @@ class BandStructure(BandStructureBase):
             band_energies: np.ndarray,
             energy: np.ndarray, 
             sigma: float,
-            projections: np.ndarray | float,
+            projections: np.ndarray,
             weight: float) -> np.ndarray:
 
         # compute Fermi-Dirac dos
         unnorm_dos = np.sum(
-            projections / (1.0 + np.cosh((energy - band_energies)/sigma)), 
+            projections / (1.0 + np.cosh(
+                np.clip((energy - band_energies)/sigma, -700, 700))), 
             axis=1)
 
         dos = weight * unnorm_dos / (2*sigma)
@@ -234,7 +239,7 @@ class BandStructure(BandStructureBase):
             band_energies: np.ndarray,
             energy: np.ndarray, 
             sigma: float,
-            projections: np.ndarray | float,
+            projections: np.ndarray,
             weight: float) -> np.ndarray:
 
         # compute Fermi-Dirac dos
@@ -335,12 +340,13 @@ class BandStructure(BandStructureBase):
 
     def idos_level(
             self,
-            n: np.ndarray,
+            n: np.ndarray | float,
             smearing: str = 'fermi-dirac',
             sigma: float = None,
             spin_mult: float = 1.0,
-            E_guess: np.ndarray | None = None, 
-            max_evals: int = 64) -> np.ndarray:
+            projections: np.ndarray | None = None,
+            E_guess: np.ndarray | None = None,
+            max_evals: int = 16) -> np.ndarray:
 
         n_max = self.energies.shape[1]*spin_mult
         E_min, E_max = self.energies.min(), self.energies.max()
@@ -349,27 +355,52 @@ class BandStructure(BandStructureBase):
         E_level = E_guess if E_guess is not None \
             else (n/n_max)*E_range + E_min
 
+        E_level = np.clip(E_level, E_min, E_max)
+
         for i in range(max_evals):
             n_eval = self.idos(
                 E_level, 
                 smearing=smearing,
                 sigma=sigma,
-                spin_mult=spin_mult)
+                spin_mult=spin_mult,
+                projections=projections)
             delta_E = (E_range)/2**(i+1)
-            delta_E[n_eval > n] *= -1
+            delta_E = np.where(n_eval > n, -delta_E, delta_E)
 
             E_level += delta_E
 
+        E_level = np.clip(E_level, E_min, E_max)
+
         return E_level
 
-    def band_gap(self, energy: np.ndarray | float = 0.0) -> np.ndarray:
+    def band_gap(
+            self, 
+            energy: np.ndarray | float = 0.0, 
+            sigma_cutoff: float = 0.0) -> np.ndarray:
+        
         _band_energies = np.sort(self.energies.flatten())
         i = np.searchsorted(_band_energies, energy, side='right') - 1
         i_above = np.minimum(i + 1, _band_energies.size-1)
+        i_below = np.maximum(0, i)
 
-        gaps = _band_energies[i_above] - _band_energies[i]
+        gaps = _band_energies[i_above] - _band_energies[i_below]
+        gaps = np.where(gaps <= sigma_cutoff, 0, gaps)
 
         return gaps
+
+    def plot_band_path(
+            self,
+            backend: str = 'mpl',
+            atoms: AtomGraph | BackendAtomGraph | None = None,
+            **plotter_kwargs) -> Any:
+        
+        from pyquinn.plot import plotter
+
+        return plotter.plot_band_path(
+            bands=self,
+            backend=backend,
+            atoms=atoms,
+            **plotter_kwargs)
 
     def extract(self) -> 'BandStructure':
         return self
@@ -413,6 +444,61 @@ class BackendBandStructure(ABC, BandStructureBase):
     @abstractmethod
     def save(self, filename: str):
         pass
+
+    @abstractmethod
+    def dos(
+            self,
+            energy: Any | float = 0.0,
+            smearing: str = 'gaussian',
+            sigma: float | None = None,
+            spin_mult: float = 1.0,
+            projections: Any | None = None) -> Any:
+        pass
+
+    @abstractmethod
+    def idos(
+            self,
+            energy: Any | float = 0.0,
+            smearing: str = 'gaussian',
+            sigma: float | None = None,
+            spin_mult: float = 1.0,
+            projections: Any | None = None) -> Any:
+        pass
+
+    @abstractmethod
+    def idos_level(
+            self,
+            n: Any,
+            smearing: str = 'fermi-dirac',
+            sigma: float = None,
+            spin_mult: float = 1.0,
+            projections: Any | None = None,
+            E_guess: Any | None = None,
+            max_evals: int = 16) -> Any:
+        pass
+    
+    @abstractmethod
+    def band_gap(
+            self, 
+            energy: Any | float = 0.0, 
+            sigma_cutoff: float = 0.0) -> Any:
+        pass
+
+    def plot_band_path(
+            self,
+            backend: str = 'mpl',
+            atoms: AtomGraph | BackendAtomGraph | None = None,
+            **plotter_kwargs) -> Any:
+        
+        from pyquinn.plot import plotter
+
+        return plotter.plot_band_path(
+            bands=self,
+            backend=backend,
+            atoms=atoms,
+            **plotter_kwargs)
+
+    
 
 
 # import supported BackendBandStructures

@@ -1,4 +1,4 @@
-from pyquinn.torch.nn.lcao import TBModel
+from pyquinn.torch.nn.lcao import TBHamiltonian
 from pyquinn.torch.nn import AtomwiseE3Conv
 
 from pyquinn.torch.nn.atomwise_e3 import _scalar_irreps
@@ -112,10 +112,10 @@ def _make_shell_irrep_map(
     return irrep_blocks, irrep_shell_map, irrep_map
 
 
-class VariationalE3TBModel(TBModel):
+class VariationalE3TBHamiltonian(TBHamiltonian):
 
     def __init__(self,
-                 base_model: TBModel | None = None,
+                 base_model: TBHamiltonian | None = None,
                  freeze: bool = False,
                  variational_nn: AtomwiseE3Conv | None = None,
                  onsite_nn: AtomwiseE3Conv | None = None,

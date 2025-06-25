@@ -1,14 +1,20 @@
 import ase
 import ase.io
 import numpy as np
+
 import pickle
 from abc import abstractmethod, ABC
+from typing import Any
 
 from pyquinn.util.data import (
     ATOMIC_NUMBERS, ATOMIC_SYMBOLS, 
     NATURAL_CUTOFFS_DICT, NATURAL_MASSES_DICT
 )
-from pyquinn.util.geometry import build_neighbor_list
+from pyquinn.util.geometry import (
+    build_neighbor_list,
+    supercell_lattice_points,
+    monkhorst_pack_mesh
+)
 from pyquinn.types.backend import _load_backend_object
 
 SUPPORTED_BACKENDS = {
@@ -84,7 +90,7 @@ class AtomGraph(AtomGraphBase):
 
         .. code-block:: python
 
-            from pyquinn.torch.eigensolver import Eigensolver
+            from pyquinn.types import AtomGraph
 
             @AtomGraph.register_backend('my_backend_name')
             class MyBackend(BackendAtomGraph):
@@ -188,7 +194,7 @@ class AtomGraph(AtomGraphBase):
         return graph
 
     def __init__(self,
-                 atoms: list | AtomGraphBase,
+                 atoms: list | AtomGraphBase | None = None,
                  positions: list[list[float]] | None = None,
                  unit_cell: list[list[float]] | None = None,
                  periodic: tuple[bool] | bool = False,
@@ -202,9 +208,9 @@ class AtomGraph(AtomGraphBase):
         for periodic boundary conditions.
 
         Args:
-            atoms (list | AtomGraphBase): A list of atomic symbols or 
-                atomic numbers (shape: [N_atoms]). Can also be another 
-                AtomGraphBase object. Defaults to None.
+            atoms (list | AtomGraphBase | None, optional): A list of atomic 
+                symbols or atomic numbers (shape: [N_atoms]). 
+                Can also be another AtomGraphBase object. Defaults to None.
             positions (list[list[float]] | None, optional): A list of 
                 Cartesian positions of
                 atoms in the graph (shape: [N_atoms, 3]). Defaults to None.
@@ -248,8 +254,9 @@ class AtomGraph(AtomGraphBase):
             outputs = atom_graph.outputs
             graph_outputs = atom_graph.graph_outputs
 
-        self.atoms = atoms
-        self.positions = positions
+        self.atoms = atoms if atoms is not None else []
+        self.positions = positions if positions is not None \
+            else np.zeros((0, 3))
 
         self.unit_cell = unit_cell if unit_cell is not None \
             else np.zeros((3, 3))
@@ -431,6 +438,30 @@ class AtomGraph(AtomGraphBase):
         graph_outputs = np.array(value)
         self._graph_outputs = graph_outputs
 
+    def __getitem__(self, key: slice | np.ndarray) -> 'AtomGraph':
+        """Accesses a sub-AtomGraph at a given slice or numpy array index."""
+        if isinstance(key, (int, np.integer)) or \
+                (isinstance(key, np.ndarray) and key.ndim <= 0):
+            raise KeyError(
+                'Index key must be a valid numpy array index or slice with '
+                'dimension greater than 0. Integer indexing is not supported for '
+                'AtomGraph objects.')
+
+        # create an AtomGraph with sliced views of 
+        _graph = AtomGraph()
+        _graph._atoms = self._atoms[key]
+        _graph._positions = self._positions[key]
+        _graph._periodic = self._periodic
+        _graph._unit_cell = self._unit_cell
+        _graph._features = self._features[key]
+        _graph._outputs = self._outputs[key]
+        _graph._graph_outputs = self._graph_outputs
+
+        return _graph
+
+    def __len__(self):
+        return self.atoms.shape[0]
+
     def _resolve_atomic_numbers(
             self, symbols: dict | list[str] | None = None) -> np.ndarray:
         """ Helper method to automatically resolve atomic numbers"""
@@ -596,9 +627,33 @@ class AtomGraph(AtomGraphBase):
             values respectively.
 
         """
-        raise NotImplementedError
+        for i, atom_symbol in self.atoms:
+            if atom_symbol in symbols:
+                self.atoms[i] = symbols[atom_symbol]
+        
+    def wrap(self) -> 'AtomGraph':
+        """Wraps positions of atoms to lie within the unit cell.
+        """
+        images = np.floor(self.positions @ self.unit_rcell().T)
+        self.positions -= (images @ self.unit_cell)
 
-    def get_band_path(
+        return self
+        
+    def unit_rcell(self, periodicity: bool = True) -> np.ndarray:
+        """Computes the reciprocal unit cell matrix.
+
+        Returns:
+            np.ndarray: The reciprocal unit cell (shape: [3, 3])
+        """
+        if periodicity:
+            delta = self.periodic.astype(self.unit_cell.dtype)
+            rcell = np.linalg.lstsq(self.unit_cell.T, np.diag(delta))[0]
+        else:
+            rcell = np.linalg.pinv(self.unit_cell.T)
+
+        return rcell
+
+    def band_path(
             self, 
             path: str | None = None, 
             n_points: int = 2048) -> np.ndarray:
@@ -622,14 +677,29 @@ class AtomGraph(AtomGraphBase):
             np.ndarray: A numpy array of reciprocal space points 
                 (shape: [n_points, 3])
         """
-
-        graph_cell = self.to_ase().cell
+        graph_cell = ase.Atoms(cell=self.unit_cell).cell
         frac_k_pts = graph_cell.bandpath(path=path, npoints=n_points).kpts
         cart_k_pts = graph_cell.reciprocal().cartesian_positions(frac_k_pts)
 
         return cart_k_pts
+        
+    def unit_cell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
+        """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
+        the unit cell.
 
-    def get_rcell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
+        Args:
+            size (tuple[int] | int, optional): A tuple of three ints 
+                (or a single int) specifying the Monhorst-Pack mesh 
+                size. If a single int is passed, this is used as the 
+                size of each mesh dimension. Defaults to 5.
+
+        Returns:
+            np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
+        """
+        mesh = monkhorst_pack_mesh(size)
+        return mesh @ self.unit_cell
+
+    def unit_rcell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
         """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
         the reciprocal unit cell.
 
@@ -642,40 +712,45 @@ class AtomGraph(AtomGraphBase):
         Returns:
             np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
         """
-        from ase.dft.kpoints import monkhorst_pack
-
-        if isinstance(size, int):
-            size = (size, size, size)
+        mesh = monkhorst_pack_mesh(size)
+        return mesh @ self.unit_rcell()
         
-        graph_cell = self.to_ase().cell
-        frac_mesh = monkhorst_pack(size)
-        k_mesh = graph_cell.reciprocal().cartesian_positions(frac_mesh)
-
-        return k_mesh
-
-    def get_cell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
-        """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
-        the reciprocal unit cell.
+    def supercell(self, size: list[list[float]]) -> 'AtomGraph':
+        """Constructs an expanded supercell of this AtomGraph
+        based on `size`, which can be either a 3x3 supercell matrix, 
+        an array of size 3 (interpreted as a diagonal matrix), or
+        a scalar (interpreted as a constant diagonal matrix). 
 
         Args:
-            size (tuple[int] | int, optional): A tuple of three ints 
-                (or a single int) specifying the Monhorst-Pack mesh 
-                size. If a single int is passed, this is used as the 
-                size of each mesh dimension. Defaults to 5.
+            size (list[list[float]]): The size matrix, list or scalar of
+                the supercell.
 
         Returns:
-            np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
+            AtomGraph: The supercell AtomGraph
         """
-        from ase.dft.kpoints import monkhorst_pack
 
-        if isinstance(size, int):
-            size = (size, size, size)
+        size = np.array(size)
+
+        matrix, lattice_points = supercell_lattice_points(size)
         
-        graph_cell = self.to_ase().cell
-        frac_mesh = monkhorst_pack(size)
-        k_mesh = graph_cell.cartesian_positions(frac_mesh)
+        supercell = matrix @ self.unit_cell
+        N = lattice_points.shape[0]
+        n_atoms = N*self.positions.shape[0]
+        _positions = self.positions.reshape((1, -1, 3))
+        _offsets = (lattice_points @ self.unit_cell).reshape((-1, 1, 3))
+        supercell_positions = (_positions + _offsets).reshape((n_atoms, 3))
 
-        return k_mesh
+        graph = AtomGraph(
+            atoms=self.atoms.repeat(N, axis=0),
+            positions=supercell_positions,
+            unit_cell=supercell,
+            periodic=self.periodic,
+            features=self.features.repeat(N, axis=0),
+            outputs=self.outputs.repeat(N, axis=0),
+            graph_outputs=self.graph_outputs.repeat(N, axis=0)
+        )
+
+        return graph
 
     def compile(
             self,
@@ -787,6 +862,33 @@ class AtomGraph(AtomGraphBase):
         """
         return self
 
+    def plot(self, backend: str = 'mpl', **plotter_kwargs) -> Any:
+        """Plots an AtomGraph object using the given backend.
+
+        Args:
+            backend (str, optional): The backend plotter to use. 
+                Defaults to 'mpl'. For more information on plotter
+                arguments, see :meth:`pyquinn.plot.plotter.plot_Atoms`.
+
+        Returns:
+            Any: A figure object associated with the backend plotter.
+        """
+        from pyquinn.plot import plotter
+
+        return plotter.plot_atoms(
+            atoms=self,
+            backend=backend,
+            **plotter_kwargs)
+
+    def copy(self) -> 'AtomGraph':
+        """Returns a copy of this AtomGraph object.
+
+        Returns:
+            AtomGraph: A copy of this AtomGraph object.
+        """
+
+        return AtomGraph(self)
+
 
 class BackendAtomGraph(ABC, AtomGraphBase):
 
@@ -844,6 +946,91 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         pass
 
     @abstractmethod
+    def wrap(self):
+        """Wraps positions of atoms to lie within the unit cell."""
+        pass
+
+    @abstractmethod
+    def band_path(
+            self, 
+            path: str | None = None, 
+            n_points: int = 2048) -> Any:
+        """Generates a High-symmetry canonical band path using the same
+        conventions as in :meth:`pyquinn.types.AtomGraph.get_band_path`,
+        using backend-specific data types. Differentiability with respect
+        to unit cell shape is also maintained.
+
+        Args:
+            path (str | None, optional): High-symmetry path in the reciprocal 
+                space first Brillouin zone, consisting of special point
+                symbols, possibly separated by commas to indicate
+                jumps in the path. If None, the canonical path is used. 
+                Defaults to None.
+            n_points (int, optional): Number of points in the band path. 
+                Defaults to 1024.
+
+        Returns:
+                An array of reciprocal space points 
+                (shape: [n_points, 3])
+        """
+        pass
+
+    @abstractmethod
+    def unit_rcell_mesh(self, size: tuple[int] | int = 5) -> Any:
+        """Generates a Monkhorst-Pack mesh that uniformly samples 
+        the reciprocal unit cell, using the same
+        conventions as in :meth:`pyquinn.types.AtomGraph.get_rcell_mesh`.
+        Differentiability with respect to unit cell shape is also maintained.
+
+        Args:
+            size (tuple[int] | int, optional): A tuple of three ints 
+                (or a single int) specifying the Monhorst-Pack mesh 
+                size. If a single int is passed, this is used as the size 
+                of each mesh dimension. Defaults to 5.
+
+        Returns:
+            A Monkhorst-Pack reciprocal cell mesh.
+        """
+        pass
+
+    @abstractmethod
+    def unit_cell_mesh(self, size: tuple[int] | int = 5) -> Any:
+        """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
+        the real-space unit cell, using the same
+        conventions as in :meth:`pyquinn.types.AtomGraph.get_rcell_mesh`
+        Differentiability with respect to unit cell shape is also maintained.
+
+        Args:
+            size (tuple[int] | int, optional): A tuple of three ints 
+                (or a single int) specifying the Monhorst-Pack mesh 
+                size. If a single int is passed, this is used as the 
+                size of each mesh dimension. Defaults to 5.
+
+        Returns:
+            np.ndarray: A Monkhorst-Pack unit cell mesh.
+        """
+        pass
+
+    @abstractmethod
+    def supercell(self, size: Any) -> 'BackendAtomGraph':
+        """Constructs an expanded supercell of this AtomGraph
+        based on `size`, which can be either a 3x3 supercell matrix, 
+        an array of size 3 (interpreted as a diagonal matrix), or
+        a scalar (interpreted as a constant diagonal matrix).
+
+        Differentiability with respect to all parameters
+        in the original BackendAtomgraph is also maintained.
+
+        Args:
+            size (list[list[float]]): The size matrix, list or scalar of
+                the supercell.
+
+        Returns:
+            BackendAtomGraph: The supercell BackendAtomGraph
+        """
+        pass
+
+    @abstractmethod
     def extract(self) -> AtomGraph:
         """ Returns an instance of a concrete AtomGraph
         which is removed from any backend-specific
@@ -875,5 +1062,33 @@ class BackendAtomGraph(ABC, AtomGraphBase):
 
         Args:
             filename (str): The name of the pickle file to save.
+        """
+        pass
+
+    def plot(self, backend: str = 'mpl', **plotter_kwargs) -> Any:
+        """Plots a BackendAtomGraph object using the given backend.
+
+        Args:
+            backend (str, optional): The backend plotter to use. 
+                Defaults to 'mpl'. For more information on plotter
+                arguments, see :meth:`pyquinn.plot.plotter.plot_Atoms`.
+
+        Returns:
+            Any: A figure object associated with the backend plotter.
+        """
+        from pyquinn.plot import plotter
+
+        return plotter.plot_atoms(
+            atoms=self.extract(),
+            backend=backend,
+            **plotter_kwargs)
+
+    @abstractmethod
+    def copy(self) -> 'BackendAtomGraph':
+        """Returns a copy of this BackendAtomGraph object
+
+        Returns:
+            BackendAtomGraph: A copy of this BackendAtomGraph. 
+
         """
         pass
