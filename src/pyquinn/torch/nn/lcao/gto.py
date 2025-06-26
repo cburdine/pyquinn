@@ -466,8 +466,12 @@ def sto_ng_primitive_overlap_matrix(
         _GTO_HERMITE_TENSOR,
         sqrt_eta_powers, r_powers)
 
-    alphas_1_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
-    alphas_2_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
+    alphas_1_powers = torch.arange(
+        _GTO_ALPHA_TENSOR.shape[-1],
+        device=alphas_1.device)
+    alphas_2_powers = torch.arange(
+        _GTO_ALPHA_TENSOR.shape[-1],
+        device=alphas_2.device)
     j_powers = alphas_1_powers.view(-1, 1) + alphas_2_powers.view(1, -1)
 
     sqrt_alphas_1 = torch.sqrt(alphas_1).unsqueeze(-1)
@@ -548,7 +552,9 @@ def sto_ng_block_primitive_overlap_matrix(
 
     dx = (mu_1 - mu_2)
 
-    hermite_powers = torch.arange(_GTO_HERMITE_TENSOR.shape[-1])
+    hermite_powers = torch.arange(
+        _GTO_HERMITE_TENSOR.shape[-1],
+        device=sqrt_etas.device)
 
     sqrt_eta_powers = sqrt_etas.unsqueeze(-1) ** hermite_powers
     r_powers = dx.unsqueeze(-1) ** hermite_powers
@@ -559,8 +565,12 @@ def sto_ng_block_primitive_overlap_matrix(
         _GTO_HERMITE_TENSOR,
         sqrt_eta_powers, r_powers)
 
-    alphas_1_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
-    alphas_2_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
+    alphas_1_powers = torch.arange(
+        _GTO_ALPHA_TENSOR.shape[-1],
+        device=alphas_1.device)
+    alphas_2_powers = torch.arange(
+        _GTO_ALPHA_TENSOR.shape[-1],
+        device=alphas_2.device)
     j_powers = alphas_1_powers.view(-1, 1) + alphas_2_powers.view(1, -1)
 
     sqrt_alphas_1 = torch.sqrt(alphas_1).unsqueeze(-1)
