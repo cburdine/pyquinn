@@ -209,7 +209,9 @@ class LCAOHamiltonian(Hamiltonian):
         orbital_shells = _ELEMENT_CHO_VALENCE_SHELLS | orbital_shells
 
         # initialize shell index parameters
-        self.orbital_shell_idxs = LCAOHamiltonian._make_shell_idxs(orbital_shells)
+        self.register_buffer(
+            'orbital_shell_idxs', 
+            LCAOHamiltonian._make_shell_idxs(orbital_shells))
 
         self.z_max = max(orbital_shells.keys())
 
