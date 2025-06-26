@@ -130,7 +130,11 @@ def sparse_coo_block_diag(*tensors):
     indices = []
     values = []
 
-    block_idx = torch.zeros((2, 1), dtype=torch.int64)
+    block_idx = torch.zeros(
+        (2, 1), 
+        dtype=torch.int64,
+        device=next(iter(tensors)).device)
+    
     # combine nonzero elements of block tensors:
     for tensor in tensors:
 
