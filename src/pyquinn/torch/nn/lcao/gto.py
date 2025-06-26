@@ -1286,7 +1286,10 @@ def cho_overlap_matrix_metadata(
     """
 
     # dynamically construct block cho transformation matrix
-    cho_tensor_blocks = (_GTO_CHO_TENSORS[l.item()] for l in l_i)
+    cho_tensor_blocks = tuple(
+        _GTO_CHO_TENSORS[l.item()].to(l_i.device)
+        for l in l_i
+    )
 
     if sparse:
         cho_tensor = sparse_coo_block_diag(*cho_tensor_blocks)
@@ -1347,7 +1350,10 @@ def e3_cho_overlap_matrix_metadata(
     """
 
     # dynamically construct block cho transformation matrix
-    cho_tensor_blocks = (_GTO_E3_CHO_TENSORS[l.item()] for l in l_i)
+    cho_tensor_blocks = tuple(
+        _GTO_E3_CHO_TENSORS[l.item()].to(l_i.device) 
+        for l in l_i
+    )
 
     if sparse:
         cho_tensor = sparse_coo_block_diag(*cho_tensor_blocks)
