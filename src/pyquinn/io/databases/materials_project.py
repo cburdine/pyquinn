@@ -15,7 +15,7 @@ class MaterialsProject(Database):
 
         :ref:`https://materialsproject.org/`
 
-    .. info::
+    .. note::
         To access the Materials Project, you will need to obtain an API
         key, which you can get by signing up for an account at
         :ref:`https://next-gen.materialsproject.org/api`.

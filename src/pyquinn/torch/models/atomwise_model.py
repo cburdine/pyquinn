@@ -178,7 +178,7 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
                         outputs_weight=outputs_weight,
                         graph_outputs_weight=graph_outputs_weight)
 
-                    train_losses.append(loss.detach().numpy())
+                    train_losses.append(loss.detach().cpu().numpy())
 
                 if val_dataset is not None:
                     for graph in dataset_iter(val_dl):
@@ -191,7 +191,7 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
                             outputs_weight=outputs_weight,
                             graph_outputs_weight=graph_outputs_weight)
 
-                        val_losses.append(loss.detach().numpy())
+                        val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
             epoch_validation_loss = None if val_dataset is None \
