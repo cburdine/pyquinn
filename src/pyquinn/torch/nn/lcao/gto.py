@@ -562,7 +562,7 @@ def sto_ng_block_primitive_overlap_matrix(
     hermite_coeffs = torch.einsum(
         '...abmnj, jp, ...abmnp, ...dp -> ...abmndj',
         sqrt_eta_powers,
-        _GTO_HERMITE_TENSOR,
+        _GTO_HERMITE_TENSOR.to(sqrt_eta_powers.device),
         sqrt_eta_powers, r_powers)
 
     alphas_1_powers = torch.arange(
@@ -590,11 +590,12 @@ def sto_ng_block_primitive_overlap_matrix(
     A_2 = (sqrt_alphas_2 ** (-alphas_2_powers.unsqueeze(0)))
     J_12 = hermite_coeffs[..., j_powers]
 
+    _ALPHA = _GTO_ALPHA_TENSOR.to(eta_gaussians.device)
     T = torch.einsum(
         'ij, ...amj, ...abmndjk, ...abdmn, ...bnk, kl -> ...abmndil',
-        _GTO_ALPHA_TENSOR,
+        _ALPHA,
         A_1, J_12, eta_gaussians, A_2,
-        _GTO_ALPHA_TENSOR.T)
+        _ALPHA.T)
 
     return T
 
@@ -782,7 +783,7 @@ def sto_ng_primitive_potential_overlap_matrix(
     hermite_coeffs = torch.einsum(
         '...gabmnj, jp, ...gabmnp, ...gabdp -> ...gabmndj',
         sqrt_eta_powers,
-        _GTO_HERMITE_TENSOR,
+        _GTO_HERMITE_TENSOR.to(sqrt_eta_powers.device),
         sqrt_eta_powers, r_powers)
 
     alphas_1_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
@@ -819,13 +820,14 @@ def sto_ng_primitive_potential_overlap_matrix(
     A_2 = (sqrt_alphas_2 ** (-alphas_2_powers.unsqueeze(0)))
     J_12 = hermite_coeffs[..., j_powers]
 
+    _ALPHA = _GTO_ALPHA_TENSOR.to(device=eta_gaussians.device)
     T = torch.einsum(
         '...gami, ij, ...gamj, ...gabmndjk, ...gabdmn, '
         '...bnk, kl -> ...gabmndil',
         G_1,
-        _GTO_ALPHA_TENSOR,
+        _ALPHA,
         A_1, J_12, eta_gaussians, A_2,
-        _GTO_ALPHA_TENSOR.T)
+        _ALPHA.T)
 
     return T
 
@@ -897,7 +899,7 @@ def sto_ng_block_primitive_potential_overlap_matrix(
     hermite_coeffs = torch.einsum(
         '...gabmnj, jp, ...gabmnp, ...dp -> ...gabmndj',
         sqrt_eta_powers,
-        _GTO_HERMITE_TENSOR,
+        _GTO_HERMITE_TENSOR.to(device=sqrt_eta_powers.device),
         sqrt_eta_powers, r_powers)
 
     alphas_1_powers = torch.arange(_GTO_ALPHA_TENSOR.shape[-1])
@@ -934,13 +936,14 @@ def sto_ng_block_primitive_potential_overlap_matrix(
     A_2 = (sqrt_alphas_2 ** (-alphas_2_powers.unsqueeze(0)))
     J_12 = hermite_coeffs[..., j_powers]
 
+    _ALPHA = _GTO_ALPHA_TENSOR.to(eta_gaussians.device)
     T = torch.einsum(
         '...gami, ij, ...gamj, ...gabmndjk, ...gabdmn, '
         '...bnk, kl -> ...gabmndil',
         G_1,
-        _GTO_ALPHA_TENSOR,
+        _ALPHA,
         A_1, J_12, eta_gaussians, A_2,
-        _GTO_ALPHA_TENSOR.T)
+        _ALPHA.T)
 
     return T
 
