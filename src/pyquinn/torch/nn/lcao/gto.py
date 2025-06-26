@@ -129,7 +129,7 @@ def _make_gto_cho_tensor(l, ijks=None) -> torch.Tensor:
     """
 
     if ijks is None:
-        ijks = _make_gto_ijk_values(l).detach().numpy()
+        ijks = _make_gto_ijk_values(l).detach().cpu().numpy()
     ijk_coeffs = _make_gto_ijk_coeffs(l)
 
     n_ijks = len(ijks)
@@ -181,7 +181,7 @@ def _make_gto_cho_tensor(l, ijks=None) -> torch.Tensor:
 
 
 _GTO_CHO_TENSORS = [
-    _make_gto_cho_tensor(l, _GTO_IJK_VALUES[l].detach().numpy())
+    _make_gto_cho_tensor(l, _GTO_IJK_VALUES[l].detach().cpu().numpy())
     for l in range(GTO_L_MAX+1)
 ]
 """ List of matrices mapping gaussian bases to cubic harmonics for

@@ -90,10 +90,10 @@ class TorchAtomGraph(BackendAtomGraph):
 
         neighbors, unit_cell_images = \
             build_dense_neighbor_list(
-                positions=self.positions.detach().numpy(),
-                unit_cell=self.unit_cell.detach().numpy(),
-                periodic=self.periodic.detach().numpy(),
-                cutoffs=self.cutoffs.detach().numpy()
+                positions=self.positions.detach().cpu().numpy(),
+                unit_cell=self.unit_cell.detach().cpu().numpy(),
+                periodic=self.periodic.detach().cpu().numpy(),
+                cutoffs=self.cutoffs.detach().cpu().numpy()
             )
 
         self.neighbors = torch.tensor(
@@ -130,7 +130,7 @@ class TorchAtomGraph(BackendAtomGraph):
         
         from ase import Atoms
         
-        cell_np = self.unit_cell.detach().numpy()
+        cell_np = self.unit_cell.detach().cpu().numpy()
         graph_cell = Atoms(cell=cell_np).cell
         frac_k_pts = torch.tensor(
             graph_cell.bandpath(path=path, npoints=n_points).kpts,
@@ -161,7 +161,7 @@ class TorchAtomGraph(BackendAtomGraph):
 
     def supercell(self, size: torch.IntTensor) -> 'BackendAtomGraph':
 
-        size_np = size.detach().numpy()
+        size_np = size.detach().cpu().numpy()
         matrix_np, lattice_points_np = \
             supercell_lattice_points(size_np)
         
@@ -261,13 +261,13 @@ class TorchAtomGraph(BackendAtomGraph):
 
     def extract(self):
         return AtomGraph(
-            atoms=self.atomic_numbers.detach().numpy(),
-            positions=self.positions.detach().numpy(),
-            unit_cell=self.unit_cell.detach().numpy(),
-            periodic=self.periodic.detach().numpy(),
-            features=self.features.detach().numpy(),
-            outputs=self.outputs.detach().numpy(),
-            graph_outputs=self.graph_outputs.detach().numpy()
+            atoms=self.atomic_numbers.detach().cpu().numpy(),
+            positions=self.positions.detach().cpu().numpy(),
+            unit_cell=self.unit_cell.detach().cpu().numpy(),
+            periodic=self.periodic.detach().cpu().numpy(),
+            features=self.features.detach().cpu().numpy(),
+            outputs=self.outputs.detach().cpu().numpy(),
+            graph_outputs=self.graph_outputs.detach().cpu().numpy()
         )
 
     @staticmethod

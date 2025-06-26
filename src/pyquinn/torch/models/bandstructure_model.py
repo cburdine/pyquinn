@@ -248,6 +248,10 @@ class TorchBandStructureModel(nn.Module):
             k_idxs=k_idxs,
             x_cutoff=x_cutoff,
         )
+
+    @staticmethod
+    def _collate_batch(batch):
+        return batch
     
     def fit(self,
             train_dataset: TorchBandStructureDataset,
@@ -269,15 +273,11 @@ class TorchBandStructureModel(nn.Module):
 
         optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
 
-        def _collate_batch(self, batch):
-            return batch.to(self.device)
-
         train_dl = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, num_workers=1,
-            collate_fn=_collate_batch)
+            collate_fn=TorchBandStructureModel._collate_batch)
         val_dl = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=True, num_workers=1,
-            collate_fn=_collate_batch)
+            val_dataset, batch_size=None, shuffle=False)
 
         # create history dictionary
         history = {
@@ -339,7 +339,7 @@ class TorchBandStructureModel(nn.Module):
                             projection_weight=projection_weight)
                         for graph, band_structure in batch) / batch_size
 
-                    train_losses.append(loss.detach().numpy())
+                    train_losses.append(loss.detach().cpu().numpy())
 
                 if val_dataset is not None:
                     for batch in dataset_iter(val_dl):
@@ -353,7 +353,7 @@ class TorchBandStructureModel(nn.Module):
                                 projection_weight=projection_weight)
                             for graph, band_structure in batch) / batch_size
 
-                        val_losses.append(loss.detach().numpy())
+                        val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
             epoch_validation_loss = None if val_dataset is None \

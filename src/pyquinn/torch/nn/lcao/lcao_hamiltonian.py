@@ -324,7 +324,7 @@ class LCAOHamiltonian(Hamiltonian):
     def get_orbital_shells_dict(self) -> dict:
 
         shells = {
-            i: list(l_vals[l_vals >= 0].detach().numpy())
+            i: list(l_vals[l_vals >= 0].detach().cpu().numpy())
             for i, l_vals in enumerate(self.orbital_shell_idxs)
             if i > 0
         }

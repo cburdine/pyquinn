@@ -84,10 +84,10 @@ class TorchBandStructure(BackendBandStructure):
 
     def extract(self) -> BandStructure:
         return BandStructure(
-            energies=self.energies.detach().numpy(),
-            k_pts=self.k_pts.detach().numpy(),
-            projections=self.projections.detach().numpy(),
-            chemical_potential=self.chemical_potential.detach().numpy())
+            energies=self.energies.detach().cpu().numpy(),
+            k_pts=self.k_pts.detach().cpu().numpy(),
+            projections=self.projections.detach().cpu().numpy(),
+            chemical_potential=self.chemical_potential.detach().cpu().numpy())
 
     @staticmethod
     def load(
