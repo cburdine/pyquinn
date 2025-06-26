@@ -457,7 +457,7 @@ class LCAOHamiltonian(Hamiltonian):
             H_blocksizes: torch.IntTensor) -> torch.IntTensor:
 
         H_neighborhood_idxs = torch.cat([
-            H_idxs[i] + torch.arange(H_blocksizes[i])
+            H_idxs[i] + torch.arange(H_blocksizes[i], device=H_idxs.device)
             for i in idxs
         ])
 
@@ -729,7 +729,9 @@ class LCAOHamiltonian(Hamiltonian):
         n_orbitals.put_(l_site_idxs, 2*l_values+1, accumulate=True)
 
         site_idxs, orbital_idxs = torch.nonzero(
-            torch.arange(torch.max(n_orbitals)).view(1, -1) <
+            torch.arange(
+                torch.max(n_orbitals), 
+                device=atomic_numbers.device).view(1, -1) <
             n_orbitals.view(-1, 1), as_tuple=True)
 
         return site_idxs, orbital_idxs
@@ -836,7 +838,9 @@ class TBHamiltonian(LCAOHamiltonian):
         H_values = torch.cat(components, dim=0)
 
         H_diagonal = torch.cat(diagonals, dim=0)
-        H_ii = torch.arange(H_diagonal.shape[0])\
+        H_ii = torch.arange(
+            H_diagonal.shape[0],
+            device=H_diagonal.device)\
             .view(1, -1).expand(2, -1)
 
         H_distances = torch.cat(component_distances, dim=0)
