@@ -3,7 +3,7 @@ from itertools import product
 import torch
 from torch.utils import benchmark
 
-from pyquinn.torch.nn.lcao import LCAOModel
+from pyquinn.torch.nn.lcao import LCAOHamiltonian
 
 
 def _make_lcao_model_hamiltonian_args(
@@ -33,12 +33,12 @@ def _make_lcao_model_hamiltonian_args(
 
 
 python_lcao_models = {
-    (n, m): LCAOModel(basis_size=n, potential_basis_size=m)
+    (n, m): LCAOHamiltonian(basis_size=n, potential_basis_size=m)
     for n, m in product([3, 5], [3, 5])
 }
 
 compiled_lcao_models = {
-    (n, m): torch.compile(LCAOModel(basis_size=n, potential_basis_size=m))
+    (n, m): torch.compile(LCAOHamiltonian(basis_size=n, potential_basis_size=m))
     for n, m in product([3, 5], [3, 5])
 }
 
@@ -46,7 +46,7 @@ compiled_lcao_models = {
 def benchmark_lcao_model_hamiltonian(results):
 
     num_threads = torch.get_num_threads()
-    print(f'Benchmarking LCAOModel.hamiltonian_matrix() on {num_threads} threads...') # noqa
+    print(f'Benchmarking LCAOHamiltonian.hamiltonian_matrix() on {num_threads} threads...') # noqa
 
     def _run_benchmark(n, m, size, results, threads=None):
 
@@ -59,7 +59,7 @@ def benchmark_lcao_model_hamiltonian(results):
                     _make_lcao_model_hamiltonian_args(
                         element=29, atoms_per_dim=size, n=1)}, # noqa
             num_threads=num_threads,
-            label='LCAOModel.hamiltonian_matrix()',
+            label='LCAOHamiltonian.hamiltonian_matrix()',
             sub_label=f'Cu [{size},{size},{size}] (n={n},m={m})',
             description='python',
         ).blocked_autorange(min_run_time=0.2)
@@ -74,7 +74,7 @@ def benchmark_lcao_model_hamiltonian(results):
                     _make_lcao_model_hamiltonian_args(
                         element=29, atoms_per_dim=size, n=1)}, # noqa
             num_threads=num_threads,
-            label='LCAOModel.hamiltonian_matrix()',
+            label='LCAOHamiltonian.hamiltonian_matrix()',
             sub_label=f'Cu [{size},{size},{size}] (n={n},m={m})',
             description='torch.compile',
         ).blocked_autorange(min_run_time=0.2)

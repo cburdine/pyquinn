@@ -4,20 +4,20 @@ import torch
 import numpy as np
 
 from pyquinn.torch.nn.lcao import (
-    LCAOModel,
-    TBModel,
-    VariationalLCAOModel,
-    VariationalTBModel,
+    LCAOHamiltonian,
+    TBHamiltonian,
+    VariationalLCAOHamiltonian,
+    VariationalTBHamiltonian,
 )
 
 
-class TestLCAOModel(unittest.TestCase):
+class TestLCAOHamiltonian(unittest.TestCase):
 
     def test_lcao_model_init(self):
 
-        for basis_type in LCAOModel.BASIS_OPTIONS:
-            for spin in LCAOModel.SPIN_OPTIONS:
-                _ = LCAOModel(
+        for basis_type in LCAOHamiltonian.BASIS_OPTIONS:
+            for spin in LCAOHamiltonian.SPIN_OPTIONS:
+                _ = LCAOHamiltonian(
                     eigensolver='torch_eigh',
                     spin=spin,
                     basis=basis_type,
@@ -36,7 +36,7 @@ class TestLCAOModel(unittest.TestCase):
 
         max_n_shells = max(len(v) for v in orbital_shells.values())
 
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -68,7 +68,7 @@ class TestLCAOModel(unittest.TestCase):
 
     def test_lcao_model_hamiltonian_matrix(self):
 
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -141,7 +141,7 @@ class TestLCAOModel(unittest.TestCase):
 
     def test_lcao_model_hamiltonian_key(self):
 
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -175,7 +175,7 @@ class TestLCAOModel(unittest.TestCase):
 
     def test_lcao_model_eigenenergies(self):
 
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -214,7 +214,7 @@ class TestLCAOModel(unittest.TestCase):
 
         shell_order = [3, 2, 1, 0]
 
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             orbital_shells={1: shell_order}
@@ -250,7 +250,7 @@ class TestLCAOModel(unittest.TestCase):
     def test_lcao_model_orbital_quantum_numbers(self):
 
         shell_order = [3, 2, 1, 0]
-        model = LCAOModel(
+        model = LCAOHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             orbital_shells={1: shell_order}
@@ -277,11 +277,11 @@ class TestLCAOModel(unittest.TestCase):
 
 
 
-class TestTBModel(unittest.TestCase):
+class TestTBHamiltonian(unittest.TestCase):
 
     def test_tb_model_hamiltonian_matrix(self):
 
-        model = TBModel(
+        model = TBHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -386,7 +386,7 @@ class TestTBModel(unittest.TestCase):
 
     def test_tb_model_eigenenergies(self):
 
-        model = TBModel(
+        model = TBHamiltonian(
             eigensolver='torch_eigh',
             spin='paired',
             basis='even_tempered',
@@ -436,11 +436,11 @@ class TestTBModel(unittest.TestCase):
         )
 
 
-class TestVariationalTBModel(unittest.TestCase):
+class TestVariationalTBHamiltonian(unittest.TestCase):
 
     def test_var_tb_model_hamiltonian_matrix(self):
         
-        model = VariationalTBModel(
+        model = VariationalTBHamiltonian(
             onsite_nn='nnconv',
             variational_nn='nnconv',
             eigensolver='torch_eigh',
@@ -550,11 +550,11 @@ class TestVariationalTBModel(unittest.TestCase):
         )
 
 
-class TestVariationalLCAOModel(unittest.TestCase):
+class TestVariationalLCAOHamiltonian(unittest.TestCase):
 
     def test_var_lcao_model_hamiltonian_matrix(self):
         
-        model = VariationalLCAOModel(
+        model = VariationalLCAOHamiltonian(
             onsite_nn='nnconv',
             variational_nn='nnconv',
             eigensolver='torch_eigh',

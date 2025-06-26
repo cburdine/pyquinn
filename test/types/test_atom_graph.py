@@ -70,7 +70,7 @@ class AtomGraphTest(unittest.TestCase):
     def test_compute_neighbor_list(self):
 
         graphene_atoms = ['C', 'C']
-        graphene_a = 0.1 #2.8
+        graphene_a = 0.1  # 2.8
         graphene_positions = np.array([
             [1.      , 0.        , 0.           ], # noqa
             [0.5     , 1/np.sqrt(12), 0.        ]  # noqa 
@@ -140,6 +140,82 @@ class AtomGraphTest(unittest.TestCase):
             np.sort(np.sqrt((si_vectors[0]**2).sum(-1))), si_distances))
         self.assertTrue(np.allclose(
             np.sort(np.sqrt((si_vectors[1]**2).sum(-1))), si_distances))
+
+    def test_atomgraph_rcell(self):
+
+        atoms = ['C']
+        positions = [[0, 0, 0]]
+        unit_cell = np.array([
+            [2.46, 0.0, 0.0], 
+            [-1.23, 2.130422493309719, 0.0], 
+            [0.0, 0.0, 0.0]
+        ])
+        target_rcell = np.array([
+            [0.4065040650406503, 0.23469523137789647, 0.0],
+            [-2.7755575615628914e-17, 0.46939046275579316, 0.0],
+            [0.0, 0.0, 0.0]
+        ])
+        periodic = (True, True, False)
+
+        graph = AtomGraph(
+            atoms=atoms, 
+            positions=[[0, 0, 0]],
+            unit_cell=unit_cell,
+            periodic=periodic)
+
+        rcell = graph.unit_rcell()
+
+        self.assertTrue(np.allclose(target_rcell, rcell))
+
+    def test_atom_graph_len(self):
+        n_elements = 118
+
+        atomic_numbers = list(range(1, n_elements+1))
+        atoms = [ATOMIC_SYMBOLS[z] for z in atomic_numbers]
+
+        positions = np.linspace(0, 200, n_elements*3)\
+            .reshape(n_elements, 3).tolist()
+
+        graph = AtomGraph(
+            atoms=atoms,
+            positions=positions,
+        )
+
+        self.assertEqual(len(graph), 118)
+
+    def test_atom_graph_slice(self):
+        n_elements = 118
+
+        atomic_numbers = list(range(1, n_elements+1))
+        atoms = [ATOMIC_SYMBOLS[z] for z in atomic_numbers]
+
+        positions = np.linspace(0, 200, n_elements*3)\
+            .reshape(n_elements, 3).tolist()
+
+        unit_cell = np.diag([1, 2, 3])
+        periodic = (True, False, False)
+
+        graph = AtomGraph(
+            atoms=atoms,
+            positions=positions,
+            unit_cell=unit_cell,
+            periodic=periodic)
+
+        idxs = [
+            slice(0, 20, 3),  # slice index
+            (graph.atoms == 'C'),  # numpy boolean index
+            np.arange(5, 50, 3),  # numpy integer index
+        ]
+
+        for idx in idxs:
+            subgraph = graph[idx]
+
+            self.assertTrue(isinstance(subgraph, AtomGraph))
+            self.assertTrue((graph.atoms[idx] == subgraph.atoms).all())
+            self.assertTrue((graph.positions[idx] == subgraph.positions).all())
+            self.assertTrue((graph.unit_cell == subgraph.unit_cell).all())
+            self.assertTrue((graph.periodic == subgraph.periodic).all())
+
 
     def test_compile(self):
 

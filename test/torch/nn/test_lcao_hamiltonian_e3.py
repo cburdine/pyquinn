@@ -1,16 +1,16 @@
 import unittest
 import numpy as np
 
-from pyquinn.torch.nn.lcao import VariationalE3TBModel
+from pyquinn.torch.nn.lcao import VariationalE3TBHamiltonian
 from pyquinn.torch.nn.lcao.lcao_hamiltonian_e3 import _make_shell_irrep_map
 
 
-class TestVariationalTBModel(unittest.TestCase):
+class TestVariationalTBHamiltonian(unittest.TestCase):
 
     def test_make_shell_irrep_map(self):
 
         shell_idxs = \
-            VariationalE3TBModel._make_shell_idxs({
+            VariationalE3TBHamiltonian._make_shell_idxs({
                 1: [0, 0, 1, 2, 2, 2],
                 2: [2, 1, 0],
                 3: [0, 1, 2, 3],
@@ -53,7 +53,7 @@ class TestVariationalTBModel(unittest.TestCase):
         
     # def test_var_tb_model_hamiltonian_matrix(self):
         
-    #     model = VariationalE3TBModel(
+    #     model = VariationalE3TBHamiltonian(
     #         onsite_nn='nnconv',
     #         variational_nn='nnconv',
     #         eigensolver='torch_eigh',

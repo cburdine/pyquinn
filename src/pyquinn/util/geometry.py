@@ -1,12 +1,14 @@
 import numpy as np
 from ase.neighborlist import primitive_neighbor_list
+from ase.build.supercells import lattice_points_in_supercell
+from ase.dft.kpoints import monkhorst_pack
 from ase import Atoms
 
 
 def get_special_k_pts(
-        unit_cell: np.ndarray,
-        periodic: np.ndarray,
         k_pts: np.ndarray,
+        unit_cell: np.ndarray | None,
+        periodic: np.ndarray | None,
         path: str | None = None,
         special_radius: float = None):
     
@@ -15,13 +17,16 @@ def get_special_k_pts(
             np.linalg.norm(k_pts[:-1] - k_pts[1:], axis=-1))
 
     # get the canonical band path and k-points (in fractional coordinates)
-    ase_cell = Atoms(cell=unit_cell, pbc=periodic).cell
-    rcell = ase_cell.reciprocal()
-    band_path = ase_cell.bandpath(path=path, npoints=256)
-
     path_pts = {}
-    for name, pt in band_path.special_points.items():
-        path_pts[name] = rcell.cartesian_positions(pt)
+    if unit_cell is None:
+        path_pts['G'] = np.zeros(3)
+    else:
+        ase_cell = Atoms(cell=unit_cell, pbc=periodic).cell
+        rcell = ase_cell.reciprocal()
+        band_path = ase_cell.bandpath(path=path, npoints=256)
+
+        for name, pt in band_path.special_points.items():
+            path_pts[name] = rcell.cartesian_positions(pt)
 
     # get the special points of the first Brillouin zone
     special_kpts = {
@@ -142,3 +147,32 @@ def build_dense_neighbor_list(
         dense_unit_cell_images[i, :neighbors_i.shape[0]] = images_i
 
     return dense_neighbors, dense_unit_cell_images
+
+
+def supercell_lattice_points(size: np.ndarray) -> tuple[np.ndarray]:
+
+    matrix = size
+    if matrix.ndim < 1:
+        matrix = matrix * np.eye(3)
+    elif matrix.ndim == 1:
+        matrix = np.diag(matrix)
+    if matrix.shape != (3, 3):
+        raise ValueError(
+            'Expected size to have a shape expandable to a 3x3 matrix '
+            f'(got expanded shape: {matrix.shape}).'
+        )
+
+    frac_lattice_points = lattice_points_in_supercell(matrix)
+    lattice_points = np.dot(frac_lattice_points, matrix)
+
+    return matrix, lattice_points
+
+
+def monkhorst_pack_mesh(size: tuple[int] | int = 5):
+
+    if isinstance(size, int):
+        size = (size, size, size)
+        
+    frac_mesh = monkhorst_pack(size)
+    return frac_mesh
+
