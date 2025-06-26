@@ -284,8 +284,9 @@ class LCAOHamiltonian(Hamiltonian):
         base_logscale_v_gammas = self.logscale_potential_gammas[atomic_numbers]
         base_logscale_v_betas = self.logscale_potential_betas[atomic_numbers]
 
-        v_beta_powers = torch.arange(0, self.logscale_potential_vs.shape[-1])\
-            .view(1, 1, -1)
+        v_beta_powers = torch.arange(
+            0, self.logscale_potential_vs.shape[-1],
+            device=base_logscale_betas.device).view(1, 1, -1)
 
         logscale_alphas = \
             base_logscale_alphas + base_logscale_betas*beta_powers
