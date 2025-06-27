@@ -202,7 +202,8 @@ class TorchBandStructureModel(nn.Module):
         n_orbital_indices = torch.max(orbital_indices) + 1
 
         band_projections = torch.zeros(
-            bands.shape+(n_sites, n_orbital_indices))
+            bands.shape+(n_sites, n_orbital_indices),
+            device=bloch_projections.device)
         
         band_projections[..., site_indices, orbital_indices] += \
             bloch_projections
