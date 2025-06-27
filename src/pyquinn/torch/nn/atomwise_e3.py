@@ -1,7 +1,10 @@
-import e3nn.o3 as o3
-import torch.nn as nn
 import e3nn
+import e3nn.o3 as o3
+import e3nn.nn
+
 import torch
+import torch.nn as nn
+
 from torch_geometric.utils import scatter
 
 
@@ -126,7 +129,7 @@ class AtomwiseE3Conv(AtomwiseConv):
             features):
         
         # build atomic "one-hot" encoded features
-        atom_features = torch.nn.functional.one_hot(
+        atom_features = nn.functional.one_hot(
             atomic_numbers, num_classes=self.z_max+1
         ).to(torch.float32)
 

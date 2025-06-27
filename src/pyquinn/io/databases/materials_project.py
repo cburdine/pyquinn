@@ -262,6 +262,14 @@ class MaterialsProject(Database):
         parameters. The format of the database query parameters corresponds 
         with the keyword arguments of the :meth:`MPRester.summary,search()`
         function.
+
+        .. seealso::
+
+            For more information on the Materials Project API, see the 
+            `Official Documentation`_
+            
+        .. _Official Documentation: 
+            https://docs.materialsproject.org/downloading-data/using-the-api
         
         Args:
             params (dict[str, str]): A dictionary of query parameters.
