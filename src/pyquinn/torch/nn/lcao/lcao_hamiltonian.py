@@ -882,7 +882,8 @@ class TBHamiltonian(LCAOHamiltonian):
 
             # build dense hamiltonian
             H = torch.zeros(k_shape + (shape[0]*shape[1],), 
-                            dtype=torch.complex64)
+                            dtype=torch.complex64,
+                            device=H_diagonal.device)
 
             H_ii_idxs = (shape[0]*H_ii[0] + H_ii[1])\
                 .view(*k_view, -1).expand(*k_shape, -1)
