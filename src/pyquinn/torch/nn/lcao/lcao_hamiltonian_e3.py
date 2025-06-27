@@ -60,7 +60,7 @@ def _make_shell_irreps(unique_shells, n_coeffs=1):
 
 
 def _make_shell_irrep_map(
-        orbital_shell_idxs) -> torch.tensor:
+        orbital_shell_idxs) -> tuple:
 
     # determine how many instances of each irrep (shell) are needed
     l_max = torch.max(orbital_shell_idxs)
@@ -142,8 +142,12 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         else:
             super().__init__(**base_model_kwargs)
 
-        self.irrep_blocks, self.irrep_shell_map, self.irrep_map = \
+        irrep_blocks, irrep_shell_map, irrep_map = \
             _make_shell_irrep_map(self.orbital_shell_idxs)
+
+        self.register_buffer('irrep_blocks', irrep_blocks)
+        self.register_buffer('irrep_shell_map', irrep_shell_map)
+        self.register_buffer('irrep_map', irrep_map)
 
         shell_irreps = _make_shell_irreps(
             self.irrep_blocks, 
