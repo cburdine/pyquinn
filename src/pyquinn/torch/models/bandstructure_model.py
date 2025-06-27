@@ -266,7 +266,7 @@ class TorchBandStructureModel(nn.Module):
             use_projections: bool = False,
             projection_weight: float = 0.1,
             device: torch.device | None = None,
-            n_workers: int = 0) -> dict:
+            data_workers: int = 0) -> dict:
         
         # initialize optimizer:
         if optimizer_kwargs is None:
@@ -281,11 +281,11 @@ class TorchBandStructureModel(nn.Module):
 
         train_dl = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, 
-            num_workers=n_workers,
+            num_workers=data_workers,
             collate_fn=TorchBandStructureModel._collate_fn)
         val_dl = DataLoader(
             val_dataset, batch_size=None, shuffle=False, 
-            num_workers=n_workers,
+            num_workers=data_workers,
             collate_fn=TorchBandStructureModel._collate_fn)
 
         # create history dictionary
