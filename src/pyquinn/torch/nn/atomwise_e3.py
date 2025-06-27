@@ -87,12 +87,18 @@ class AtomwiseE3Conv(AtomwiseConv):
         self.r_max = r_max
         self.r_points = r_points
 
-        self.D_output_transform = self.out_irreps.D_from_matrix(
+        D_output_transform = self.out_irreps.D_from_matrix(
             _make_irrep_change_of_basis(o3_basis))
 
-        self.D_input_transform = self.in_irreps.D_from_matrix(
+        self.register_buffer(
+            'D_output_transform', D_output_transform)
+
+        D_input_transform = self.in_irreps.D_from_matrix(
             _make_irrep_change_of_basis(o3_basis)) \
             if self.in_irreps else None
+
+        self.register_buffer(
+            'D_input_transform', D_input_transform)
 
         self.activation = get_activation_fn(activation)()
 
