@@ -301,7 +301,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         # compute normalized c coeffficients
         shell_cs = torch.sinh(self.logscale_orbital_cs[atomic_numbers])
         cs_shape = irrep_shell_map.shape + (self.basis_size,)
-        cs_unnormed = torch.zeros(cs_shape, dtype=torch.float32)
+        cs_unnormed = torch.zeros(cs_shape, device=alphas.device)
         cs_unnormed[site_idxs, irrep_idxs] += \
             shell_cs[site_idxs, irrep_shell_map[site_idxs, irrep_idxs]]
         
