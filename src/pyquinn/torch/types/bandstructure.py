@@ -75,12 +75,17 @@ class TorchBandStructure(BackendBandStructure):
             projections=self.projections.clone(),
             chemical_potential=self.chemical_potential.clone())
 
-    def to(self, **kwargs):
+    def to(self, *args, **kwargs):
+
+        # short circuit to() function
+        if len(args) == 0 or (len(args) == 1 and args[0] is None):
+            return self
+
         return TorchBandStructure(
-            energies=self.energies.to(**kwargs),
-            k_pts=self.k_pts.to(**kwargs),
-            projections=self.projections.to(**kwargs),
-            chemical_potential=self.chemical_potential.to(**kwargs))
+            energies=self.energies.to(*args, **kwargs),
+            k_pts=self.k_pts.to(*args, **kwargs),
+            projections=self.projections.to(*args, **kwargs),
+            chemical_potential=self.chemical_potential.to(*args, **kwargs))
 
     def extract(self) -> BandStructure:
         return BandStructure(

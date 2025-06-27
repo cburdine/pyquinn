@@ -239,23 +239,27 @@ class TorchAtomGraph(BackendAtomGraph):
     def clone(self):
         return self.copy()
 
-    def to(self, **kwargs):
+    def to(self, *args, **kwargs):
+
+        # short circuit to() function
+        if len(args) == 0 or (len(args) == 1 and args[0] is None):
+            return self
         
         atom_graph = TorchAtomGraph(
-            atomic_numbers=self.atomic_numbers.to(**kwargs),
-            positions=self.positions.to(**kwargs),
-            masses=self.masses.to(**kwargs),
-            unit_cell=self.unit_cell.to(**kwargs),
-            periodic=self.periodic.to(**kwargs),
-            features=self.features.to(**kwargs),
-            outputs=self.outputs.to(**kwargs),
-            graph_outputs=self.graph_outputs.to(**kwargs),
-            cutoffs=self.cutoffs.to(**kwargs),
+            atomic_numbers=self.atomic_numbers.to(*args, **kwargs),
+            positions=self.positions.to(*args, **kwargs),
+            masses=self.masses.to(*args, **kwargs),
+            unit_cell=self.unit_cell.to(*args, **kwargs),
+            periodic=self.periodic.to(*args, **kwargs),
+            features=self.features.to(*args, **kwargs),
+            outputs=self.outputs.to(*args, **kwargs),
+            graph_outputs=self.graph_outputs.to(*args, **kwargs),
+            cutoffs=self.cutoffs.to(*args, **kwargs),
             compute_neighbors=False,
         )
 
-        atom_graph.neighbors = self.neighbors.to(**kwargs)
-        atom_graph.unit_cell_images = self.unit_cell_images.to(**kwargs)
+        atom_graph.neighbors = self.neighbors.to(*args, **kwargs)
+        atom_graph.unit_cell_images = self.unit_cell_images.to(*args, **kwargs)
 
         return atom_graph
 
