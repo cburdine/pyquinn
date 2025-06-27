@@ -108,10 +108,15 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
 
             return loss
     
+    @staticmethod
+    def _collate_fn(batch):
+        return batch
+
     def fit(self,
             train_dataset: AtomGraphDataset | None = None,
             val_dataset: AtomGraphDataset | None = None,
             epochs: int = 100,
+            batch_size: int = 1,
             lr: float = 1e-3,
             optimizer: str = 'adam',
             optimizer_kwargs: dict | None = None,
@@ -119,7 +124,9 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
             use_outputs: bool = True,
             use_graph_outputs: bool = True,
             outputs_weight: float = 1.0,
-            graph_outputs_weight: float = 1.0) -> dict:
+            graph_outputs_weight: float = 1.0,
+            device: torch.device | None = None,
+            data_workers: int = 0) -> dict:
         
         # initialize optimizer:
         if optimizer_kwargs is None:
@@ -127,12 +134,19 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
         if 'lr' not in optimizer_kwargs:
             optimizer_kwargs['lr'] = lr
 
+        # move model to device
+        self.to(device)
+
         optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
 
         train_dl = DataLoader(
-            train_dataset, batch_size=None, shuffle=True, num_workers=1)
+            train_dataset, batch_size=batch_size, shuffle=True, 
+            num_workers=data_workers,
+            collate_fn=TorchAtomwiseModel._collate_fn)
         val_dl = DataLoader(
-            val_dataset, batch_size=None, shuffle=False)
+            val_dataset, batch_size=batch_size, shuffle=False, 
+            num_workers=data_workers,
+            collate_fn=TorchAtomwiseModel._collate_fn)
 
         # create history dictionary
         history = {
@@ -151,7 +165,7 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
 
                 # compute loss
                 loss = self._compute_loss(
-                    graph=graph,
+                    graph=graph.to(device),
                     use_outputs=use_outputs,
                     use_graph_outputs=use_graph_outputs,
                     outputs_weight=outputs_weight,
@@ -172,7 +186,7 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
 
                     # compute training loss
                     loss = self._compute_loss(
-                        graph=graph,
+                        graph=graph.to(device),
                         use_outputs=use_outputs,
                         use_graph_outputs=use_graph_outputs,
                         outputs_weight=outputs_weight,
@@ -185,7 +199,7 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
                         
                         # compute validation loss
                         loss = self._compute_loss(
-                            graph=graph,
+                            graph=graph.to(device),
                             use_outputs=use_outputs,
                             use_graph_outputs=use_graph_outputs,
                             outputs_weight=outputs_weight,

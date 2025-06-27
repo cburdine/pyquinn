@@ -251,7 +251,7 @@ class TorchBandStructureModel(nn.Module):
         )
 
     @staticmethod
-    def _collate_batch(batch):
+    def _collate_fn(batch):
         return batch
     
     def fit(self,
@@ -264,7 +264,9 @@ class TorchBandStructureModel(nn.Module):
             optimizer_kwargs: dict | None = None,
             verbosity: int = 2,
             use_projections: bool = False,
-            projection_weight: float = 0.1) -> dict:
+            projection_weight: float = 0.1,
+            device: torch.device | None = None,
+            n_workers: int = 0) -> dict:
         
         # initialize optimizer:
         if optimizer_kwargs is None:
@@ -272,13 +274,19 @@ class TorchBandStructureModel(nn.Module):
         if 'lr' not in optimizer_kwargs:
             optimizer_kwargs['lr'] = lr
 
+        # move model to device
+        self.to(device)
+
         optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
 
         train_dl = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=1,
-            collate_fn=TorchBandStructureModel._collate_batch)
+            train_dataset, batch_size=batch_size, shuffle=True, 
+            num_workers=n_workers,
+            collate_fn=TorchBandStructureModel._collate_fn)
         val_dl = DataLoader(
-            val_dataset, batch_size=None, shuffle=False)
+            val_dataset, batch_size=None, shuffle=False, 
+            num_workers=n_workers,
+            collate_fn=TorchBandStructureModel._collate_fn)
 
         # create history dictionary
         history = {
@@ -304,8 +312,8 @@ class TorchBandStructureModel(nn.Module):
                 # compute loss
                 loss = sum(
                     self._compute_loss(
-                        graph=graph,
-                        band_structure=band_structure,
+                        graph=graph.to(device),
+                        band_structure=band_structure.to(device),
                         use_projections=use_projections,
                         projection_weight=projection_weight)
                     for graph, band_structure in batch) / batch_size
@@ -334,8 +342,8 @@ class TorchBandStructureModel(nn.Module):
                     # compute training loss
                     loss = sum(
                         self._compute_loss(
-                            graph=graph,
-                            band_structure=band_structure,
+                            graph=graph.to(device),
+                            band_structure=band_structure.to(device),
                             use_projections=use_projections,
                             projection_weight=projection_weight)
                         for graph, band_structure in batch) / batch_size
@@ -348,8 +356,8 @@ class TorchBandStructureModel(nn.Module):
                         # compute validation loss
                         loss = sum(
                             self._compute_loss(
-                                graph=graph, 
-                                band_structure=band_structure, 
+                                graph=graph.to(device), 
+                                band_structure=band_structure.to(device), 
                                 use_projections=use_projections, 
                                 projection_weight=projection_weight)
                             for graph, band_structure in batch) / batch_size
