@@ -49,7 +49,7 @@ class AtomwiseTest(unittest.TestCase):
         self.assertEqual(output.shape, (3, 10))
 
         output.sum().backward(inputs=neighbor_distances)
-        distances_grad = neighbor_distances.grad.detach().numpy()
+        distances_grad = neighbor_distances.grad.detach().cpu().numpy()
 
         self.assertFalse(
             np.allclose(distances_grad, np.zeros_like(distances_grad))

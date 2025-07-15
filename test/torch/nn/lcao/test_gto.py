@@ -630,37 +630,37 @@ class GTOTest(unittest.TestCase):
         mu = torch.zeros(3)
         cs = torch.linspace(1.0, 1.0, 5).view(1, -1)
 
-        # test for (l, m) = (4, 1)
-        l_1 = torch.tensor([2], dtype=torch.int64)
+        for l_1_val in range(4):
+            l_1 = torch.tensor([l_1_val], dtype=torch.int)
 
-        for m_1_val in range(-l_1, l_1+1):
-            m_1 = torch.tensor([m_1_val], dtype=torch.int64)
+            for m_1_val in range(-l_1, l_1+1):
+                m_1 = torch.tensor([m_1_val], dtype=torch.int)
 
-            norm_1 = cho_ng_norm_coeff(
-                l_1, alphas, 
-                torch.zeros((1), dtype=torch.int), 
-                cs).squeeze()
+                norm_1 = cho_ng_norm_coeff(
+                    l_1, alphas, 
+                    torch.zeros((1), dtype=torch.int), 
+                    cs).squeeze()
 
-            cs_1 = cs / norm_1.unsqueeze(-1)
+                cs_1 = cs / norm_1.unsqueeze(-1)
 
-            # ensure normalized orbitals have a consistent norm of 1:
-            alpha_idxs_1 = torch.zeros((1), dtype=torch.int64)
-            normed_norm = cho_ng_norm_coeff(
-                l_1, alphas, 
-                alpha_idxs_1, 
-                cs_1).squeeze()
+                # ensure normalized orbitals have a consistent norm of 1:
+                alpha_idxs_1 = torch.zeros((1), dtype=torch.int64)
+                normed_norm = cho_ng_norm_coeff(
+                    l_1, alphas, 
+                    alpha_idxs_1, 
+                    cs_1).squeeze()
 
-            self.assertAlmostEqual(normed_norm.detach().numpy(), 1.0, places=6)
+                self.assertAlmostEqual(normed_norm.detach().numpy(), 1.0, places=6)
 
-            # evaluate integral of cubic harmonic orbital:
-            psi_1 = cho_ng(
-                xyz, mu=mu, l=l_1, m=m_1, 
-                alphas=alphas, cs=cs_1).reshape(x.shape)
+                # evaluate integral of cubic harmonic orbital:
+                psi_1 = cho_ng(
+                    xyz, mu=mu, l=l_1, m=m_1, 
+                    alphas=alphas, cs=cs_1).reshape(x.shape)
 
-            N_1 = torch.trapz(torch.trapz(
-                torch.trapz(psi_1*psi_1, dx), dx), dx)
+                N_1 = torch.trapz(torch.trapz(
+                    torch.trapz(psi_1*psi_1, dx), dx), dx)
 
-            self.assertAlmostEqual(N_1.detach().numpy(), 1.0, places=4)
+                self.assertAlmostEqual(N_1.detach().numpy(), 1.0, places=4)
 
     def test_cho_ng_overlap_matrix(self):
 

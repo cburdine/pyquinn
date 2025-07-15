@@ -35,10 +35,10 @@ class TorchNEGFTest(unittest.TestCase):
                 hamiltonian_matrix=h,
                 coupling_matrix=v,
                 eta=eta,
-                tol=1e-8).squeeze().detach().numpy()
+                tol=1e-8).squeeze().detach().cpu().numpy()
 
             g_analytical = h_chain_g_surface(
-                energies, eta=eta, e0=e_onsite, t0=t_hop).detach().numpy()
+                energies, eta=eta, e0=e_onsite, t0=t_hop).detach().cpu().numpy()
 
             self.assertTrue(np.allclose(g_numerical, g_analytical, atol=1e-4))
 

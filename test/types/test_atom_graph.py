@@ -144,7 +144,6 @@ class AtomGraphTest(unittest.TestCase):
     def test_atomgraph_rcell(self):
 
         atoms = ['C']
-        positions = [[0, 0, 0]]
         unit_cell = np.array([
             [2.46, 0.0, 0.0], 
             [-1.23, 2.130422493309719, 0.0], 
@@ -215,7 +214,6 @@ class AtomGraphTest(unittest.TestCase):
             self.assertTrue((graph.positions[idx] == subgraph.positions).all())
             self.assertTrue((graph.unit_cell == subgraph.unit_cell).all())
             self.assertTrue((graph.periodic == subgraph.periodic).all())
-
 
     def test_compile(self):
 
