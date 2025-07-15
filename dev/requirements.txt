@@ -2,3 +2,4 @@ sphinx
 piccolo_theme
 flake8
 jupyter
+sphinx-copybutton
