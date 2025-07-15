@@ -35,6 +35,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.napoleon',
     'sphinx.ext.mathjax',
+    'sphinx_copybutton'
 ]
 
 autosummary_generate = True  # Automatically generate summary tables
@@ -91,16 +92,13 @@ html_theme_options = {
     # specified, then no sitemap will be built.
     # 'base_url': 'https://project.github.io/project',
 
-    # Set the color and the accent color
-    'color_primary': 'purple',
-    'color_accent': 'light-blue',
-
     # Set the repo location to get a badge with stats
     # 'repo_url': 'https://github.com/project/project/',
     # 'repo_name': 'Project',
 
     # Visible levels of the global TOC; -1 means unlimited
-    'globaltoc_depth': 3,
+    # 'globaltoc_depth': 3,
+
     # If False, expand all TOC entries
     'globaltoc_collapse': False,
     # If True, show hidden TOC entries
