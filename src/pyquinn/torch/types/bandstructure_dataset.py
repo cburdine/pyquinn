@@ -70,7 +70,8 @@ class TorchBandStructureDataset(
             max_bands: int | None = None,
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32,
-            idx_dtype: torch.dtype = torch.int64):
+            idx_dtype: torch.dtype = torch.int64,
+            in_memory: bool = False):
         
         torch_graphs = []
         torch_band_structures = []
@@ -113,8 +114,8 @@ class TorchBandStructureDataset(
 
     def __init__(
             self,
-            graphs: list[str],
-            band_structures: list[str],
+            graphs: list[str] | list[TorchAtomGraph],
+            band_structures: list[str] | list[TorchBandStructure],
             names: list[str],
             cache_dir: str,
             device: torch.device = 'cpu'):
@@ -131,12 +132,18 @@ class TorchBandStructureDataset(
         return len(self.graphs)
 
     def __getitem__(self, index):
-        graph = TorchAtomGraph.load(
-            filename=self.graphs[index],
-            device=self.device)
-        bands = TorchBandStructure.load(
-            filename=self.band_structures[index],
-            device=self.device)
+
+        graph = self.graphs[index]
+        bands = self.band_structures[index]
+
+        if isinstance(graph, str):
+            graph = TorchAtomGraph.load(
+                filename=graph,
+                device=self.device)
+        if isinstance(bands, str):
+            bands = TorchBandStructure.load(
+                filename=bands,
+                device=self.device)
 
         return graph, bands
 
@@ -147,7 +154,8 @@ class TorchBandStructureDataset(
     @staticmethod
     def load(
             cache_dir: str,
-            device: torch.device = 'cpu'):
+            device: torch.device = 'cpu',
+            in_memory: bool = False):
 
         graphs = glob(os.path.join(cache_dir, '*.pt'))
         band_structures = glob(os.path.join(cache_dir, '*.pt.bands'))
@@ -155,6 +163,16 @@ class TorchBandStructureDataset(
             AtomGraphDataset._parse_graph_name(file)
             for file in graphs
         ]
+
+        if in_memory:
+            graphs = [
+                TorchAtomGraph.load(filename=file, device=device)
+                for file in graphs
+            ]
+            band_structures = [
+                TorchBandStructure.load(filename=file, device=device)
+                for file in band_structures
+            ]
 
         return TorchBandStructureDataset(
             graphs=graphs,

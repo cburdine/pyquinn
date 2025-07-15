@@ -347,8 +347,8 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
             cs=site_cs.unsqueeze(-2)
         )
 
-        c_norm_coeffs = torch.zeros_like(cs, requires_grad=False)
-        c_norm_coeffs[site_idxs, irrep_idxs] = 1/torch.sqrt(site_c_norms)
+        c_norm_coeffs = torch.zeros_like(cs)
+        c_norm_coeffs[site_idxs, irrep_idxs] = 1/site_c_norms
         
         return c_norm_coeffs
 

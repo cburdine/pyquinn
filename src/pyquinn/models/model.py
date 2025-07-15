@@ -6,7 +6,7 @@ class ModelBase:
 
 
 class Model(ABC, ModelBase):
-    """ Abstract class for the basic PyQuINN Model API"""
+    """ Abstract class for the basic PyQuinn Model API"""
 
     @abstractmethod
     def predict(self, **kwargs):

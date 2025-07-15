@@ -1,3 +1,4 @@
+""" Provides the abstract interface for data sources."""
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
 import re

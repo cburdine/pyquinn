@@ -228,7 +228,7 @@ class TorchBandStructureModel(nn.Module):
             x_pts=x_pts,
         )
 
-    def bloch_orbital_amplitudes(
+    def bloch_eigenstate_amplitudes(
             self,
             graph: TorchAtomGraph,
             x_pts: torch.Tensor,
@@ -236,7 +236,7 @@ class TorchBandStructureModel(nn.Module):
             eigenstate_idxs: torch.IntTensor | None = None,
             sigenstates: torch.IntTensor | None = None):
 
-        return self.bands_model.bloch_orbital_amplitudes(
+        return self.bands_model.bloch_eigenstate_amplitudes(
             atomic_numbers=graph.atomic_numbers,
             positions=graph.positions,
             neighbors=graph.neighbors,
@@ -284,7 +284,7 @@ class TorchBandStructureModel(nn.Module):
             num_workers=data_workers,
             collate_fn=TorchBandStructureModel._collate_fn)
         val_dl = DataLoader(
-            val_dataset, batch_size=None, shuffle=False, 
+            val_dataset, batch_size=batch_size, shuffle=False, 
             num_workers=data_workers,
             collate_fn=TorchBandStructureModel._collate_fn)
 
@@ -316,7 +316,7 @@ class TorchBandStructureModel(nn.Module):
                         band_structure=band_structure.to(device),
                         use_projections=use_projections,
                         projection_weight=projection_weight)
-                    for graph, band_structure in batch) / batch_size
+                    for graph, band_structure in batch) / len(batch)
 
                 loss.backward()
                 optim.step()
@@ -346,7 +346,7 @@ class TorchBandStructureModel(nn.Module):
                             band_structure=band_structure.to(device),
                             use_projections=use_projections,
                             projection_weight=projection_weight)
-                        for graph, band_structure in batch) / batch_size
+                        for graph, band_structure in batch) / len(batch)
 
                     train_losses.append(loss.detach().cpu().numpy())
 
@@ -360,7 +360,7 @@ class TorchBandStructureModel(nn.Module):
                                 band_structure=band_structure.to(device), 
                                 use_projections=use_projections, 
                                 projection_weight=projection_weight)
-                            for graph, band_structure in batch) / batch_size
+                            for graph, band_structure in batch) / len(batch)
 
                         val_losses.append(loss.detach().cpu().numpy())
 

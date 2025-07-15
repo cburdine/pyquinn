@@ -1,5 +1,5 @@
 """
-This package contains basic types supported in the PyQuINN framework
+This package contains basic types supported in the PyQuinn framework
 """
 
 from pyquinn.types.atom_graph import AtomGraph

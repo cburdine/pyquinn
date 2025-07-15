@@ -1,3 +1,16 @@
+"""
+Connects to the Materials Project database API.
+
+    .. seealso::
+
+        For more information on the Materials Project API, see the 
+        `Official Documentation`_. This module relies upon the 
+        
+    .. _Official Documentation: 
+        https://docs.materialsproject.org/downloading-data/using-the-api
+
+"""
+
 import os
 import tempfile
 from contextlib import ExitStack
@@ -13,19 +26,20 @@ class MaterialsProject(Database):
         The Materials Project is an open database of material structures
         and properties.
 
-        :ref:`https://materialsproject.org/`
+        https://materialsproject.org/
 
     .. note::
         To access the Materials Project, you will need to obtain an API
         key, which you can get by signing up for an account at
-        :ref:`https://next-gen.materialsproject.org/api`.
+        https://next-gen.materialsproject.org/api.
 
         You will also need to have the Materials Project Python
         client installed, which you can do by running the command
 
-        ```
-        $ pip install mp-api
-        ```
+        .. code-block:: console
+            
+            pip install mp_api
+        
 
     Below is an example of basic usage:
 
@@ -378,7 +392,6 @@ class MaterialsProject(Database):
         Returns:
             BandStructure | None: A BandStructure object.
         """
-
         bandstructure = self.mp_connector.get_bandstructure_by_material_id(id)
 
         # compute clipped bands and projections:

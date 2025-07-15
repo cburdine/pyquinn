@@ -1,3 +1,4 @@
+"""Handles output to stdout."""
 from typing import Iterable
 
 

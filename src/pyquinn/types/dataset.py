@@ -171,14 +171,23 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
 
     @staticmethod
-    def load(dir: str):
+    def load(dir: str, in_memory: bool = False):
 
-        graphs = glob(os.path.join(dir, '*.pkl'))
-        names = [
+        graph_files = glob(os.path.join(dir, '*.pkl'))
+        names = sorted(
             AtomGraphDataset._parse_graph_name(file)
-            for file in graphs
-        ]
+            for file in graph_files
+        )
 
+        # parse all matching files:
+        graphs = []
+        for name in names:
+            graph_file = os.path.join(dir, f'{name}.pkl')
+
+            if os.path.exists(graph_file):
+                graphs.append(
+                    AtomGraph.load(graph_file) if in_memory else graph_file)
+        
         return AtomGraphDataset(
             graphs=graphs,
             names=names)

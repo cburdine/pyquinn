@@ -1,3 +1,4 @@
+"""Contains useful chemistry constants."""
 import numpy as np
 
 ATOMIC_SYMBOLS = np.array([
@@ -26,10 +27,13 @@ ATOMIC_SYMBOLS = np.array([
     'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc',
     'Lv', 'Ts', 'Og'
 ])
+"""Numpy array mapping quantum numbers to atomic symbols"""
 
 ATOMIC_NUMBERS = {
     symbol: i+1 for i, symbol in enumerate(ATOMIC_SYMBOLS[1:])
 }
+"""Dictionary mapping atomic symbols to quantum numbers"""
+
 
 # IUPAC version dated 28 November 2016
 ATOMIC_NAMES = np.array([
@@ -197,6 +201,7 @@ ATOMIC_MASSES = np.array([
     293.208,  # 293Ts
     294.214,  # 294Og
 ])
+"""Contains the IUPAC atomic masses"""
 
 ATOM_COLORS = np.array([
     (255, 0, 0),  # 
@@ -319,6 +324,7 @@ ATOM_COLORS = np.array([
     (255, 255, 255),  # Ts
     (255, 255, 255),  # Og
 ])
+"""Contains the RGB colors of each element on the scale of 0-255."""
 
 
 # Covalent radii from:
@@ -329,6 +335,8 @@ ATOM_COLORS = np.array([
 #  Dalton Trans., 2008, 2832-2838 DOI:10.1039/B801115J
 #
 _NO_COVALENT_RADIUS = 0.2
+"""Default covalent radius of unknown or unlisted elements in Angstroms."""
+
 ATOMIC_COVALENT_RADII = np.array([
     _NO_COVALENT_RADIUS,
     0.31,  # H
@@ -450,14 +458,16 @@ ATOMIC_COVALENT_RADII = np.array([
     _NO_COVALENT_RADIUS,  # Ts
     _NO_COVALENT_RADIUS,  # Og
 ])
-
+"""Contains the standard atomic covalent radii of each element in Angstroms."""
 
 NATURAL_CUTOFFS_DICT = {
     ATOMIC_SYMBOLS[z]: ATOMIC_COVALENT_RADII[z]
     for z in range(1, 118+1)
 }
+"""Dictionary mapping atomic symbols to standard atomic covalent radii."""
 
 NATURAL_MASSES_DICT = {
     ATOMIC_SYMBOLS[z]: ATOMIC_MASSES[z]
     for z in range(1, 118+1)
 }
+"""Dictionary mapping atomic symbols to standard atomic masses."""

@@ -1195,7 +1195,7 @@ def cho_ng(
 
     Args:
         x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Orbital center (chaps: [3])
+        mu (torch.Tensor): Orbital center (shape: [3])
         l (torch.IntTensor): Angular quantum numbers (shape: [1])
         m (torch.IntTensor): Magnetic quantum numbers (shape: [1])
         alphas (torch.Tensor): Gaussian widths (shape: [N])

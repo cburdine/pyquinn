@@ -1,0 +1,1 @@
+"""Provides the interface for general PyQuinn models."""

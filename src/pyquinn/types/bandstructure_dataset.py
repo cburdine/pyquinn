@@ -14,6 +14,7 @@ SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = {
 }
 """ The supported backend BandStructureDataset objects"""
 
+
 class BandStructureDatasetBase:
     """ Base class for BandStructureDataset instances"""
 
@@ -56,7 +57,7 @@ class BandStructureDataset(BandStructureDatasetBase):
 
         self.graphs.append(graph)
         self.band_structures.append(bands)
-        self.names.append(name)        
+        self.names.append(name)
 
     def extend(
             self,
@@ -179,14 +180,27 @@ class BandStructureDataset(BandStructureDatasetBase):
             BandStructureDataset._save_bands(bands=bands, name=name, dir=dir)
 
     @staticmethod
-    def load(dir: str):
+    def load(dir: str, in_memory=False):
 
-        graphs = glob(os.path.join(dir, '*.pkl'))
-        band_structures = glob(os.path.join(dir, '*.pkl.bands'))
-        names = [
+        graph_files = glob(os.path.join(dir, '*.pkl'))
+        
+        names = sorted(
             AtomGraphDataset._parse_graph_name(file)
-            for file in graphs
-        ]
+            for file in graph_files
+        )
+
+        # parse all matching files:
+        graphs = []
+        band_structures = []
+        for name in names:
+            graph_file = os.path.join(dir, f'{name}.pkl')
+            band_file = os.path.join(dir, f'{name}.pkl.bands')
+
+            if os.path.exists(graph_file) and os.path.exists(band_file):
+                graphs.append(
+                    AtomGraph.load(graph_file) if in_memory else graph_file)
+                band_structures.append(
+                    BandStructure.load(band_file) if in_memory else band_file)
 
         return BandStructureDataset(
             graphs=graphs,

@@ -9,7 +9,8 @@ from pyquinn.torch.nn.lcao.gto import (
     cho_overlap_matrix_metadata,
     cho_ng_norm_coeff,
     _get_cho_orbital_name,
-    cho_ng
+    cho_ng,
+    potential_ng
 )
 
 import torch
@@ -19,8 +20,8 @@ import numpy as np
 
 
 class LCAOHamiltonian(Hamiltonian):
-    r"""A LCAO (Linear Combination of Atomic Orbitals) Hamiltonian
-    Kernel.
+    r"""A LCAO (Linear Combination of Atomic Orbitals) 
+    Hamiltonian Module.
 
     This module contains a fixed set of Gaussian 
     orbital parameters, which are trainable `torch.nn.Parameter`
@@ -34,7 +35,7 @@ class LCAOHamiltonian(Hamiltonian):
     pseudopotential that is expanded as a set of Gaussian functions:
 
         .. math::
-            H_{ij} = \langle \phi_i | V_i + V_j \phi_j \rangle
+            H_{ij} = \langle \phi_i | V_i + V_j | \phi_j \rangle
 
     This module currently supports the following eigensolvers:
         - `torch_eigh`
@@ -266,8 +267,8 @@ class LCAOHamiltonian(Hamiltonian):
             cs=site_cs.unsqueeze(-1)
         )
 
-        c_norm_coeffs = torch.zeros_like(cs, requires_grad=False)
-        c_norm_coeffs[site_idxs, site_l_idxs] = 1/torch.sqrt(site_c_norms)
+        c_norm_coeffs = torch.zeros_like(cs)
+        c_norm_coeffs[site_idxs, site_l_idxs] = 1/site_c_norms
 
         return c_norm_coeffs
 
@@ -325,6 +326,11 @@ class LCAOHamiltonian(Hamiltonian):
         self._load_weights('logscale_onsite_energies', base_model, freeze)
     
     def get_orbital_shells_dict(self) -> dict:
+        """Returns a dictionary of the orbital shells supported in this model.
+
+        Returns:
+            dict: Orbital shell dictionary.
+        """
 
         shells = {
             i: list(l_vals[l_vals >= 0].detach().cpu().numpy())
@@ -339,7 +345,7 @@ class LCAOHamiltonian(Hamiltonian):
                              positions: torch.Tensor, 
                              neighbors: torch.IntTensor,
                              ) -> tuple:
-        """Computes the Gaussian basis parameters of an atomic system.
+        """Returns the Gaussian basis parameters of an atomic system.
 
 
         Args:
@@ -528,7 +534,7 @@ class LCAOHamiltonian(Hamiltonian):
             **kwargs
         )
         
-        a, c, g, v = self.get_basis_parameters(**data)
+        a, c, _, _ = self.get_basis_parameters(**data)
         
         block_indices, _ = self.orbital_indices(**data)
         quantum_numbers = self.orbital_quantum_numbers(**data)
@@ -557,6 +563,29 @@ class LCAOHamiltonian(Hamiltonian):
 
         return orbital_mus, orbital_lms, orbital_alphas, orbital_cs
 
+    def _get_site_potential_data(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.Tensor,
+            site_idxs: torch.IntTensor,
+            **kwargs):
+
+        data = dict(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            **kwargs
+        )
+        
+        _, _, g, v = self.get_basis_parameters(**data)
+
+        potential_mus = positions[site_idxs]
+        potential_gammas = g[site_idxs]
+        potential_vs = v[site_idxs]
+
+        return potential_mus, potential_gammas, potential_vs
+
     def atomic_orbital_amplitudes(
             self,
             atomic_numbers: torch.IntTensor,
@@ -565,7 +594,31 @@ class LCAOHamiltonian(Hamiltonian):
             site_idxs: torch.IntTensor,
             orbital_idxs: torch.IntTensor,
             x_pts: torch.Tensor,
-            **kwargs):
+            **kwargs) -> torch.Tensor:
+        """Evaluates the atomic orbital amplitudes at points in space.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            site_idxs (torch.IntTensor): Sites at which orbital 
+                amplitudes should be evaluated. (shape: [N_idxs])
+            orbital_idxs (torch.IntTensor): Indices of orbitals which
+                should be evaluated at the corresponding site. 
+                (shape: [N_idxs]).
+            x_pts (torch.Tensor): Cartesian coordinates in space 
+                where the amplitudes should be evaluated. (shape: [N_pts, 3])
+
+
+        Returns:
+            torch.Tensor: The evaluated orbital amplitudes (shape: [N_pts, N_idxs])
+        """
 
         orbital_mus, orbital_lms, orbital_alphas, orbital_cs = \
             self._get_site_orbital_data(
@@ -590,6 +643,65 @@ class LCAOHamiltonian(Hamiltonian):
                     
         return orbital_amplitudes.transpose(0, 1)
 
+    def atomic_potentials(
+            self,
+            atomic_numbers: torch.IntTensor,
+            positions: torch.Tensor,
+            neighbors: torch.Tensor,
+            site_idxs: torch.IntTensor,
+            x_pts: torch.Tensor,
+            **kwargs):
+        """Evaluates the effective atomic potential at points in space.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            site_idxs (torch.IntTensor): Sites at which the potential 
+                should be evaluated. (shape: [N_idxs])
+            x_pts (torch.Tensor): Cartesian coordinates in space 
+                where the amplitudes should be evaluated. (shape: [N_pts, 3])
+
+        Returns:
+            torch.Tensor: The evaluated effective potentials 
+                (shape: [N_pts, N_idxs])
+        """
+
+        potential_mus, potential_gammas, potential_vs = \
+            self._get_site_potential_data(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors,
+                site_idxs=site_idxs,
+                **kwargs
+            )
+
+        n_idxs = site_idxs.shape[0]
+        ijk = torch.zeros(
+            (3),
+            device=x_pts.device,
+            dtype=site_idxs.dtype)
+
+        potential = torch.zeros(
+            (n_idxs, x_pts.shape[0]),
+            device=positions.device,
+            dtype=positions.dtype)
+
+        for i in range(n_idxs):
+            potential[i] = potential_ng(
+                x=x_pts, mu=potential_mus[i],
+                ijk=ijk,
+                gammas=potential_gammas[i],
+                vs=potential_vs[i])
+
+        return potential
+        
     def hamiltonian_matrix(self, 
                            atomic_numbers: torch.IntTensor, 
                            positions: torch.Tensor, 
@@ -597,16 +709,23 @@ class LCAOHamiltonian(Hamiltonian):
                            sparse: bool = False,
                            **kwargs
                            ) -> torch.Tensor:
-        """_summary_
+        """Computes the Hamiltonian matrix.
 
         Args:
-            atomic_numbers (torch.IntTensor): _description_
-            positions (torch.Tensor): _description_
-            neighbors (torch.IntTensor): _description_
-            sparse (bool, optional): _description_. Defaults to False.
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            sparse (bool, optional): If True, returns a sparse matrix
+                representation of the Hamiltonian. Defaults to False.
 
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: The Hamiltonian matrix (shape: [H_size, H_size]).
         """
 
         # get orbital parameters:
@@ -692,6 +811,22 @@ class LCAOHamiltonian(Hamiltonian):
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
             **kwargs) -> list[str]:
+        """Returns the names of all orbitals in the Hamiltonian matrix.
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+
+        Returns:
+            list[str]: A list of orbital names with the same size as the
+                Hamiltonian matrix.
+        """
 
         key = []
         for z in atomic_numbers:
@@ -709,10 +844,31 @@ class LCAOHamiltonian(Hamiltonian):
     def orbital_indices(
             self,
             atomic_numbers: torch.IntTensor,
-            positions: torch.Tensor, 
+            positions: torch.Tensor,
             neighbors: torch.IntTensor,
-            **kwargs) -> tuple[
-                torch.IntTensor, torch.IntTensor]:
+            **kwargs) -> tuple:
+        """Returns the indices of all sites and corresponding orbitals
+        in the Hamiltonian matrix.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            
+        Returns:
+            tuple: A tuple containing the following:
+
+            - site_idxs (torch.IntTensor): 
+                A list of site indices (shape: [H_size])
+            - orbital_idxs (torch.IntTensor):
+                A list of corresponding orbital indices (shape: [H_size])
+        """
 
         # compute index tensor of l values
         l_values_padded = self.orbital_shell_idxs[atomic_numbers]
@@ -742,6 +898,24 @@ class LCAOHamiltonian(Hamiltonian):
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
             **kwargs) -> torch.Tensor:
+        """Returns the quantum numbers of each orbital in the Hamiltonian
+        matrix.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+
+        Returns:
+            torch.Tensor: A list of quantum numbers (n,l) for each
+                orbital in the Hamiltonian matrix (shape: [H_size, 2])
+        """
 
         # compute index tensor of l values
         l_values_padded = self.orbital_shell_idxs[atomic_numbers]
@@ -768,6 +942,31 @@ class LCAOHamiltonian(Hamiltonian):
 
 
 class TBHamiltonian(LCAOHamiltonian):
+    r"""A Tight Binding Hamiltonian Module.
+
+    This module contains a fixed set of Gaussian 
+    orbital parameters, which are trainable `torch.nn.Parameter`
+    values. Like LCAOHamiltonian, this module uses a basis of Gaussian 
+    cubic harmonic orbitals, but it can support periodic systems.
+    To account for periodicity, each Gaussian orbital is expanded 
+    as bloch orbitals with crystal momentum (k) degrees of freedom.
+
+
+    The Hamiltonian it constructs is a matrix-valued function of k that 
+    is complex-valued and Hermitian.
+
+    When computing the Hamiltonian, this module computes the overlap
+    matrices of each neighboring orbital state with an on-site 
+    pseudopotential that is expanded as a set of Gaussian functions:
+
+        .. math::
+            H_{ij}(k) = e^{i(k \cdot (x_i - x_j)}\langle
+            \phi_i | V_i + V_j | \phi_j \rangle
+
+    This module currently supports the following eigensolvers:
+        - `torch_eigh`
+
+    """
 
     def __init__(self, 
                  eigensolver: str | Eigensolver = 'torch_eigh',
@@ -924,8 +1123,32 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor) -> torch.Tensor:
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor) -> torch.Tensor:
+        """Computes the on-site energies of a periodic atomic system.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+
+        Returns:
+            torch.Tensor: The on-site energies of each atom's
+                shell orbitals (shape: [N_atoms, N_ls]).
+        """
 
         return super().get_onsite_energies(
             atomic_numbers=atomic_numbers, 
@@ -937,8 +1160,42 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor) -> tuple:
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor) -> tuple:
+        """Returns the Gaussian basis parameters of an atomic system.
+
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+
+
+        Returns:
+            tuple: A tuple containing the following:
+
+            - alphas (torch.Tensor): A tensor of Gaussian orbital
+                width parameters (shape: [N_atoms, N_ls, N_basis]).
+            - cs (torch.Tensor): A tensor of Gaussian orbital
+                coefficients (shape: [N_atoms, N_cs, N_basis]).
+            - gammas (torch.Tensor): A tensor of Gaussian
+                potential width parameters (shape: [N_atoms, 1, M_basis]).
+            - vs (torch.Tensor): A tensor of Gaussian potential
+                coefficients (shape: [N_atoms, 1, N_basis])
+        """
         
         return super().get_basis_parameters(
             atomic_numbers=atomic_numbers,
@@ -951,10 +1208,43 @@ class TBHamiltonian(LCAOHamiltonian):
             positions: torch.Tensor, 
             neighbors: torch.Tensor, 
             unit_cell: torch.Tensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             site_idxs: torch.IntTensor, 
             orbital_idxs: torch.IntTensor, 
             x_pts: torch.Tensor):
+        """Evaluates the atomic orbital amplitudes at points within the
+        unit cell.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+            site_idxs (torch.IntTensor): Sites at which orbital 
+                amplitudes should be evaluated. (shape: [N_idxs])
+            orbital_idxs (torch.IntTensor): Indices of orbitals which
+                should be evaluated at the corresponding site. 
+                (shape: [N_idxs]).
+            x_pts (torch.Tensor): Cartesian coordinates in space 
+                where the amplitudes should be evaluated. These points
+                should lie within the unit cell (shape: [N_pts, 3]).
+
+
+        Returns:
+            torch.Tensor: The evaluated orbital amplitudes (shape: [N_pts, N_idxs])
+        """
         
         orbital_mus, orbital_lms, orbital_alphas, orbital_cs = \
             self._get_site_orbital_data(
@@ -991,30 +1281,64 @@ class TBHamiltonian(LCAOHamiltonian):
                     alphas=orbital_alphas[i], cs=orbital_cs[i])
 
         return orbital_amplitudes.transpose(0, 1)
-
-    def bloch_orbital_amplitudes(
+        
+    def bloch_eigenstate_amplitudes(
             self,
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.Tensor, 
             unit_cell: torch.Tensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             x_pts: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eigenstate_idxs: torch.IntTensor | None = None,
-            eigenstates: torch.Tensor | None = None,
-            k_idxs: torch.IntTensor | None = None,
             x_cutoff: float | None = None):
+        """Evaluates the Bloch eigenstate amplitudes at points in space for
+        supplied k points.
 
-        if eigenstates is None:
-            _, eigenstates = self.eigenstates(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                k_pts=k_pts,
-            )
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+            x_pts (torch.Tensor): Cartesian coordinates in space 
+                where the amplitudes should be evaluated. (shape: [N_pts, 3])
+            k_pts (torch.Tensor | None, optional): 
+                Reciprocal space points (shape: [N_k, 3]). If None, only k=0
+                is used. Defaults to None.
+            eigenstate_idxs (torch.IntTensor | None, optional): 
+                Indices of Bloch eigenstates to evaluate. 
+                (shape: [N_idxs]). Defaults to None.
+            x_cutoff: (float | None, optional): Cutoff distance for 
+                ignoring orbital contributions that are far away 
+                from the evaluation points (may speed up evaluation). 
+                If None, a recommended default cutoff is used.
+        Returns:
+            torch.Tensor: The evaluated Bloch eigenstate amplitudes 
+            (shape: [N_pts, N_k, N_idxs])
+        """
+        
+
+        _, eigenstates = self.eigenstates(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            k_pts=k_pts,
+        )
 
         if x_cutoff is None:
             x_cutoff = 5.0
@@ -1031,9 +1355,6 @@ class TBHamiltonian(LCAOHamiltonian):
 
         if k_pts is None:
             k_pts = torch.zeros(3, device=positions.device)
-
-        if k_idxs is not None:
-            eigenstates = eigenstates[k_idxs]
         
         if eigenstate_idxs is not None:
             eigenstates = eigenstates[..., eigenstate_idxs]
@@ -1071,10 +1392,39 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             k_pts: torch.Tensor | None = None,
             sparse: bool = False) -> torch.Tensor:
+        """Computes the Hamiltonian matrices for supplied k points.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+            k_pts (torch.Tensor | None, optional): 
+                Reciprocal space points (shape: [N_k, 3]). If None, only k=0
+                is used. Defaults to None.
+            sparse (bool, optional): If True, returns a sparse matrix
+                representation of the Hamiltonian. Defaults to False.
+
+        Returns:
+            torch.Tensor: The Hamiltonian matrices for each k point
+            (shape: [N_k, H_size, H_size]).
+        """
 
         if k_pts is None:
             k_pts = torch.zeros(3, device=positions.device)
@@ -1208,8 +1558,8 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             k_pts: torch.Tensor | None = None,
             sparse: bool = False):
 
@@ -1236,8 +1586,8 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor,
             positions: torch.Tensor,
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             k_pts: torch.Tensor | None = None,
             sparse: bool = False):
 
@@ -1264,8 +1614,8 @@ class TBHamiltonian(LCAOHamiltonian):
             atomic_numbers: torch.IntTensor,
             positions: torch.Tensor,
             neighbors: torch.IntTensor,
-            unit_cell: torch.IntTensor,
-            unit_cell_images: torch.Tensor,
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
             k_pts: torch.Tensor | None = None,
             sparse: bool = False):
 

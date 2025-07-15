@@ -1,3 +1,6 @@
+"""
+Provides a plotting interface supporting multiple backends.
+"""
 from pyquinn.types.atom_graph import (
     AtomGraph, BackendAtomGraph
 )
