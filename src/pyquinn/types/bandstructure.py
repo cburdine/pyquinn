@@ -23,6 +23,21 @@ class BandStructureBase:
 
 
 class BandStructure(BandStructureBase):
+    """Represents a band structure of a periodic system, where 
+    multiple band values and (possibly their projections onto some basis) are stored for
+    a set of sampled reciprocal space points (`k_pts`).
+
+    A BandStructure object has the following instance variables:
+
+    - `energies`: The band energies at each `k` point (shape: [N_k, N_bands]).
+    - `k_pts`: The reciprocal space `k` points (shape: [N_k, 3]).
+    - `projections`: The projections (modulus squared) of each band wave 
+        function onto each atomic site and orbital 
+        (shape: [N_k, N_bands, N_sites, N_orbs]).
+    - `chemical_potential`: The chemical potential of the band structure, 
+        if applicable.
+
+    """
 
     _backends = {}
 
@@ -71,6 +86,21 @@ class BandStructure(BandStructureBase):
             k_pts: list[list[float]] | None = None,
             projections: list[list[list[float]]] | None = None,
             chemical_potential: float | None = None):
+        """Constructs a BandStructure object.
+
+        Args:
+            energies (list[list[float]]): The band energies at each `k` point 
+                (shape: [N_k, N_bands]).
+            k_pts (list[list[float]] | None, optional): The reciprocal space 
+                `k` points (shape: [N_k, 3]). Defaults to None.
+            projections (list[list[list[float]]] | None, optional): The 
+                projections (modulus squared) of each band wave 
+                function onto each atomic site and orbital 
+                (shape: [N_k, N_bands, N_sites, N_orbs]). Defaults to None.
+            chemical_potential (float | None, optional): The chemical
+                potential of the band structure, 
+                if applicable. Defaults to None.
+        """
 
         self.energies = energies
 
@@ -158,6 +188,19 @@ class BandStructure(BandStructureBase):
             self, 
             max_k_pts: int | None = None,
             max_bands: int | None = None) -> 'BandStructure':
+        """Downsamples a BandStructure to have a maximum number of k points and
+           a maximum number of bands (removing the highest energy bands).
+
+        Args:
+            max_k_pts (int | None, optional): Maximum number of k points. 
+                Defaults to None.
+            max_bands (int | None, optional): Maximum number of bands.
+                Defaults to None.
+
+        Returns:
+            BandStructure: New BandStructure object with the maximum number of k points
+                and truncated to the maximum number of bands.
+        """
 
         energies = self.energies
         k_pts = self.k_pts
@@ -291,11 +334,28 @@ class BandStructure(BandStructureBase):
             energy: np.ndarray | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: np.ndarray | None = None) -> np.ndarray:
+        """Evaluates the estimated density of states for a band structure with 
+        uniformly sampled k points. The density of states is evaluated in terms of 
+        states per unit cell, not states per unit volume.
+
+        Args:
+            energy (np.ndarray | float, optional): _description_. Defaults to 0.0.
+            smearing (str, optional): _description_. Defaults to 'gaussian'.
+            sigma (float | None, optional): _description_. Defaults to None.
+            band_mult (float, optional): _description_. Defaults to 1.0.
+            projections (np.ndarray | None, optional): _description_. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            np.ndarray: _description_
+        """
         
         energy = np.array(energy)
-        weight = np.array(spin_mult / self.k_pts.shape[0])
+        weight = np.array(band_mult / self.k_pts.shape[0])
         sigma = self._default_sigma() if sigma is None else sigma
 
         band_energies, energy, projections = \
@@ -317,11 +377,11 @@ class BandStructure(BandStructureBase):
             energy: np.ndarray | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: np.ndarray | None = None) -> np.ndarray:
         
         energy = np.array(energy)
-        weight = np.array(spin_mult / self.k_pts.shape[0])
+        weight = np.array(band_mult / self.k_pts.shape[0])
         sigma = self._default_sigma() if sigma is None else sigma
         
         band_energies, energy, projections = \
@@ -343,12 +403,12 @@ class BandStructure(BandStructureBase):
             n: np.ndarray | float,
             smearing: str = 'fermi-dirac',
             sigma: float = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: np.ndarray | None = None,
             E_guess: np.ndarray | None = None,
             max_evals: int = 16) -> np.ndarray:
 
-        n_max = self.energies.shape[1]*spin_mult
+        n_max = self.energies.shape[1]*band_mult
         E_min, E_max = self.energies.min(), self.energies.max()
         E_range = E_max - E_min
 
@@ -362,7 +422,7 @@ class BandStructure(BandStructureBase):
                 E_level, 
                 smearing=smearing,
                 sigma=sigma,
-                spin_mult=spin_mult,
+                band_mult=band_mult,
                 projections=projections)
             delta_E = (E_range)/2**(i+1)
             delta_E = np.where(n_eval > n, -delta_E, delta_E)
@@ -451,7 +511,7 @@ class BackendBandStructure(ABC, BandStructureBase):
             energy: Any | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: Any | None = None) -> Any:
         pass
 
@@ -461,7 +521,7 @@ class BackendBandStructure(ABC, BandStructureBase):
             energy: Any | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: Any | None = None) -> Any:
         pass
 
@@ -471,7 +531,7 @@ class BackendBandStructure(ABC, BandStructureBase):
             n: Any,
             smearing: str = 'fermi-dirac',
             sigma: float = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: Any | None = None,
             E_guess: Any | None = None,
             max_evals: int = 16) -> Any:

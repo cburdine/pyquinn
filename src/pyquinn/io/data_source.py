@@ -8,6 +8,7 @@ from pyquinn.util.data import ATOMIC_NUMBERS
 
 
 class DataSource(ABC):
+    """Abstract base class for a data input and output source."""
 
     def __init__(self):
         self._exit_stack = ExitStack()
@@ -22,7 +23,7 @@ class DataSource(ABC):
 
 
 class Database(DataSource, ABC):
-    """Abstract Base class for an atomic structure database connnector.
+    """Abstract base class for an atomic structure database connnector.
 
     All database connectors that extend this base class are 
     intended to be used via Python's enter/exit context managers.

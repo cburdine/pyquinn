@@ -20,8 +20,8 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
     def _compile_graph(
             graph: AtomGraph | str,
             name: str,
-            cache_dir: str,
-            **compile_kwargs):
+            cache_dir: str | None = None,
+            **compile_kwargs) -> TorchAtomGraph | str:
 
         # load graph (if necessary)
         graph = AtomGraph.load(graph) \
@@ -32,11 +32,15 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             backend='torch',
             **compile_kwargs)
 
-        torch_graph_path = os.path.join(
-            cache_dir, f'{name}.pt')
-        torch_graph.save(torch_graph_path)
+        # save to cache directory (optional):
+        if cache_dir is not None:
+            torch_graph_path = os.path.join(
+                cache_dir, f'{name}.pt')
+            torch_graph.save(torch_graph_path)
 
-        return torch_graph_path
+            torch_graph = torch_graph_path
+
+        return torch_graph
 
     @staticmethod
     def _save_graph(
@@ -90,7 +94,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
     def __init__(
             self,
-            graphs: list[str],
+            graphs: list[str | TorchAtomGraph],
             names: list[str],
             cache_dir: str,
             device: torch.device = 'cpu'):
@@ -106,9 +110,13 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
         return len(self.graphs)
 
     def __getitem__(self, index):
-        graph = TorchAtomGraph.load(
-            filename=self.graphs[index],
-            device=self.device)
+
+        graph = self.graphs[index]
+
+        if isinstance(graph, str):
+            graph = TorchAtomGraph.load(
+                filename=self.graphs[index],
+                device=self.device)
 
         return graph
 
@@ -119,6 +127,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
     @staticmethod
     def load(
             cache_dir: str,
+            in_memory: bool = False,
             device: torch.device = 'cpu'):
 
         graphs = glob(os.path.join(cache_dir, '*.pt'))
@@ -126,6 +135,12 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             AtomGraphDataset._parse_graph_name(file)
             for file in graphs
         ]
+
+        if in_memory:
+            graphs = [
+                TorchAtomGraph.load(filename=file, device=device)
+                for file in graphs
+            ]
 
         return TorchAtomGraphDataset(
             graphs=graphs,

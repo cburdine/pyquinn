@@ -3,8 +3,8 @@ from pyquinn.torch.nn.atomwise import AtomwiseConv
 from pyquinn.torch.nn.atomwise_pool import AtomwisePool
 from pyquinn.torch.types.dataset import AtomGraphDataset
 from pyquinn.torch.util import get_optimizer
-from pyquinn.models import ModelBase
 from pyquinn.io.stdout import progress_bar
+from pyquinn.torch.nn import AtomwiseNNConv, ArithmeticPool
 
 import torch.nn as nn
 import torch
@@ -12,17 +12,21 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 
-class TorchAtomwiseModel(nn.Module, ModelBase):
+class TorchAtomwiseModel(nn.Module):
 
     def __init__(
             self,
-            atomwise_model: AtomwiseConv,
-            atomwise_pool: AtomwisePool | None = None):
+            atomwise_model: AtomwiseConv | None = None,
+            atomwise_pool: AtomwisePool | str | None = None,
+            **model_kwargs):
 
         super().__init__()
 
-        self.atomwise_model = atomwise_model
-        self.atomwise_pool = atomwise_pool
+        self.atomwise_model = AtomwiseNNConv(**model_kwargs) \
+            if atomwise_model is None else atomwise_model
+
+        self.atomwise_pool = ArithmeticPool(atomwise_pool) \
+            if isinstance(atomwise_pool, str) else atomwise_pool
 
     def forward(self, graph: TorchAtomGraph) -> TorchAtomGraph:
         return self.predict(graph=graph)
@@ -44,10 +48,8 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
         if self.atomwise_pool is None:
             pooled_features_out = torch.zeros_like(graph.graph_outputs)
         else:
-            pooled_features_out = self.atomwise_model(
+            pooled_features_out = self.atomwise_pool(
                 atomic_numbers=graph.atomic_numbers,
-                neighbors=graph.neighbors,
-                neighbor_distances=neighbor_distances,
                 features=features_out
             )
 
@@ -64,49 +66,40 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
             compute_neighbors=False)
 
     def _outputs_loss_fn(
-            self, 
+            self,
             pred_outputs: torch.Tensor, 
             target_outputs: torch.Tensor):
 
-        loss = torch.mean(
-            torch.square(pred_outputs - target_outputs))
-        
+        loss = torch.square(pred_outputs - target_outputs).mean() \
+            if target_outputs.numel() else 0.0
+
         return loss
 
     def _graph_outputs_loss_fn(
-            self, 
-            pred_outputs: torch.Tensor, 
-            target_outputs: torch.Tensor):
-
-        loss = torch.mean(
-            torch.square(pred_outputs - target_outputs))
+            self,
+            pred_graph_outputs: torch.Tensor, 
+            target_graph_outputs: torch.Tensor):
         
+        loss = torch.square(
+            pred_graph_outputs - target_graph_outputs).mean() \
+            if target_graph_outputs.numel() else 0.0
+
         return loss
 
     def _compute_loss(
             self,
             graph: TorchAtomGraph,
-            use_outputs: bool = True,
-            use_graph_outputs: bool = True,
             outputs_weight: float = 1.0,
             graph_outputs_weight: float = 1.0):
 
-        assert use_outputs or use_graph_outputs, \
-            "Loss function must either use outputs or graph outputs."
-        
         pred_graph = self.predict(graph)
 
-        loss = 0.0
-        if use_graph_outputs:
-            loss += graph_outputs_weight * self._graph_outputs_loss_fn(
-                pred_graph.graph_outputs,
-                graph.graph_outputs)
-        if use_outputs:
-            loss += outputs_weight * self._outputs_loss_fn(
-                pred_graph.outputs,
-                graph.outputs)
+        loss = graph_outputs_weight * self._graph_outputs_loss_fn(
+            pred_graph.graph_outputs, graph.graph_outputs) + \
+            outputs_weight * self._outputs_loss_fn(
+            pred_graph.outputs, graph.outputs)
 
-            return loss
+        return loss
     
     @staticmethod
     def _collate_fn(batch):
@@ -161,15 +154,15 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
 
             if verbosity >= 2:
                 print(f'Epoch {n}:')
-            for graph in dataset_iter(train_dl):
+            for batch in dataset_iter(train_dl):
 
                 # compute loss
-                loss = self._compute_loss(
-                    graph=graph.to(device),
-                    use_outputs=use_outputs,
-                    use_graph_outputs=use_graph_outputs,
-                    outputs_weight=outputs_weight,
-                    graph_outputs_weight=graph_outputs_weight)
+                loss = sum(
+                    self._compute_loss(
+                        graph=graph.to(device),
+                        outputs_weight=outputs_weight,
+                        graph_outputs_weight=graph_outputs_weight)
+                    for graph in batch) / len(batch)
 
                 loss.backward()
                 optim.step()
@@ -182,28 +175,28 @@ class TorchAtomwiseModel(nn.Module, ModelBase):
             val_losses = []
 
             with torch.no_grad():
-                for graph in dataset_iter(train_dl):
+                for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    loss = self._compute_loss(
-                        graph=graph.to(device),
-                        use_outputs=use_outputs,
-                        use_graph_outputs=use_graph_outputs,
-                        outputs_weight=outputs_weight,
-                        graph_outputs_weight=graph_outputs_weight)
+                    loss = sum( 
+                        self._compute_loss(
+                            graph=graph.to(device),
+                            outputs_weight=outputs_weight,
+                            graph_outputs_weight=graph_outputs_weight)
+                        for graph in batch) / len(batch)
 
                     train_losses.append(loss.detach().cpu().numpy())
 
                 if val_dataset is not None:
-                    for graph in dataset_iter(val_dl):
+                    for batch in dataset_iter(val_dl):
                         
                         # compute validation loss
-                        loss = self._compute_loss(
-                            graph=graph.to(device),
-                            use_outputs=use_outputs,
-                            use_graph_outputs=use_graph_outputs,
-                            outputs_weight=outputs_weight,
-                            graph_outputs_weight=graph_outputs_weight)
+                        loss = sum(
+                            self._compute_loss(
+                                graph=graph.to(device),
+                                outputs_weight=outputs_weight,
+                                graph_outputs_weight=graph_outputs_weight)
+                            for graph in batch) / len(batch)
 
                         val_losses.append(loss.detach().cpu().numpy())
 

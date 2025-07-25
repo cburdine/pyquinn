@@ -25,8 +25,8 @@ class TorchBandStructureDataset(
     def _compile_bands(
             bands: BandStructure | str,
             name: str,
-            cache_dir: str,
-            **compile_kwargs):
+            cache_dir: str | None = None,
+            **compile_kwargs) -> TorchBandStructure | str:
         
         # load bands (if necessary)
         bands = BandStructure.load(bands) \
@@ -37,11 +37,13 @@ class TorchBandStructureDataset(
             backend='torch',
             **compile_kwargs)
 
-        torch_bands_path = os.path.join(
-            cache_dir, f'{name}.pt.bands')
-        torch_bands.save(torch_bands_path)
+        if cache_dir is not None:
+            torch_bands_path = os.path.join(
+                cache_dir, f'{name}.pt.bands')
+            torch_bands.save(torch_bands_path)
+            torch_bands = torch_bands_path
 
-        return torch_bands_path
+        return torch_bands
 
     @staticmethod 
     def _save_bands(
@@ -62,7 +64,7 @@ class TorchBandStructureDataset(
     @staticmethod
     def compile(
             dataset: BandStructureDataset,
-            cache_dir: str,
+            cache_dir: str | None = None,
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
@@ -70,8 +72,7 @@ class TorchBandStructureDataset(
             max_bands: int | None = None,
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32,
-            idx_dtype: torch.dtype = torch.int64,
-            in_memory: bool = False):
+            idx_dtype: torch.dtype = torch.int64):
         
         torch_graphs = []
         torch_band_structures = []
@@ -117,7 +118,7 @@ class TorchBandStructureDataset(
             graphs: list[str] | list[TorchAtomGraph],
             band_structures: list[str] | list[TorchBandStructure],
             names: list[str],
-            cache_dir: str,
+            cache_dir: str | None = None,
             device: torch.device = 'cpu'):
 
         super().__init__(
@@ -154,8 +155,8 @@ class TorchBandStructureDataset(
     @staticmethod
     def load(
             cache_dir: str,
-            device: torch.device = 'cpu',
-            in_memory: bool = False):
+            in_memory: bool = False,
+            device: torch.device = 'cpu'):
 
         graphs = glob(os.path.join(cache_dir, '*.pt'))
         band_structures = glob(os.path.join(cache_dir, '*.pt.bands'))

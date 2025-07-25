@@ -127,13 +127,13 @@ class BandStructureDataset(BandStructureDatasetBase):
 
     def compile(
             self,
-            cache_dir: str,
             backend: str = 'torch',
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
             max_bands: int | None = None,
+            cache_dir: str | None = None,
             bands_backend_kwargs: dict | None = None,
             **backend_kwargs):
 
@@ -150,12 +150,12 @@ class BandStructureDataset(BandStructureDatasetBase):
 
         return BandStructureDataset._backends[backend].compile(
             dataset=self,
-            cache_dir=cache_dir,
             cutoffs=cutoffs,
             masses=masses,
             symbols=symbols,
             max_k_pts=max_k_pts,
             max_bands=max_bands,
+            cache_dir=cache_dir,
             **backend_kwargs,
         )
 
@@ -212,10 +212,10 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
 
     def __init__(
             self,
-            graphs: list[str],
-            band_structures: list[str],
+            graphs: list[str] | list[AtomGraph],
+            band_structures: list[str] | list[BandStructure],
             names: list[str],
-            cache_dir: str):
+            cache_dir: str | None = None):
 
         self.graphs = graphs
         self.band_structures = band_structures

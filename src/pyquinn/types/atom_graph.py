@@ -15,6 +15,8 @@ from pyquinn.util.geometry import (
     supercell_lattice_points,
     monkhorst_pack_mesh
 )
+from pyquinn.util.formula import get_formula
+
 from pyquinn.types.backend import _load_backend_object
 
 SUPPORTED_BACKENDS = {
@@ -44,7 +46,7 @@ class AtomGraph(AtomGraphBase):
 
     An AtomGraph can also be enriched with additional atom-wise input features 
     and the output values of models. These can be accessed through the 
-    following AtomGraph members:
+    following AtomGraph instance variables:
 
     - `features`: represents additional atom-wise features used as inputs to
         models (e.g. atomic charge).
@@ -60,7 +62,7 @@ class AtomGraph(AtomGraphBase):
 
         .. code-block:: python
 
-            from pyquinn import AtomGraph
+            from pyquinn.types import AtomGraph
 
             graph = AtomGraph(
                 atoms=['Na', 'Cl'], 
@@ -85,24 +87,16 @@ class AtomGraph(AtomGraphBase):
 
     @staticmethod
     def register_backend(name: str):
-        """Registers an BackendAtomGraph subclass. You can add a custom
-        AtomGraph backend by using this Python decorator as follows:
+        """Registers an :class:`~pyquinn.types.atom_graph.BackendAtomGraph` subclass.
+
+        This should be invoked as a decorator of the subclass. For example:
+
 
         .. code-block:: python
 
-            from pyquinn.types import AtomGraph
-
             @AtomGraph.register_backend('my_backend_name')
-            class MyBackend(BackendAtomGraph):
-
-                def compile(...):
-                    ...
-
-                def update_neighbors(...):
-                    ...
-
-                def extract(...):
-                    ...
+            class MyBackendAtomGraph(BackendAtomGraph):
+                ...
 
         Args:
             name (str): BackendAtomGraph class to be registered.
@@ -438,14 +432,37 @@ class AtomGraph(AtomGraphBase):
         graph_outputs = np.array(value)
         self._graph_outputs = graph_outputs
 
+    def chemical_formula(self) -> str:
+        """Returns the chemical formula of this AtomGraph using Hill notation.
+
+        Returns:
+            str: The chemical formula.
+        """
+
+        return get_formula(self.atoms, format='hill')
+
+    def __str__(self) -> str:
+        """Returns a printable string representation of this AtomGraph"""
+        visible_vars = {
+            'atoms': self.chemical_formula(),
+            'periodic': self.periodic.tolist(),
+            'unit_cell': self.unit_cell.tolist(),
+        }
+        attrs = ', '.join(f"{k}={v!r}" for k, v in visible_vars.items())
+        return f"AtomGraph({attrs})"
+
+    def __repr__(self) -> str:
+        """Returns a full string representation of this AtomGraph"""
+        return str(self)
+
     def __getitem__(self, key: slice | np.ndarray) -> 'AtomGraph':
         """Accesses a sub-AtomGraph at a given slice or numpy array index."""
         if isinstance(key, (int, np.integer)) or \
                 (isinstance(key, np.ndarray) and key.ndim <= 0):
             raise KeyError(
                 'Index key must be a valid numpy array index or slice with '
-                'dimension greater than 0. Integer indexing is not supported for '
-                'AtomGraph objects.')
+                'dimension greater than 0. Integer indexing is not supported '
+                'for AtomGraph objects.')
 
         # create an AtomGraph with sliced views of 
         _graph = AtomGraph()
@@ -459,7 +476,8 @@ class AtomGraph(AtomGraphBase):
 
         return _graph
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Returns the number of atoms in this AtomGraph"""
         return self.atoms.shape[0]
 
     def _resolve_atomic_numbers(
@@ -769,7 +787,7 @@ class AtomGraph(AtomGraphBase):
         use the `extract()` function.
 
         Args:
-            backend (str): The backend to target.
+            backend (str): The backend to target. Defaults to 'torch'.
             cutoffs (dict | list[float] | None, optional): Cutoff radii used 
                 to compute neighbors of atoms in the compiled graph. If None
                 or cutoffs are not supplied for certain elements,
@@ -785,7 +803,7 @@ class AtomGraph(AtomGraphBase):
             ValueError: If the backend is unknown, or compilation fails.
 
         Returns:
-            BackendAtomGraph: An atom graph with the 
+            BackendAtomGraph: An atom graph compiled for the backend.
         """
 
         # resolve cutoff and mass arrays:
@@ -868,7 +886,7 @@ class AtomGraph(AtomGraphBase):
         Args:
             backend (str, optional): The backend plotter to use. 
                 Defaults to 'mpl'. For more information on plotter
-                arguments, see :meth:`pyquinn.plot.plotter.plot_Atoms`.
+                arguments, see :meth:`pyquinn.plot.plotter.plot_atoms()`.
 
         Returns:
             Any: A figure object associated with the backend plotter.

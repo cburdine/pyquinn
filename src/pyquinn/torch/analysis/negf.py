@@ -562,8 +562,8 @@ class TorchNEGF:
         """Evaluates the local density of states (LDOS) of the site.
 
         Args:
-            energies (torch.Tensor): The energies at which the density of states
-                should be evaluated (shape: [E]).
+            energies (torch.Tensor): The energies at which the density of 
+                states should be evaluated (shape: [E]).
             k_pts (torch.Tensor | None, optional): Reciprocal space 
                 :math:`\\mathbf{k}` vectors used to sample crystal momentum
                 degrees of freedom parallel to the boundary (shape: [M, 3]). 

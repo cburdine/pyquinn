@@ -139,8 +139,8 @@ class MaterialsProject(Database):
             formula (str): A chemical formula string.
 
         Returns:
-            dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph) pairs
-                matching the given formula.
+            dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph) 
+                pairs matching the given formula.
         """
 
         docs = self.mp_connector.summary.search(
@@ -392,6 +392,8 @@ class MaterialsProject(Database):
         Returns:
             BandStructure | None: A BandStructure object.
         """
+        
+        graph = self.get_atomgraph_by_id(id)
         bandstructure = self.mp_connector.get_bandstructure_by_material_id(id)
 
         # compute clipped bands and projections:
@@ -399,7 +401,8 @@ class MaterialsProject(Database):
         projs_list = []
 
         k_pts = np.array([
-            x.cart_coords for x in bandstructure.kpoints
+            k.frac_coords @ graph.unit_rcell()
+            for k in bandstructure.kpoints
         ])
     
         for k in bandstructure.bands:

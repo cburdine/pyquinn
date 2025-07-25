@@ -39,7 +39,7 @@ class TorchBandStructure(BackendBandStructure):
             device=device, dtype=dtype)
 
         chemical_potential = torch.tensor(
-            bands.projections
+            bands.chemical_potential
         )
 
         return TorchBandStructure(
@@ -221,7 +221,7 @@ class TorchBandStructure(BackendBandStructure):
             energy: torch.Tensor | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: torch.Tensor | None = None) -> torch.Tensor:
         
         if isinstance(energy, float):
@@ -231,7 +231,7 @@ class TorchBandStructure(BackendBandStructure):
                 device=self.energies.device
             )
 
-        weight = spin_mult / self.k_pts.shape[0]
+        weight = band_mult / self.k_pts.shape[0]
         sigma = self._default_sigma() if sigma is None else sigma
 
         band_energies, energy, projections = \
@@ -253,7 +253,7 @@ class TorchBandStructure(BackendBandStructure):
             energy: torch.Tensor | float = 0.0,
             smearing: str = 'gaussian',
             sigma: float | None = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: torch.Tensor | None = None) -> torch.Tensor:
 
         if isinstance(energy, float):
@@ -263,7 +263,7 @@ class TorchBandStructure(BackendBandStructure):
                 device=self.energies.device
             )
 
-        weight = spin_mult / self.k_pts.shape[0]
+        weight = band_mult / self.k_pts.shape[0]
         sigma = self._default_sigma() if sigma is None else sigma
         
         band_energies, energy, projections = \
@@ -285,7 +285,7 @@ class TorchBandStructure(BackendBandStructure):
             n: torch.Tensor | float,
             smearing: str = 'fermi-dirac',
             sigma: float = None,
-            spin_mult: float = 1.0,
+            band_mult: float = 1.0,
             projections: torch.Tensor | None = None,
             E_guess: torch.Tensor | None = None,
             max_evals: int = 16) -> torch.Tensor:
@@ -297,7 +297,7 @@ class TorchBandStructure(BackendBandStructure):
                 device=self.energies.device
             )
 
-        n_max = self.energies.shape[1]*spin_mult
+        n_max = self.energies.shape[1]*band_mult
         E_min, E_max = self.energies.min(), self.energies.max()
         E_range = E_max - E_min
 
@@ -311,7 +311,7 @@ class TorchBandStructure(BackendBandStructure):
                 E_level, 
                 smearing=smearing,
                 sigma=sigma,
-                spin_mult=spin_mult,
+                band_mult=band_mult,
                 projections=projections)
             delta_E = (E_range)/2**(i+1)
             delta_E = torch.where(n_eval > n, -delta_E, delta_E)

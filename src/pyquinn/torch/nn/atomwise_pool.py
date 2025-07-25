@@ -38,7 +38,6 @@ class AtomwisePool(nn.Module, ABC):
             module_name: str, 
             in_features: int,
             out_features: int | None = None,
-            z_max: int = 118,
             module_kwargs: dict | None = None):
         
         if module_name not in AtomwisePool._modules:
@@ -49,21 +48,18 @@ class AtomwisePool(nn.Module, ABC):
         return AtomwisePool._modules[module_name](
             in_features=in_features, 
             out_features=out_features,
-            z_max=z_max,
             **module_kwargs)
 
     def __init__(
             self, 
-            out_features: int, 
-            in_features: int | None = None,
-            z_max: int = 118):
+            out_features: int | None = None, 
+            in_features: int | None = None):
 
         super().__init__()
 
         self.out_features = out_features
-        self.in_features = in_features if in_features is not None else 0
-        self.z_max = z_max
-
+        self.in_features = in_features
+        
     @abstractmethod
     def forward(self,
                 atomic_numbers,
@@ -78,7 +74,7 @@ class AtomwisePool(nn.Module, ABC):
 @AtomwisePool.register('arithmetic')
 class ArithmeticPool(AtomwisePool):
 
-    _aggr_ops = {
+    _pool_ops = {
         'sum': torch.sum,
         'mean': torch.mean,
         'min': torch.min,
@@ -89,20 +85,25 @@ class ArithmeticPool(AtomwisePool):
             self,
             aggr='sum',
             out_features: int | None = None,
-            in_features: int | None = None,
-            z_max: int = 118):
+            in_features: int | None = None):
 
-        if aggr not in self._aggr_ops:
-            oplist = list(self._aggr_ops.keys())
+        super().__init__(
+            out_features=out_features,
+            in_features=in_features,
+        )
+
+        if aggr not in ArithmeticPool._pool_ops:
+            oplist = list(ArithmeticPool._pool_ops.keys())
             raise ValueError(
                 f'Invalid aggr value "{aggr}"; '
                 f'expected one of {oplist}')
 
-        self.aggr = aggr
+        self.pool_op = ArithmeticPool._pool_ops[aggr]
     
     def forward(
             self,
             atomic_numbers: torch.IntTensor,
-            features: torch.Tensor | None = None) -> torch.Tensor:
+            features: torch.Tensor | None = None,
+            **kwargs) -> torch.Tensor:
 
-        return self._aggr_ops[self.aggr](features, dim=0)
+        return self.pool_op(features, dim=0)

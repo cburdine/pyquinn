@@ -18,11 +18,77 @@ class AtomGraphDatasetBase:
 
 
 class AtomGraphDataset(AtomGraphDatasetBase):
+    """Represents a dataset of :class:`~pyquinn.types.AtomGraph` objects, each 
+    containing inputs (`AtomGraph.features`) 
+    and labels to be predicted (`AtomGraph.outputs`, `AtomGraph.graph_outputs`)
+    
+    An AtomGraphDataset contains the following members:
+
+    - `graphs`: The list of AtomGraphs (or strings containing paths to saved
+        AtomGraph objects)
+    - `names` (optional): The list of respective AtomGraph names. These names
+        must be unique.
+
+    Example:
+        Here is an example of how an `AtomGraph` object can be constructed programatically 
+        then compiled to the PyTorch (`torch`) backend.
+
+        .. code-block:: python
+
+            from pyquinn.types import AtomGraph
+
+            graphs = [ 
+                AtomGraph(
+                    atoms=[elem, 'Cl'], 
+                    positions=[
+                        [0.0, 0.0, 0.0],
+                        [1.0, 0.0, 0.0]
+                    ])
+                for elem in ('Li', 'Na', 'K')
+            ]
+
+            dataset = AtomGraphDataset(graphs)
+
+            torch_dataset = dataset.compile(backend='torch')
+
+            for torch_graph in torch_dataset:
+                print(torch_graph.atomic_numbers)
+
+        .. warning:: By default, 
+            :meth:`~pyquinn.torch.types.AtomGraphDataset.compile()` compiles all
+            AtomGraphs in into BackendAtomGraphs in main memory. To compile the
+            dataset to a directory stored on disk and load atomgraphs directly 
+            from disk you must set the `cache_dir` to a directory on your system.
+            
+            .. code-block:: python
+
+                backend_dataset = torch.compile(cache_dir='/path/to/dataset/directory')
+
+        An AtomGraphDataset can also be loaded from a directory of AtomGraph objects
+        saved with :meth:`~pyquinn.types.AtomGraph.save`, using the 
+        :meth:`~pyquinn.types.AtomGraphDataset.load()` function. In this case, the
+        names of the AtomGraph files in the directory are stored as the `names` values.
+                
+    """
 
     _backends = {}
 
     @staticmethod
     def register_backend(name: str):
+        """Registers an :class:`~pyquinn.types.dataset.BackendDataset` subclass.
+
+        This should be invoked as a decorator of the subclass. For example:
+
+        .. code-block:: python
+            
+            @AtomGraphDataset.register_backend('my_backend_name')
+            class MyBackendAtomGraphDataset(BackendAtomGraphDataset):
+                ...
+
+
+        Args:
+            name (str): BackendAtomGraphDataset class to be registered.
+        """
 
         def decorator(subclass):
             AtomGraphDataset._backends[name] = subclass
@@ -31,15 +97,32 @@ class AtomGraphDataset(AtomGraphDatasetBase):
 
     def __init__(
             self,
-            graphs: list[AtomGraph] | list[str] = [],
+            graphs: list[AtomGraph] | list[str] | None = None,
             names: list[str] | None = None):
+        """Creates an AtomGraphDataset from a list of AtomGraphs or saved AtomGraph paths.
+
+        Args:
+            graphs (list[AtomGraph] | list[str] | None, optional): A list of AtomGraphs 
+                or saved AtomGraph paths. Defaults to None.
+            names (list[str] | None, optional): A list of unique AtomGraph names. 
+                Defaults to None.
+        """
 
         self.graphs = []
         self.names = []
 
-        self.extend(graphs=graphs, names=names)
+        if graphs is not None:
+            self.extend(graphs=graphs, names=names)
 
     def append(self, graph: AtomGraph | str, name: str | None = None):
+        """Adds an AtomGraph object or a path to a saved AtomGraph object to this
+        dataset.
+
+        Args:
+            graph (AtomGraph | str): The AtomGraph to be added. Can be a 
+                string with the full path to a saved AtomGraph.
+            name (str | None, optional): The unique name of this AtomGraph. Defaults to None.
+        """
 
         n_graphs = len(self.graphs)
         name = AtomGraphDataset._resolve_graph_name(n_graphs, graph, name)
@@ -51,6 +134,17 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             self, 
             graphs: list[AtomGraph] | list[str],
             names: list[str] | None = None):
+        """Adds a list of AtomGraphs or saved AtomGraph paths to this dataset.
+
+        Args:
+            graphs (list[AtomGraph] | list[str]): A list of AtomGraphs 
+                or saved AtomGraph paths.
+            names (list[str] | None, optional): A list of unique AtomGraph names. 
+                Defaults to None.
+
+        Raises:
+            ValueError: _description_
+        """
 
         if names is None:
             names = [None]*len(graphs)
@@ -117,6 +211,13 @@ class AtomGraphDataset(AtomGraphDatasetBase):
                 if isinstance(graph, str) else graph
 
     def items(self):
+        """Returns an iterator of key-value pairs over this dataset,
+        similar to Python's `dict.items()` function. In this case, the
+        keys and values are the names and graphs, respectively.
+
+        Yields:
+            tuple[str, AtomGraph]: Pairs of names and AtomGraphs.
+        """
         for name, graph in zip(self.names, self.graphs):
             resolved_graph = AtomGraph.load(graph) \
                 if isinstance(graph, str) else graph
@@ -124,12 +225,41 @@ class AtomGraphDataset(AtomGraphDatasetBase):
 
     def compile(
             self,
-            cache_dir: str,
             backend: str = 'torch',
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
+            cache_dir: str | None = None,
             **backend_kwargs) -> 'BackendAtomGraphDataset':
+        """Returns a Compiled form of this AtomGraphDataset that targets a specific backend.
+        A compiled AtomGraphDataset can then be manipulated using backend-specific methods.
+
+        The additional arguments passed via `**backend_kwargs` are passed to the
+        :meth:`pyquinn.types.AtomGraph.compile` function along with the specified keyword
+        arguments.
+
+        .. warning:: By default, 
+            :meth:`~pyquinn.torch.types.AtomGraphDataset.compile()` compiles all
+            AtomGraphs in into BackendAtomGraphs in main memory. To compile the
+            dataset to a directory stored on disk and load atomgraphs directly 
+            from disk you must set the `cache_dir` to a directory on your system.
+    
+        Args:
+            backend (str, optional): The Backend to target. Defaults to 'torch'.
+            cutoffs (dict | list[float] | None, optional): Cutoff radii. Defaults to None.
+            masses (dict | list[float] | None, optional): Atomic masses. Defaults to None.
+            symbols (dict | list[str] | None, optional): Element substitutions 
+                made prior to compilation. Defaults to None.
+            cache_dir (str | None, optional): Path to a directory used to cache 
+                the compiled dataset. Defaults to None.
+
+        Raises:
+            ValueError: If the backend is unknown, or compilation fails.
+
+        Returns:
+            BackendAtomGraphDataset: An AtomGraphDataset compiled for the backend.
+        """
+
 
         if backend not in AtomGraphDataset._backends:
             if backend in SUPPORTED_DATASET_BACKENDS:
@@ -144,10 +274,10 @@ class AtomGraphDataset(AtomGraphDatasetBase):
         # compile graphs:
         return AtomGraphDataset._backends[backend].compile(
             dataset=self,
-            cache_dir=cache_dir,
             cutoffs=cutoffs,
             masses=masses,
             symbols=symbols,
+            cache_dir=cache_dir,
             **backend_kwargs
         )
 
@@ -209,10 +339,10 @@ class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
     @abstractmethod
     def compile(
             dataset: AtomGraphDataset,
-            cache_dir: str,
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
+            cache_dir: str | None = None,
             **backend_kwargs):
         pass
 
