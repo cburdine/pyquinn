@@ -79,7 +79,7 @@ class BandStructureTest(unittest.TestCase):
             E_dos, 
             smearing='gaussian', 
             sigma=sigma, 
-            spin_mult=1.0)
+            band_mult=1.0)
 
         self.assertTrue(np.allclose(gaussian_dos, target_dos))
 
@@ -89,7 +89,7 @@ class BandStructureTest(unittest.TestCase):
             E_dos, 
             smearing='gaussian', 
             sigma=sigma, 
-            spin_mult=1.0,
+            band_mult=1.0,
             projections=weights)
 
         self.assertTrue(np.allclose(proj_gaussian_dos, proj_target_dos))
@@ -116,7 +116,7 @@ class BandStructureTest(unittest.TestCase):
             E_dos, 
             smearing='fermi-dirac', 
             sigma=sigma, 
-            spin_mult=1.0)
+            band_mult=1.0)
 
         self.assertTrue(np.allclose(fermi_dos, target_dos))
 
@@ -126,7 +126,7 @@ class BandStructureTest(unittest.TestCase):
             E_dos, 
             smearing='fermi-dirac', 
             sigma=sigma,
-            spin_mult=1.0,
+            band_mult=1.0,
             projections=weights)
 
         self.assertTrue(np.allclose(proj_fermi_dos, proj_target_dos))
@@ -156,13 +156,13 @@ class BandStructureTest(unittest.TestCase):
                 E_dos, 
                 smearing=smearing,
                 sigma=5.0,
-                spin_mult=2.0)
+                band_mult=2.0)
 
             idos = bs.idos(
                 E_dos, 
                 smearing=smearing,
                 sigma=5.0,
-                spin_mult=2.0)
+                band_mult=2.0)
 
             trapz_idos = cumulative_trapezoid(dos, E_dos, initial=0)
             self.assertTrue(np.allclose(idos, trapz_idos, atol=1e-3))

@@ -99,47 +99,50 @@ class AtomGraphDatasetTest(unittest.TestCase):
 
         for backend in SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS:
             with TemporaryDirectory() as temp_dir:
+                for cache_dir in (temp_dir, None):
+                    compiled_dataset = dataset.compile(
+                        backend=backend, 
+                        cache_dir=cache_dir)
 
-                compiled_dataset = dataset.compile(
-                    backend=backend, 
-                    cache_dir=temp_dir)
+                    self.assertEqual(
+                        len(compiled_dataset.names), len(dataset.names))
+                    self.assertEqual(
+                        len(compiled_dataset.graphs), len(dataset.graphs))
+                    self.assertEqual(
+                        len(compiled_dataset.band_structures), 
+                        len(dataset.band_structures))
 
-                self.assertEqual(
-                    len(compiled_dataset.names), len(dataset.names))
-                self.assertEqual(
-                    len(compiled_dataset.graphs), len(dataset.graphs))
-                self.assertEqual(
-                    len(compiled_dataset.band_structures), 
-                    len(dataset.band_structures))
+                    for i, (name, graph, bands) in enumerate(zip(
+                            compiled_dataset.names, 
+                            compiled_dataset.graphs,
+                            compiled_dataset.band_structures)):
 
-                for i, (name, graph, bands) in enumerate(zip(
-                        compiled_dataset.names, 
-                        compiled_dataset.graphs,
-                        compiled_dataset.band_structures)):
+                        # check that names agree:
+                        dataset_graph_name = dataset.names[i]
+                        self.assertEqual(name, dataset_graph_name)
 
-                    # check that names agree:
-                    dataset_graph_name = dataset.names[i]
-                    self.assertEqual(name, dataset_graph_name)
+                        dataset_graph, dataset_bands = dataset[i]
 
-                    dataset_graph, dataset_bands = dataset[i]
+                        # check that the AtomGraphs agree
+                        if isinstance(graph, str):
+                            graph = AtomGraph._backends[backend].load(graph)
 
-                    # check that the AtomGraphs agree
-                    loaded_graph = AtomGraph._backends[backend].load(graph)
-                    extracted_graph = loaded_graph.extract()
-                    self.assertTrue(np.all(
-                        extracted_graph.atoms == dataset_graph.atoms))
-                    self.assertTrue(np.allclose(
-                        extracted_graph.positions, dataset_graph.positions))
+                        extracted_graph = graph.extract()
+                        self.assertTrue(np.all(
+                            extracted_graph.atoms == dataset_graph.atoms))
+                        self.assertTrue(np.allclose(
+                            extracted_graph.positions, dataset_graph.positions)) # noqa
 
-                    # check that the BandStructures agree
-                    loaded_bands = BandStructure._backends[backend].load(bands)
-                    extracted_bands = loaded_bands.extract()
-                    self.assertTrue(np.allclose(
-                        extracted_bands.energies, dataset_bands.energies))
+                        # check that the BandStructures agree
+                        if isinstance(bands, str):
+                            bands = BandStructure._backends[backend].load(bands) # noqa
+                        extracted_bands = bands.extract()
+                        self.assertTrue(np.allclose(
+                            extracted_bands.energies, dataset_bands.energies))
 
-                    self.assertTrue(np.allclose(
-                        extracted_bands.k_pts, dataset_bands.k_pts))
+                        self.assertTrue(np.allclose(
+                            extracted_bands.k_pts, dataset_bands.k_pts))
 
-                    self.assertTrue(np.allclose(
-                        extracted_bands.projections,dataset_bands.projections)) # noqa
+                        self.assertTrue(np.allclose(
+                            extracted_bands.projections,dataset_bands.projections)) # noqa
 
