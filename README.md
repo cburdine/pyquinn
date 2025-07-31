@@ -45,12 +45,14 @@ Many IDEs (such as VS Code also support )
 
 ### Building Documentation
 
+Before building the documentation, make sure that you have the development tools installed (see instructions above).
+
 We are curently building documentation using [sphinx](https://www.sphinx-doc.org/en/master/). In the `docs/` directory run:
 ```
 make html
 ```
 
-You can view the static html documentation in a web browser by opening `docs/build/html/index.html` or by running a local server with the command
+You now view the static html documentation in a web browser by opening `docs/build/html/index.html` or by running a local server with the command
 ```
 python -m http.server --directory docs/build/html
 ```
