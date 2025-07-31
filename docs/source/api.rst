@@ -25,9 +25,9 @@ Backend API
 ---------------------
 The PyQuinn API is designed to be modular and extensible: users can symbolically manipulate 
 atomic structures using the :class:`~pyquinn.types.AtomGraph` object and compile them to 
-backend-specific representations the conform to a common API
-(e.g., see :class:`pyquinn.types.atom_graph.BackendAtomGraph``) 
-using a unified `.compile(backend='<backend>')` interface. 
+backend-specific representations the conform to a common API using a unified 
+`.compile(backend='<backend>')` interface. For :class:`~pyquinn.types.AtomGraph` objects,
+the :class:`~pyquinn.types.atom_graph.BackendAtomGraph` class specifies this API. 
 
 Although the primitives conform to a common API, strict adherence is not enforced for 
 other objects, such as neural network modules. For these objects, PyQuINN 

@@ -26,6 +26,7 @@ For installation instructions, see the :doc:`quickstart` section.
    :caption: Table of Contents:
    
    quickstart
+   about
    api
 
 
