@@ -6,6 +6,48 @@ from abc import abstractmethod, ABC
 import torch.nn as nn
 
 
+class _StableEigh(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, A, eps=1e-12):
+        eigvals, eigvecs = torch.linalg.eigh(A)
+        ctx.save_for_backward(eigvals, eigvecs)
+        ctx.eps = eps
+        return eigvals, eigvecs
+
+    @staticmethod
+    def backward(ctx, grad_eigvals, grad_eigvecs):
+        eigvals, eigvecs = ctx.saved_tensors
+        eps = ctx.eps
+
+        V = eigvecs  # (..., N, N)
+        VT = V.conj().transpose(-2, -1)
+        dLdLambda = grad_eigvals      # (..., N)
+        dLdV = grad_eigvecs           # (..., N, N)
+
+        # 1. Compute symmetric part: V @ diag(dL/dLambda) @ V^T
+        grad_lambda_term = V @ torch.diag_embed(dLdLambda).to(V.dtype) @ VT  # (..., N, N)
+
+        # 2. Compute eigenvector term
+        #    Compute F_ij = 1 / (λ_i - λ_j) with 0 on diagonal
+        lambda_i = eigvals.unsqueeze(-1)  # (..., N, 1)
+        lambda_j = eigvals.unsqueeze(-2)  # (..., 1, N)
+        delta = lambda_i - lambda_j       # (..., N, N)
+
+        # Avoid divide-by-zero on diagonal
+        F = torch.where(delta.abs() > eps, 1.0 / delta, torch.zeros_like(delta))
+
+        # Project grad onto eigenbasis
+        Vt_dLdV = VT @ dLdV               # (..., N, N)
+
+        # Apply symmetric correction
+        F_prod = F * Vt_dLdV
+        grad_v_term = V @ (F_prod + F_prod.conj().transpose(-2, -1)) * 0.5 @ VT  # (..., N, N)
+
+        # Combine
+        grad_input = grad_lambda_term + grad_v_term
+        return grad_input, None  # Second arg is for eps
+
+
 SUPPORTED_EIGENSOLVERS = []
 """The full list of eigensolvers supported by default."""
 
@@ -89,9 +131,10 @@ class Eigensolver(nn.Module, ABC):
 
 @Eigensolver.register('torch_eigh')
 class EighEigensolver(Eigensolver):
-    """ Dense Matrix Eigensolver that uses `pytorch.linalg.eigh` """
+    """ Dense Matrix Eigensolver that uses `pytorch.linalg.eigh` with
+        added support for stabilizing gradients of degenerate eigenvalues."""
 
-    def __init__(self):
+    def __init__(self, eps =1e-5):
         """Creates an instance of an EighEigensolver"""
         super().__init__()
 
@@ -106,11 +149,6 @@ class EighEigensolver(Eigensolver):
             up to a phase. It is recommended that you define loss functions
             using the modulus or modulus squared of each eigenvector component.
 
-            Also, gradients with respect to eigenvectors can be unstable for
-            eigenvalues that are degenerate or nearly degenerate. Due to the
-            non-uniqueness of a degenerate eigenvector basis, the eigenvectors
-            returned may not be the same on all systems.
-
             See `torch.linalg.eigh` for more information.
 
         Args:
@@ -120,8 +158,7 @@ class EighEigensolver(Eigensolver):
             tuple[torch.Tensor, torch.Tensor]: Eigenvalues and Eigenvectors
             of the matrix H. (shape: [..., N], [..., N, N])
         """
-
-        return torch.linalg.eigh(H)
+        return _StableEigh.apply(H)
 
     def forward(self, H: torch.Tensor) -> torch.Tensor:
         """Computes the Eigenvalues of a dense Hermitian matrix 
@@ -137,7 +174,6 @@ class EighEigensolver(Eigensolver):
         """
 
         return torch.linalg.eigvalsh(H)
-
 
 @Eigensolver.register('torch_lobpcg')
 class LobpcgEigensolver(Eigensolver):

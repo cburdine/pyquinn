@@ -234,7 +234,9 @@ class TorchBandStructureModel(nn.Module):
             x_pts: torch.Tensor,
             k_pts: torch.Tensor,
             eigenstate_idxs: torch.IntTensor | None = None,
-            sigenstates: torch.IntTensor | None = None):
+            eigenstates: torch.IntTensor | None = None,
+            k_idxs: torch.IntTensor | None = None,
+            x_cutoff: torch.Tensor | None = None):
 
         return self.bands_model.bloch_eigenstate_amplitudes(
             atomic_numbers=graph.atomic_numbers,
