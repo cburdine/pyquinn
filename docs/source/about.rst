@@ -98,25 +98,65 @@ any backend-specific features (such as neighbor lists, or computed gradients):
 
 .. code-block:: python
 
-    new_graph = torch_graph.extract()
-    print(new_graph)
+    recovered_graph = torch_graph.extract()
+    print(recovered_graph)
 
 .. seealso::
 
     Visit the API reference page for :class:`~pyquinn.types.atom_graph.BackendAtomGraph`
-    to learn about the functions supported by all backends.
+    to learn about the functions and instance variables supported by all backends.
 
 
 Other PyQuinn Types
 -------------------
 In addition to AtomGraph, there are other types supported for compilation, such as:
 
-* :class:`~pyquinn.types.AtomGraphDataset`
-* :class:`~pyquinn.types.BandStructure`
-* :class:`~pyquinn.types.BandStructureDataset`
+* :class:`~pyquinn.types.BandStructure`: represents an electronic band structure object, with support projections onto bases of orbitals.
+* :class:`~pyquinn.types.AtomGraphDataset`: stores an entire dataset of AtomGraphs, supporting caching and loading from disk.
+* :class:`~pyquinn.types.BandStructureDataset`: stores a dataset of AtomGraphs and associated BandStructures, supporting caching and loading from disk.
 
 These primitives all support efficiently saveable and loadable file formats, making the generation and
 curation of large datasets simple.
 
 Data I/O
 --------
+
+PyQuinn also supports loading or exporting AtomGraphs and other primitive types to objects used in other
+popular atomic simulation frameworks, such as the :class:`~ase.Atoms` object used in ASE, (the Atomic Simulation Environment). AtomGraphs
+can also be loaded and and exported to a variety of popular file formats (such as CIF format):
+
+.. code-block:: python
+
+    from ase.build import graphene
+    from pyquinn.types import AtomGraph
+
+    # create a graphene ase.Atoms object
+    atoms = graphene()
+
+    # build an AtomGraph object from an ase.Atoms object
+    graph = AtomGraph.from_ase(atoms)
+
+    # export an AtomGraph (stored in 'graph') to CIF format
+    graph.to_file('graphene.cif')
+
+    # load the exported file
+    loaded_graph = AtomGraph.from_file('graphene.cif')
+
+Additionally, PyQuinn provides useful database connectors to popular open source atomic structure databases, such as the
+Crystallography Open Database, or the Materials Project. These database connnectors are found in the :mod:`pyquinn.io.databases`
+submodule. For example, the Materials Project database connector has support for loading both atomic structures and their associated
+electronic band structures, if available:
+
+.. code-block:: python
+
+    from pyquinn.io.databases import MaterialsProject
+
+
+    # retrieve an AtomGraph and BandStructure object for mp-66 (diamond)
+    with MaterialsProject(mp_api_key='<your api key here>') as mp:
+        graph = mp.get_atomgraph_by_id('mp-66')
+        bands = mp.get_bandstructure_by_id('mp-66')
+
+
+    # visualize BandStructure object:
+    bands.plot_band_path(atoms=graph)
