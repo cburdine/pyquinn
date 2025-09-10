@@ -154,3 +154,26 @@ def sparse_coo_block_diag(*tensors):
         values=values, 
         size=(block_idx[0].item(), 
               block_idx[1].item()))
+
+
+def cuda_stream_map(fn: Callable, inputs, streams):
+
+    results = [None] * len(inputs)
+    n_streams = len(streams)
+
+    if n_streams > 0:
+        for i, x in enumerate(inputs):
+            s = streams[i % n_streams]
+
+            # Enqueue this tensor’s work onto stream s
+            with torch.cuda.stream(s):
+                results[i] = fn(x)
+
+        # Ensure all streams finish before returning
+        torch.cuda.synchronize()
+
+    else:
+        for x in inputs:
+            results[i] = fn(x)
+
+    return results

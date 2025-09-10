@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-
 import numpy as np
 
 
@@ -268,19 +267,21 @@ class TorchBandStructureModel(nn.Module):
             use_projections: bool = False,
             projection_weight: float = 0.1,
             device: torch.device | None = None,
-            data_workers: int = 0) -> dict:
+            data_workers: int = 0,
+            cuda_streams: int = 0) -> dict:
         
+        # move model to device
+        self.to(device)
+
         # initialize optimizer:
         if optimizer_kwargs is None:
             optimizer_kwargs = {}
         if 'lr' not in optimizer_kwargs:
             optimizer_kwargs['lr'] = lr
 
-        # move model to device
-        self.to(device)
-
         optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
 
+        # initialize data loaders
         train_dl = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True, 
             num_workers=data_workers,
@@ -290,16 +291,29 @@ class TorchBandStructureModel(nn.Module):
             num_workers=data_workers,
             collate_fn=TorchBandStructureModel._collate_fn)
 
+        # initialize batch streams
+        batch_streams = [torch.cuda.Stream() for _ in range(cuda_streams)]
+
+        # loss function evaluator
+        def eval_loss(data):
+            graph, band_structure = data
+            return self._compute_loss(
+                graph=graph.to(device),
+                band_structure=band_structure.to(device),
+                use_projections=use_projections,
+                projection_weight=projection_weight)
+
         # create history dictionary
         history = {
             'train_loss': [],
             'validation_loss': [],
         }
 
-        for p in self.parameters():
-            if p.requires_grad:
-                p.register_hook(lambda grad: torch.nan_to_num(grad, nan=0.0))
+        # for p in self.parameters():
+        #     if p.requires_grad:
+        #         p.register_hook(lambda grad: torch.nan_to_num(grad, nan=0.0))
 
+        # epoch and dataset iterators
         epoch_iter = progress_bar if verbosity == 1 else (lambda x: x)
         dataset_iter = progress_bar if verbosity >= 2 else (lambda x: x)
 
@@ -310,26 +324,12 @@ class TorchBandStructureModel(nn.Module):
             
             for batch in dataset_iter(train_dl):
 
-                # try:
-                # compute loss
-                loss = sum(
-                    self._compute_loss(
-                        graph=graph.to(device),
-                        band_structure=band_structure.to(device),
-                        use_projections=use_projections,
-                        projection_weight=projection_weight)
-                    for graph, band_structure in batch) / len(batch)
+                batch_losses = stream_map(
+                    eval_loss, batch, batch_streams)
+                loss = sum(batch_losses) / len(batch_losses)
 
                 loss.backward()
                 optim.step()
-                
-                # except RuntimeError as e:
-                #     logging.error(
-                #         'Warning: Possibly failed to diagonalize Hamiltonian due to ill-conditioning '
-                #         ' or degeneracy. Try increasing H_noise or decreasing the learning rate:\n'
-                #         '%s', e)
-
-                # finally:
                 self.zero_grad()
 
             if verbosity >= 2:
@@ -342,13 +342,9 @@ class TorchBandStructureModel(nn.Module):
                 for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    loss = sum(
-                        self._compute_loss(
-                            graph=graph.to(device),
-                            band_structure=band_structure.to(device),
-                            use_projections=use_projections,
-                            projection_weight=projection_weight)
-                        for graph, band_structure in batch) / len(batch)
+                    batch_losses = parallel_stream_map(
+                        eval_loss, batch, batch_streams)
+                    loss = sum(batch_losses) / len(batch_losses)
 
                     train_losses.append(loss.detach().cpu().numpy())
 
@@ -356,13 +352,9 @@ class TorchBandStructureModel(nn.Module):
                     for batch in dataset_iter(val_dl):
                         
                         # compute validation loss
-                        loss = sum(
-                            self._compute_loss(
-                                graph=graph.to(device), 
-                                band_structure=band_structure.to(device), 
-                                use_projections=use_projections, 
-                                projection_weight=projection_weight)
-                            for graph, band_structure in batch) / len(batch)
+                        batch_losses = parallel_stream_map(
+                            eval_loss, batch, batch_streams)
+                        loss = sum(batch_losses) / len(batch_losses)
 
                         val_losses.append(loss.detach().cpu().numpy())
 

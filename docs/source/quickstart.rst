@@ -97,7 +97,7 @@ Examples of Basic Usage
 
     from pyquinn.types import AtomGraph, AtomGraphDataset
     from pyquinn.torch.models import TorchAtomwiseModel
-
+    
     import pyquinn.torch.nn as pqnn
 
     # H2 bond lengths (Angstroms) and energies (eV)
