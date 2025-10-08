@@ -3,6 +3,9 @@ from abc import ABC, abstractmethod
 from pyquinn.types import (
     AtomGraph, AtomGraphDataset, BandStructure
 )
+from pyquinn.types.atom_graph import BackendAtomGraph
+from pyquinn.types.bandstructure import BackendBandStructure
+
 from pyquinn.types.backend import _load_backend_object
 from pyquinn.io.stdout import progress_bar
 
@@ -33,9 +36,15 @@ class BandStructureDataset(BandStructureDatasetBase):
 
     def __init__(
             self,
-            graphs: list[AtomGraph] | list[str] = [],
-            band_structures: list[BandStructure] | list[str] = [],
+            graphs: list[AtomGraph] | list[str] | None = None,
+            band_structures: list[BandStructure] | list[str] | None = None,
             names: list[str] | None = None):
+        
+        if graphs is None:
+            graphs = []
+
+        if band_structures is None:
+            band_structures = []
 
         self.graphs = []
         self.names = []
@@ -49,14 +58,14 @@ class BandStructureDataset(BandStructureDatasetBase):
     def append(
             self,
             graph: AtomGraph | str,
-            bands: BandStructure | str,
+            band_structure: BandStructure | str,
             name: str | None = None):
 
         n_graphs = len(self.graphs)
         name = AtomGraphDataset._resolve_graph_name(n_graphs, graph, name)
 
         self.graphs.append(graph)
-        self.band_structures.append(bands)
+        self.band_structures.append(band_structure)
         self.names.append(name)
 
     def extend(
@@ -134,7 +143,6 @@ class BandStructureDataset(BandStructureDatasetBase):
             max_k_pts: int | None = None,
             max_bands: int | None = None,
             cache_dir: str | None = None,
-            bands_backend_kwargs: dict | None = None,
             **backend_kwargs):
 
         if backend not in BandStructureDataset._backends:
@@ -165,7 +173,7 @@ class BandStructureDataset(BandStructureDatasetBase):
             name: str,
             dir: str):
 
-        # load graph (if necessary)
+        # load bands (if necessary)
         bands = BandStructure.load(bands) \
             if isinstance(bands, str) else bands
 
@@ -212,8 +220,8 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
 
     def __init__(
             self,
-            graphs: list[str] | list[AtomGraph],
-            band_structures: list[str] | list[BandStructure],
+            graphs: list[str] | list[BackendAtomGraph],
+            band_structures: list[str] | list[BackendBandStructure],
             names: list[str],
             cache_dir: str | None = None):
 
