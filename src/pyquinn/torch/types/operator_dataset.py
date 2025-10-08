@@ -75,40 +75,40 @@ class TorchOperatorDataset(
         dtype: torch.dtype = torch.float32,
         idx_dtype: torch.dtype = torch.int64):
     
-    torch_graphs = []
-    torch_operators = []
+        torch_graphs = []
+        torch_operators = []
 
-    for name, (graph, operator) in progress_bar(dataset.items(), total=len(dataset)):
+        for name, (graph, operator) in progress_bar(dataset.items(), total=len(dataset)):
 
-        # compile and add graph
-        torch_graphs.append(
-            TorchAtomGraphDataset._compile_graph(
-                graph=graph,
+            # compile and add graph
+            torch_graphs.append(
+                TorchAtomGraphDataset._compile_graph(
+                    graph=graph,
+                        name=name,
+                        cache_dir=cache_dir,
+                        cutoffs=cutoffs,
+                        masses=masses,
+                        symbols=symbols,
+                        device=device,
+                        dtype=dtype,
+                        idx_dtype=idx_dtype))
+            
+            # compile and add operator
+            torch_operators.append(
+                TorchOperatorDataset._compile_operator(
+                    operator=operator,
                     name=name,
                     cache_dir=cache_dir,
-                    cutoffs=cutoffs,
-                    masses=masses,
-                    symbols=symbols,
                     device=device,
-                    dtype=dtype,
-                    idx_dtype=idx_dtype))
-        
-        # compile and add operator
-        torch_operators.append(
-            TorchOperatorDataset._compile_operator(
-                operator=operator,
-                name=name,
-                cache_dir=cache_dir,
-                device=device,
-                dtype=dtype))
+                    dtype=dtype))
 
-        return TorchOperatorDataset(
-            graphs=graphs,
-            operators=operators,
-            names=names,
-            cache_dir=cache_dir,
-            device = device
-        )
+            return TorchOperatorDataset(
+                graphs=graphs,
+                operators=operators,
+                names=names,
+                cache_dir=cache_dir,
+                device = device
+            )
 
     def __init__(
             self,
