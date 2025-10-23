@@ -104,7 +104,7 @@ class MaterialsProject(Database):
     def __exit__(self, type, value, traceback):
         self._stack.__exit__(type, value, traceback)
 
-    def get_atomgraph_by_id(self, id: str) -> AtomGraph | None:
+    def get_atomgraph_by_id(self, id: str, **kwargs) -> AtomGraph | None:
         """Retrieves an AtomGraph object associated with a database ID string.
 
             For the Materials Project database, the ID strings 
@@ -121,7 +121,13 @@ class MaterialsProject(Database):
 
         # check if file is cached, if not, fetch data from database:
         if not os.path.isfile(id_file):
-            structure = self.mp_connector.get_structure_by_material_id(id)
+            structure = self.mp_connector.get_structure_by_material_id(id, **kwargs)
+            if isinstance(structure, list):
+                if structure:
+                    structure = structure[0]
+                else:
+                    return None
+            
             structure.to(id_file, fmt='cif')
 
         # return structure as atoms:
@@ -382,7 +388,7 @@ class MaterialsProject(Database):
         return results
 
     def get_bandstructure_by_id(self, id: str) -> BandStructure | None:
-        """Returns a precomputed BandStructure object associated with 
+        """Returns a precomputed BandStructure object associated with
         the given database ID, if found.
 
 
