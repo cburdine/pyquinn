@@ -1,8 +1,8 @@
-from pyquinn.torch.types.atom_graph import TorchAtomGraph
+from pyquinn.torch.types import TorchAtomGraph, TorchOperator
 from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian, VariationalTBHamiltonian
 from pyquinn.torch.types.bandstructure_dataset import TorchBandStructureDataset
 from pyquinn.torch.types.bandstructure import TorchBandStructure
-from pyquinn.torch.util import get_optimizer
+from pyquinn.torch.util import get_optimizer, cuda_stream_map
 from pyquinn.io.stdout import progress_bar
 
 import torch
@@ -85,6 +85,9 @@ class TorchBandStructureModel(nn.Module):
             unit_cell_images=graph.unit_cell_images,
             k_pts=k_pts,
             sparse=False)
+
+    def graph_hamiltonian_operator(self, graph: TorchAtomGraph):
+        raise NotImplementedError()
 
     def band_eigenstates(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -216,6 +219,10 @@ class TorchBandStructureModel(nn.Module):
             site_idxs: torch.IntTensor,
             orbital_idxs: torch.Tensor):
 
+        if not isinstance(self.bands_model, TBHamiltonian):
+            raise ValueError(
+                f'Orbital amplitudes are only supported for instances of TBHamiltonian (got: {type(self.bands_model)})')
+
         return self.bands_model.atomic_orbital_amplitudes(
             atomic_numbers=graph.atomic_numbers,
             positions=graph.positions,
@@ -236,6 +243,11 @@ class TorchBandStructureModel(nn.Module):
             eigenstates: torch.IntTensor | None = None,
             k_idxs: torch.IntTensor | None = None,
             x_cutoff: torch.Tensor | None = None):
+
+        if not isinstance(self.bands_model, TBHamiltonian):
+            raise ValueError(
+                f'Orbital amplitudes are only supported for instances of '
+                f'TBHamiltonian (got: {type(self.bands_model)})')
 
         return self.bands_model.bloch_eigenstate_amplitudes(
             atomic_numbers=graph.atomic_numbers,
@@ -324,7 +336,7 @@ class TorchBandStructureModel(nn.Module):
             
             for batch in dataset_iter(train_dl):
 
-                batch_losses = stream_map(
+                batch_losses = cuda_stream_map(
                     eval_loss, batch, batch_streams)
                 loss = sum(batch_losses) / len(batch_losses)
 
@@ -342,7 +354,7 @@ class TorchBandStructureModel(nn.Module):
                 for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    batch_losses = parallel_stream_map(
+                    batch_losses = cuda_stream_map(
                         eval_loss, batch, batch_streams)
                     loss = sum(batch_losses) / len(batch_losses)
 
@@ -352,7 +364,7 @@ class TorchBandStructureModel(nn.Module):
                     for batch in dataset_iter(val_dl):
                         
                         # compute validation loss
-                        batch_losses = parallel_stream_map(
+                        batch_losses = cuda_stream_map(
                             eval_loss, batch, batch_streams)
                         loss = sum(batch_losses) / len(batch_losses)
 

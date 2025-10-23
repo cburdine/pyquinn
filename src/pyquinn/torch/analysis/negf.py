@@ -495,8 +495,10 @@ class TorchNEGF:
         self_energies_list = []
         for idxs, gf in \
                 zip(H_boundary_idxs, boundary_gfs):
-            V = H_system[:, :H_site_size, idxs]
+            V = H_system[:, :H_site_size, idxs].unsqueeze(-3)
+
             self_energy = V @ gf @ V.mH
+
             self_energies_list.append(self_energy)
         
         self_energies = torch.stack(self_energies_list)
@@ -604,6 +606,7 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             k_resolved: bool = False,
             site_gf: torch.Tensor | None = None,
             **solver_kwargs):
@@ -618,6 +621,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             k_resolved (bool, optional): if True, returns the LDOS without 
                 integrating over the :math:`\\mathbf{k}` degrees of freedom.
                 Defaults to False.
@@ -645,6 +649,8 @@ class TorchNEGF:
 
         if not k_resolved:
             dos = dos.mean(0)
+
+        dos *= band_mult
 
         return dos
 
@@ -692,7 +698,7 @@ class TorchNEGF:
 
         print(gamma_weighted.shape)
 
-        # compute retarted greens function
+        # compute retarded greens function
         g_ret = perturbed_greens_function(
             energies=energies,
             hamiltonian_matrix=H_site,
@@ -1056,7 +1062,7 @@ class TorchNEGF:
         in_f = occupation_probs[in_idx]
         out_f = occupation_probs[out_idx]
 
-        return torch.trapz((T*(in_f - out_f)).sum(0), dim=-1)
+        return torch.trapz((T*(in_f - out_f)).sum(0), energies, dim=-1)
 
 
 

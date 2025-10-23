@@ -7,8 +7,9 @@ import torch.nn as nn
 
 
 class _StableEigh(torch.autograd.Function):
+    
     @staticmethod
-    def forward(ctx, A, eps=1e-12):
+    def forward(ctx, A, eps):
         eigvals, eigvecs = torch.linalg.eigh(A)
         ctx.save_for_backward(eigvals, eigvecs)
         ctx.eps = eps
@@ -134,9 +135,10 @@ class EighEigensolver(Eigensolver):
     """ Dense Matrix Eigensolver that uses `pytorch.linalg.eigh` with
         added support for stabilizing gradients of degenerate eigenvalues."""
 
-    def __init__(self, eps =1e-5):
+    def __init__(self, eps=1e-5):
         """Creates an instance of an EighEigensolver"""
         super().__init__()
+        self.eps = eps
 
     def diagonalize(self, H: torch.Tensor
                     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -158,7 +160,10 @@ class EighEigensolver(Eigensolver):
             tuple[torch.Tensor, torch.Tensor]: Eigenvalues and Eigenvectors
             of the matrix H. (shape: [..., N], [..., N, N])
         """
-        return _StableEigh.apply(H)
+        if not hasattr(self, 'eps'):
+            self.eps = 1e-5
+
+        return _StableEigh.apply(H, self.eps)
 
     def forward(self, H: torch.Tensor) -> torch.Tensor:
         """Computes the Eigenvalues of a dense Hermitian matrix 

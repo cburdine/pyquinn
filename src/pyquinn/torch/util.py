@@ -173,7 +173,7 @@ def cuda_stream_map(fn: Callable, inputs, streams):
         torch.cuda.synchronize()
 
     else:
-        for x in inputs:
+        for i, x in enumerate(inputs):
             results[i] = fn(x)
 
     return results

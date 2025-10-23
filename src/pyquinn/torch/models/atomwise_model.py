@@ -178,7 +178,7 @@ class TorchAtomwiseModel(nn.Module):
                 for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    loss = sum( 
+                    loss = sum(
                         self._compute_loss(
                             graph=graph.to(device),
                             outputs_weight=outputs_weight,

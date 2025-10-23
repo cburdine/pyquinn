@@ -8,7 +8,7 @@ from pyquinn.torch.nn.eigensolver import Eigensolver
 
 
 class Hamiltonian(nn.Module):
-    """Abstract base class for a Pytorch Hamiltonian Kernel.
+    """Abstract base class for a Pytorch Hamiltonian model.
 
     This class represents a Hamiltonian of a quantum system 
     that is parameterized by a neural network. All subclasses 
