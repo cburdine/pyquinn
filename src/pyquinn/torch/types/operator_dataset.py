@@ -77,6 +77,7 @@ class TorchOperatorDataset(
     
         torch_graphs = []
         torch_operators = []
+        names = []
 
         for name, (graph, operator) in progress_bar(dataset.items(), total=len(dataset)):
 
@@ -84,14 +85,14 @@ class TorchOperatorDataset(
             torch_graphs.append(
                 TorchAtomGraphDataset._compile_graph(
                     graph=graph,
-                        name=name,
-                        cache_dir=cache_dir,
-                        cutoffs=cutoffs,
-                        masses=masses,
-                        symbols=symbols,
-                        device=device,
-                        dtype=dtype,
-                        idx_dtype=idx_dtype))
+                    name=name,
+                    cache_dir=cache_dir,
+                    cutoffs=cutoffs,
+                    masses=masses,
+                    symbols=symbols,
+                    device=device,
+                    dtype=dtype,
+                    idx_dtype=idx_dtype))
             
             # compile and add operator
             torch_operators.append(
@@ -102,13 +103,15 @@ class TorchOperatorDataset(
                     device=device,
                     dtype=dtype))
 
-            return TorchOperatorDataset(
-                graphs=graphs,
-                operators=operators,
-                names=names,
-                cache_dir=cache_dir,
-                device = device
-            )
+            names.append(name)
+
+        return TorchOperatorDataset(
+            graphs=torch_graphs,
+            operators=torch_operators,
+            names=names,
+            cache_dir=cache_dir,
+            device=device
+        )
 
     def __init__(
             self,

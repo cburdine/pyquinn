@@ -173,7 +173,7 @@ class Operator(OperatorBase):
     def extract(self) -> 'Operator':
         """Extracts an Operator from its backend, returning a new Operator.
         Since a regular Operator has no associated backend, this method 
-        simply returns the callingAtomGraphOperator object.
+        simply returns the calling Operator object.
 
         Returns:
             Operator: The extracted Operator.
