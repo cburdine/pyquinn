@@ -558,6 +558,7 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             k_resolved: bool = False,
             site_gf: torch.Tensor | None = None,
             **solver_kwargs) -> torch.Tensor:
@@ -572,6 +573,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             k_resolved (bool, optional): if True, returns the LDOS without 
                 integrating over the :math:`\\mathbf{k}` degrees of freedom.
                 Defaults to False.
@@ -598,6 +600,8 @@ class TorchNEGF:
 
         if not k_resolved:
             ldos = ldos.mean(0)
+
+        ldos *= band_mult
 
         return ldos
 
@@ -766,6 +770,7 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             chemical_potentials: list[torch.Tensor] |
             list[float] | None = None,
             kt: float = 1e-5,
@@ -787,6 +792,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             chemical_potentials (list[torch.Tensor] | 
                 list[float] | None, optional): 
                 List of chemical potentials :math:`\\mu` of each boundary. 
@@ -819,7 +825,7 @@ class TorchNEGF:
             sorted_lesser_gf, 
             sorted_energies,
             dim=-3
-        ) / (2*torch.pi)
+        ) * band_mult / (2*torch.pi)
 
         return rho
 
@@ -828,6 +834,7 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             chemical_potentials: list[torch.Tensor] |
             list[float] | None = None,
             kt: torch.Tensor | float = 1e-5,
@@ -845,6 +852,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             chemical_potentials (list[torch.Tensor] | 
                 list[float] | None, optional): 
                 List of chemical potentials :math:`\\mu` of each boundary. 
@@ -873,7 +881,7 @@ class TorchNEGF:
                 boundary_gfs=boundary_gfs,
                 **solver_kwargs)
 
-        I_map = 2*torch.pi * \
+        I_map = 2*torch.pi * band_mult * \
             (H_site * lesser_gf.mT).imag
 
         return I_map
@@ -885,6 +893,7 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             k_resolved: bool = False,
             boundary_gfs: list[torch.Tensor] | None = None,
             **solver_kwargs) -> torch.Tensor:
@@ -908,6 +917,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             k_resolved (bool, optional): If True, the transmission matrix is
                 returned without integrating over the sampled
                 :math:`\\mathbf{k}` vectors. Defaults to False.
@@ -969,6 +979,9 @@ class TorchNEGF:
         if not k_resolved:
             T = T.mean(-2)
 
+        # apply band multiplicity
+        T *= band_mult
+
         # zero out any transition matrix terms where the in and out 
         # leads are the same
         same_sites = (in_idx == out_idx)
@@ -986,14 +999,15 @@ class TorchNEGF:
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
+            band_mult: float = 1.0,
             k_resolved: bool = False,
-            chemical_potentials: 
-            list[torch.Tensor] | list[float] | None = None,
-            kt: torch.Tensor | float = 1e-5,
+            chemical_potentials:
+                list[torch.Tensor] | list[float] | None = None,
+            kt: torch.Tensor | float = 0.0,
             boundary_gfs: list[torch.Tensor] | None = None,
             **solver_kwargs) -> torch.Tensor:
         """Computes the current out of a boundary into the site by integrating
-        pver sampled energy values.
+        over sampled energy values.
 
         For best results, energies should be sampled uniformly from a few
         multiples of `kt` below the lowest `chemical_potential` value to
@@ -1009,6 +1023,7 @@ class TorchNEGF:
                 Defaults to None.
             eta (float, optional): Broadening parameter of the Green's 
                 function.
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
             k_resolved (bool, optional): If True, the transmission matrix is
                 returned without integrating over the sampled
                 :math:`\\mathbf{k}` vectors. Defaults to False.
