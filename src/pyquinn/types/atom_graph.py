@@ -671,9 +671,20 @@ class AtomGraph(AtomGraphBase):
 
         return rcell
 
+    def frac_positions(self) -> np.ndarray:
+        """Computes the fractional coordinates of atoms within the unit cell.
+
+        Coordinates are set to zero for unit cell vectors of length zero.
+
+        Returns:
+            np.ndarray: Fractional positions of atoms (shape: [n_atoms, 3])
+        """
+        inv_unit_cell = np.linalg.pinv(self.unit_cell)
+        return self.positions @ inv_unit_cell
+
     def band_path(
             self, 
-            path: str | None = None, 
+            path: str | None = None,
             n_points: int = 2048) -> np.ndarray:
         """Generates a High-symmetry canonical band path based on the ASE
         implementation of `ase.Cell.bandpath()`. The variable `path` specifies
@@ -681,6 +692,10 @@ class AtomGraph(AtomGraphBase):
         the ASE Brillouin zone data page:
 
         https://wiki.fysik.dtu.dk/ase/ase/dft/bztable.html
+
+
+        Reciprocal cell points along the band path are returned in 
+        fractional coordinates.
 
         Args:
             path (str | None, optional): High-symmetry path in the reciprocal 
@@ -692,14 +707,13 @@ class AtomGraph(AtomGraphBase):
                 Defaults to 1024.
 
         Returns:
-            np.ndarray: A numpy array of reciprocal space points 
+            np.ndarray: A numpy array of fractional cell reciprocal space points 
                 (shape: [n_points, 3])
         """
         graph_cell = ase.Atoms(cell=self.unit_cell).cell
         frac_k_pts = graph_cell.bandpath(path=path, npoints=n_points).kpts
-        cart_k_pts = graph_cell.reciprocal().cartesian_positions(frac_k_pts)
 
-        return cart_k_pts
+        return frac_k_pts
         
     def unit_cell_mesh(self, size: tuple[int] | int = 5) -> np.ndarray:
         """Generates a uniform Monkhorst-Pack mesh that uniformly samples 
@@ -731,7 +745,7 @@ class AtomGraph(AtomGraphBase):
             np.ndarray: A Monkhorst-Pack reciprocal cell mesh.
         """
         mesh = monkhorst_pack_mesh(size)
-        return mesh @ self.unit_rcell()
+        return mesh
         
     def supercell(self, size: list[list[float]]) -> 'AtomGraph':
         """Constructs an expanded supercell of this AtomGraph
@@ -975,8 +989,10 @@ class BackendAtomGraph(ABC, AtomGraphBase):
             n_points: int = 2048) -> Any:
         """Generates a High-symmetry canonical band path using the same
         conventions as in :meth:`pyquinn.types.AtomGraph.get_band_path`,
-        using backend-specific data types. Differentiability with respect
-        to unit cell shape is also maintained.
+        using backend-specific data types. 
+        
+        Reciprocal cell points along the band path are returned in 
+        fractional coordinates.
 
         Args:
             path (str | None, optional): High-symmetry path in the reciprocal 
@@ -988,8 +1004,8 @@ class BackendAtomGraph(ABC, AtomGraphBase):
                 Defaults to 1024.
 
         Returns:
-                An array of reciprocal space points 
-                (shape: [n_points, 3])
+                An array of fractional cell reciprocal space points 
+                (shape: [n_points, 3]).
         """
         pass
 
@@ -1025,7 +1041,7 @@ class BackendAtomGraph(ABC, AtomGraphBase):
                 size of each mesh dimension. Defaults to 5.
 
         Returns:
-            np.ndarray: A Monkhorst-Pack unit cell mesh.
+            A Monkhorst-Pack unit cell mesh.
         """
         pass
 
@@ -1045,6 +1061,18 @@ class BackendAtomGraph(ABC, AtomGraphBase):
 
         Returns:
             BackendAtomGraph: The supercell BackendAtomGraph
+        """
+        pass
+
+    @abstractmethod
+    def frac_positions(self) -> np.ndarray:
+        """Computes the fractional coordinates of atoms within the unit cell.
+        Differentiability with respect to unit cell shape is maintained.
+
+        Coordinates are set to zero for unit cell vectors of length zero.
+
+        Returns:
+            Fractional positions of atoms (shape: [n_atoms, 3]).
         """
         pass
 

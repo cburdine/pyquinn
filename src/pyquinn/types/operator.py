@@ -3,6 +3,7 @@ from abc import abstractmethod, ABC
 from typing import Any
 
 from pyquinn.types.backend import _load_backend_object
+from pyquinn.types import AtomGraph
 
 import numpy as np
 
@@ -115,31 +116,39 @@ class Operator(OperatorBase):
 
         self.images = images
         
-    def matrix(self, frac_k_pts: list[list[float]] | None = None):
+    def matrix(
+            self,
+            k_pts: list[list[float]] | None = None,
+            frac_positions: list[list[float]] | None = None,
+            graph: AtomGraph | None = None):
         
-        if frac_k_pts is None:
-            np_frac_k_pts = np.zeros((1, 3))
-        else:
-            np_frac_k_pts = np.array(frac_k_pts)
+        np_k_pts = np.zeros((1, 3)) if k_pts is None \
+            else np.array(k_pts)
         
         N = self.onsite_values.shape[0]
-        n_k = np_frac_k_pts.shape[0]
+        N_k = np_k_pts.shape[0]
 
-        H_k = np.zeros((n_k, N, N), dtype=complex)
+        H_k = np.zeros((N_k, N, N), dtype=complex)
         diag_idx = np.arange(N)
         H_k[:, diag_idx, diag_idx] += self.onsite_values
-
-        for i, k in enumerate(np_frac_k_pts):
-            z_k = self.coupling_values
-            if self.images is not None:
-                z_k *= np.exp(2.j*np.pi*(self.images@k))
-            H = np.zeros((N, N), dtype=complex)
-            np.add.at(H, (self.couplings[:, 0], self.couplings[:, 1]), z_k)
-            H_k[i] += H
-
-        if frac_k_pts is None:
-            H_k = H_k.squeeze(0)
         
+        np_images = np.zeros((1, 3)) if self.images is None \
+            else self.images
+
+        np_frac_distances = 0
+
+        if graph is not None:
+            frac_positions = graph.positions @ np.linalg.pinv(graph.unit_cell)
+        
+        if frac_positions is not None:
+            frac_positions = np.array(frac_positions)
+            np_frac_distances = frac_positions[self.site_indices[self.couplings[:, 1]]] \
+                - frac_positions[self.site_indices[self.couplings[:, 0]]]
+
+        for i, k in enumerate(np_k_pts):
+            z_k = self.coupling_values * np.exp(2.j*np.pi*((np_frac_distances + np_images)@k))
+            np.add.at(H_k[i], (self.couplings[:,0], self.couplings[:,1]), z_k)
+    
         return H_k
 
     def save(self, filename: str):
@@ -198,6 +207,7 @@ class BackendOperator(ABC, OperatorBase):
         self.site_indices = site_indices
         self.orbital_indices = orbital_indices
         self.images = images
+
 
     @staticmethod
     @abstractmethod

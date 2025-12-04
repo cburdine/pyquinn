@@ -13,6 +13,8 @@ from pyquinn.torch.nn.lcao.gto import (
     potential_ng
 )
 
+from pyquinn.torch.types.operator import build_matrix, build_nonperiodic_matrix
+
 import torch
 import torch.nn as nn
 
@@ -32,7 +34,7 @@ class LCAOHamiltonian(Hamiltonian):
 
     When computing the Hamiltonian, this module computes the overlap
     matrices of each neighboring orbital state with an on-site 
-    pseudopotential that is expanded as a set of Gaussian functions:
+    pseudopotential that is also expanded as a set of Gaussian functions:
 
         .. math::
             H_{ij} = \langle \phi_i | V_i + V_j | \phi_j \rangle
@@ -518,6 +520,26 @@ class LCAOHamiltonian(Hamiltonian):
 
         return H
 
+    def _build_operator(
+            self,
+            diagonals: list[torch.Tensor],
+            components: list[torch.Tensor],
+            component_idxs: list[torch.IntTensor]):
+        
+        H_ij = torch.cat(component_idxs, dim=0)
+        H_ji = torch.flip(H_ij, dims=(0,))
+        H_values = torch.cat(components, dim=0)
+
+        H_ij = torch.cat(component_idxs, dim=0)
+        H_ji = torch.flip(H_ij, dims=(1,))
+        H_values = torch.cat(components, dim=0)
+
+        onsite_values = torch.cat(diagonals, dim=0)
+        couplings = torch.cat((H_ij, H_ji), dim=0)
+        coupling_values = torch.cat((H_values, H_values.conj()), dim=0)
+
+        return onsite_values, couplings, coupling_values
+
     def _get_site_orbital_data(
             self,
             atomic_numbers: torch.IntTensor,
@@ -706,7 +728,6 @@ class LCAOHamiltonian(Hamiltonian):
                            atomic_numbers: torch.IntTensor, 
                            positions: torch.Tensor, 
                            neighbors: torch.IntTensor,
-                           sparse: bool = False,
                            **kwargs
                            ) -> torch.Tensor:
         """Computes the Hamiltonian matrix.
@@ -727,6 +748,26 @@ class LCAOHamiltonian(Hamiltonian):
         Returns:
             torch.Tensor: The Hamiltonian matrix (shape: [H_size, H_size]).
         """
+        
+        onsite_values, couplings, coupling_values = \
+            self.hamiltonian_operator_entries(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors
+            )
+
+        return build_nonperiodic_matrix(
+            onsite_values=onsite_values,
+            couplings=couplings,
+            coupling_values=coupling_values
+        )
+
+    def hamiltonian_operator_entries(
+            self,
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            **kwargs) -> tuple:
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
@@ -737,7 +778,6 @@ class LCAOHamiltonian(Hamiltonian):
             atomic_numbers, positions, neighbors)
 
         H_idxs, H_blocksizes = self._get_hamiltonian_idxs(atomic_numbers)
-        H_size = H_blocksizes.sum()
 
         H_diagonals = []
         H_components = []
@@ -755,7 +795,7 @@ class LCAOHamiltonian(Hamiltonian):
             site_idxs, site_l_idxs, site_ls = \
                 self._get_block_basis_idxs(site, atomic_numbers)
             
-            site_data = cho_overlap_matrix_metadata(site_ls, sparse=sparse)
+            site_data = cho_overlap_matrix_metadata(site_ls, sparse=True)
 
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site, H_idxs, H_blocksizes)
@@ -768,7 +808,7 @@ class LCAOHamiltonian(Hamiltonian):
                 self._get_block_basis_idxs(site_neighbors, atomic_numbers)
 
             neighbor_data = cho_overlap_matrix_metadata(
-                neighbor_ls, sparse=sparse)
+                neighbor_ls, sparse=True)
 
             H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site_neighbors, H_idxs, H_blocksizes)
@@ -801,9 +841,8 @@ class LCAOHamiltonian(Hamiltonian):
             H_components.append(H_neighborhood.flatten())
             H_component_idxs.append(H_neighborhood_idxs)
 
-        return self._build_hamiltonian(
-            H_diagonals, H_components, H_component_idxs, 
-            shape=(H_size, H_size), sparse=sparse)
+        return self._build_operator(
+            H_diagonals, H_components, H_component_idxs)
 
     def orbital_names(
             self,
@@ -1001,6 +1040,17 @@ class TBHamiltonian(LCAOHamiltonian):
         ])
 
         return H_neighborhood_dxs
+    
+    def _get_neighborhood_hamiltonian_images(
+            self,
+            neighbor_images: torch.Tensor,
+            neighbor_ls: torch.IntTensor) -> torch.IntTensor:
+
+        H_neighborhood_images = torch.repeat_interleave(
+            neighbor_images, 2*neighbor_ls+1, dim=0
+        )
+
+        return H_neighborhood_images
 
     def _get_block_image_basis_idxs(
             self,
@@ -1023,6 +1073,25 @@ class TBHamiltonian(LCAOHamiltonian):
 
         return block_idxs, block_image_idxs, block_l_idxs, block_ls
 
+    def _build_bloch_operator(
+            self,
+            diagonals: list[torch.Tensor],
+            components: list[torch.Tensor],
+            component_idxs: list[torch.IntTensor],
+            component_images: list[torch.IntTensor]):
+        
+        H_ij = torch.cat(component_idxs, dim=0)
+        H_ji = torch.flip(H_ij, dims=(1,))
+        H_values = torch.cat(components, dim=0)
+        H_images = torch.cat(component_images, dim=0)
+
+        onsite_values = torch.cat(diagonals, dim=0)
+        couplings = torch.cat((H_ij, H_ji), dim=0)
+        coupling_values = torch.cat((H_values, H_values.conj()), dim=0)
+        coupling_images = torch.cat((H_images, -H_images), dim=0)
+
+        return onsite_values, couplings, coupling_values, coupling_images
+        
     def _build_bloch_hamiltonian(
             self,
             diagonals: list[torch.Tensor],
@@ -1034,6 +1103,7 @@ class TBHamiltonian(LCAOHamiltonian):
             sparse: bool = False):
 
         H_ij = torch.cat(component_idxs, dim=0).T
+        H_ji = torch.flip(H_ij, dims=(0,))
         H_values = torch.cat(components, dim=0)
 
         H_diagonal = torch.cat(diagonals, dim=0)
@@ -1387,47 +1457,14 @@ class TBHamiltonian(LCAOHamiltonian):
 
         return eigenstate_amps
 
-    def hamiltonian_matrix(
-            self, 
+    def hamiltonian_operator_entries(
+            self,
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
             unit_cell: torch.Tensor,
-            unit_cell_images: torch.IntTensor,
-            k_pts: torch.Tensor | None = None,
-            sparse: bool = False) -> torch.Tensor:
-        """Computes the Hamiltonian matrices for supplied k points.
+            unit_cell_images: torch.IntTensor) -> tuple:
 
-        Args:
-            atomic_numbers (torch.IntTensor): The atomic numbers of
-                the atoms (shape: [N_atoms]).
-            positions (torch.Tensor): The cartesian coordinates of 
-                the atoms (shape: [N_atoms,3]).
-            neighbors (torch.IntTensor): A list of indexes of atoms
-                that are neighbors to each atom. Negative indexes are
-                ignored, allowing each atom to have a variable number
-                of neighbors up to at most `N_neighbors` neighbors. 
-                (shape: [N_atoms, N_neighbors]).
-            unit_cell (torch.Tensor): The unit cell matrix of the system,
-                where each row corresponds to a unit cell vector in
-                cartesian coordinates (shape: [3,3]).
-            unit_cell_images (torch.IntTensor): Unit cell image
-                where each neighbor appears. Images where the
-                corresponding element of `neighbors` is negative
-                are ignored (shape: [N_atoms, N_neighbors, 3]).
-            k_pts (torch.Tensor | None, optional): 
-                Reciprocal space points (shape: [N_k, 3]). If None, only k=0
-                is used. Defaults to None.
-            sparse (bool, optional): If True, returns a sparse matrix
-                representation of the Hamiltonian. Defaults to False.
-
-        Returns:
-            torch.Tensor: The Hamiltonian matrices for each k point
-            (shape: [N_k, H_size, H_size]).
-        """
-
-        if k_pts is None:
-            k_pts = torch.zeros(3, device=positions.device)
 
         # get orbital parameters:
         alphas, cs, gammas, vs = \
@@ -1440,8 +1477,8 @@ class TBHamiltonian(LCAOHamiltonian):
 
         # get on-site energies:
         onsite_energies = self.get_onsite_energies(
-            atomic_numbers=atomic_numbers, 
-            positions=positions, 
+            atomic_numbers=atomic_numbers,
+            positions=positions,
             neighbors=neighbors,
             unit_cell=unit_cell,
             unit_cell_images=unit_cell_images)
@@ -1454,9 +1491,12 @@ class TBHamiltonian(LCAOHamiltonian):
 
         H_diagonals = []
         H_components = []
-        H_component_distances = []
+        H_component_images = []
         H_component_idxs = []
         n_sites = atomic_numbers.shape[0]
+
+        # compute unit cell inverse:
+        #inv_unit_cell = torch.linalg.pinv(unit_cell)
 
         for i in range(n_sites):
 
@@ -1495,11 +1535,11 @@ class TBHamiltonian(LCAOHamiltonian):
                         (0, 2),
                         dtype=site_neighbors.dtype,
                         device=site_neighbors.device))
-                H_component_distances.append(
+                H_component_images.append(
                     torch.zeros(
                         (0, 3),
-                        dtype=positions.dtype,
-                        device=positions.device))
+                        dtype=unit_cell_images.dtype,
+                        device=unit_cell_images.device))
             else:
                 # otherwise, compute neighborhood overlap matrices:
                 neighbor_idxs, neighbor_images, \
@@ -1535,10 +1575,16 @@ class TBHamiltonian(LCAOHamiltonian):
                     cho_data_1=site_data,
                     cho_data_2=neighbor_data)
 
-                H_neighborhood_dxs = \
-                    self._get_neighborhood_hamiltonian_distances(
-                        neighbor_positions - positions[i],
-                        neighbor_ls
+                # H_neighborhood_dxs = \
+                #     self._get_neighborhood_hamiltonian_distances(
+                #         neighbor_positions - positions[i],
+                #         neighbor_ls
+                #     ).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
+
+                H_neighborhood_images = \
+                    self._get_neighborhood_hamiltonian_images(
+                        neighbor_images,
+                        neighbor_ls,
                     ).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
 
                 H_neighborhood_idxs = torch.cartesian_prod(
@@ -1546,12 +1592,88 @@ class TBHamiltonian(LCAOHamiltonian):
 
                 H_components.append(H_neighborhood.flatten())
                 H_component_idxs.append(H_neighborhood_idxs)
-                H_component_distances.append(H_neighborhood_dxs.reshape(-1, 3))
+                H_component_images.append(
+                    H_neighborhood_images.reshape(-1, 3))
 
-        return self._build_bloch_hamiltonian(
-            H_diagonals, H_components, H_component_idxs,
-            H_component_distances, k_pts,
-            shape=(H_size, H_size), sparse=sparse)
+        onsite_values, couplings, coupling_values, images = \
+            self._build_bloch_operator(
+                diagonals=H_diagonals,
+                components=H_components,
+                component_idxs=H_component_idxs,
+                component_images=H_component_images
+            )
+
+        return onsite_values, couplings, coupling_values, images
+        
+
+    def hamiltonian_matrix(
+            self, 
+            atomic_numbers: torch.IntTensor, 
+            positions: torch.Tensor, 
+            neighbors: torch.IntTensor,
+            unit_cell: torch.Tensor,
+            unit_cell_images: torch.IntTensor,
+            k_pts: torch.Tensor | None = None) -> torch.Tensor:
+        """Computes the Hamiltonian matrices for supplied k points.
+
+        Args:
+            atomic_numbers (torch.IntTensor): The atomic numbers of
+                the atoms (shape: [N_atoms]).
+            positions (torch.Tensor): The cartesian coordinates of 
+                the atoms (shape: [N_atoms,3]).
+            neighbors (torch.IntTensor): A list of indexes of atoms
+                that are neighbors to each atom. Negative indexes are
+                ignored, allowing each atom to have a variable number
+                of neighbors up to at most `N_neighbors` neighbors. 
+                (shape: [N_atoms, N_neighbors]).
+            unit_cell (torch.Tensor): The unit cell matrix of the system,
+                where each row corresponds to a unit cell vector in
+                cartesian coordinates (shape: [3,3]).
+            unit_cell_images (torch.IntTensor): Unit cell image
+                where each neighbor appears. Images where the
+                corresponding element of `neighbors` is negative
+                are ignored (shape: [N_atoms, N_neighbors, 3]).
+            k_pts (torch.Tensor | None, optional): 
+                Reciprocal space points (shape: [N_k, 3]). If None, only k=0
+                is used. Defaults to None.
+
+        Returns:
+            torch.Tensor: The Hamiltonian matrices for each k point
+            (shape: [N_k, H_size, H_size]).
+        """
+
+        if k_pts is None:
+            k_pts = torch.zeros((1, 3), device=positions.device)
+
+        
+
+        frac_positions = positions @ torch.linalg.pinv(unit_cell)
+
+        site_indices, _ = self.orbital_indices(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors
+        )
+
+        onsite_values, couplings, coupling_values, images = \
+            self.hamiltonian_operator_entries(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                neighbors=neighbors,
+                unit_cell=unit_cell,
+                unit_cell_images=unit_cell_images
+            )
+
+        return build_matrix(
+            onsite_values=onsite_values,
+            couplings=couplings,
+            coupling_values=coupling_values,
+            site_indices=site_indices,
+            images=images,
+            k_pts=k_pts,
+            frac_positions=frac_positions
+        )
+
 
     def eigenstates(
             self, 
@@ -1560,8 +1682,7 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors: torch.IntTensor,
             unit_cell: torch.Tensor,
             unit_cell_images: torch.IntTensor,
-            k_pts: torch.Tensor | None = None,
-            sparse: bool = False):
+            k_pts: torch.Tensor | None = None):
 
         H = self.hamiltonian_matrix(
             atomic_numbers=atomic_numbers,
@@ -1570,14 +1691,7 @@ class TBHamiltonian(LCAOHamiltonian):
             unit_cell=unit_cell,
             unit_cell_images=unit_cell_images,
             k_pts=k_pts,
-            sparse=sparse
         )
-
-        if sparse and H.ndim > 2:
-            raise NotImplementedError(
-                'Diagonalization of sparse hamiltonians not supported '
-                'for TBHamiltonians with specified k points.'
-                '(use sparse=False).')
 
         return self.eigensolver.diagonalize(H)
 
@@ -1588,8 +1702,7 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors: torch.IntTensor,
             unit_cell: torch.Tensor,
             unit_cell_images: torch.IntTensor,
-            k_pts: torch.Tensor | None = None,
-            sparse: bool = False):
+            k_pts: torch.Tensor | None = None):
 
         H = self.hamiltonian_matrix(
             atomic_numbers=atomic_numbers,
@@ -1597,15 +1710,7 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors=neighbors,
             unit_cell=unit_cell,
             unit_cell_images=unit_cell_images,
-            k_pts=k_pts,
-            sparse=sparse
-        )
-
-        if sparse and H.ndim > 2:
-            raise NotImplementedError(
-                'Diagonalization of sparse hamiltonians not supported '
-                'for TBHamiltonians with more than one k point. '
-                '(Use sparse=False or query each k point individually.)')
+            k_pts=k_pts)
 
         return self.eigensolver(H)
 
@@ -1625,8 +1730,7 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors=neighbors,
             unit_cell=unit_cell,
             unit_cell_images=unit_cell_images,
-            k_pts=k_pts,
-            sparse=sparse)
+            k_pts=k_pts)
 
 
 def _make_atomiwise_nn(
@@ -1866,7 +1970,7 @@ class VariationalTBHamiltonian(TBHamiltonian):
         self.basis_weight = basis_weight
 
         if onsite_nn_kwargs is None:
-            onsite_nn_kwargs = {} 
+            onsite_nn_kwargs = {}
         if variational_nn_kwargs is None:
             variational_nn_kwargs = {}
 

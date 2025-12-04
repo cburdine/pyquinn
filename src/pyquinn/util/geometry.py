@@ -22,11 +22,10 @@ def get_special_k_pts(
         path_pts['G'] = np.zeros(3)
     else:
         ase_cell = Atoms(cell=unit_cell, pbc=periodic).cell
-        rcell = ase_cell.reciprocal()
         band_path = ase_cell.bandpath(path=path, npoints=256)
 
         for name, pt in band_path.special_points.items():
-            path_pts[name] = rcell.cartesian_positions(pt)
+            path_pts[name] = pt
 
     # get the special points of the first Brillouin zone
     special_kpts = {

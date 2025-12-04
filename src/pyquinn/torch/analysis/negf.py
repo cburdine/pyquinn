@@ -129,7 +129,7 @@ def sancho_rubio(
     V = coupling_matrix.unsqueeze(-3)
 
     with torch.no_grad():
-        Z = (E*S + 1.j*eta*I)        
+        Z = (E*S + 1.j*eta*I)
         eps_surf = H
         eps = H
         alpha = V
@@ -1069,6 +1069,7 @@ class TorchNEGF:
             out_idx=out_idx,
             k_pts=k_pts,
             eta=eta,
+            band_mult=band_mult,
             k_resolved=k_resolved,
             boundary_gfs=boundary_gfs,
             **solver_kwargs,

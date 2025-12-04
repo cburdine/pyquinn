@@ -83,11 +83,33 @@ class TorchBandStructureModel(nn.Module):
             neighbors=graph.neighbors,
             unit_cell=graph.unit_cell,
             unit_cell_images=graph.unit_cell_images,
-            k_pts=k_pts,
-            sparse=False)
+            k_pts=k_pts)
 
-    def graph_hamiltonian_operator(self, graph: TorchAtomGraph):
-        raise NotImplementedError()
+    def hamiltonian_operator(self, graph: TorchAtomGraph):
+        onsite_values, couplings, coupling_values, images = \
+            self.bands_model.hamiltonian_operator_entries(
+                atomic_numbers=graph.atomic_numbers,
+                positions=graph.positions,
+                neighbors=graph.neighbors,
+                unit_cell=graph.unit_cell,
+                unit_cell_images=graph.unit_cell_images,
+            )
+
+        site_indices, orbital_indices = \
+            self.bands_model.orbital_indices(
+                atomic_numbers=graph.atomic_numbers,
+                positions=graph.positions,
+                neighbors=graph.neighbors
+            )
+
+        return TorchOperator(
+            onsite_values=onsite_values,
+            couplings=couplings,
+            coupling_values=coupling_values,
+            site_indices=site_indices,
+            orbital_indices=orbital_indices,
+            images=images
+        )
 
     def band_eigenstates(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -97,8 +119,7 @@ class TorchBandStructureModel(nn.Module):
             neighbors=graph.neighbors,
             unit_cell=graph.unit_cell,
             unit_cell_images=graph.unit_cell_images,
-            k_pts=k_pts,
-            sparse=False)
+            k_pts=k_pts)
 
         return bands, band_eigenstates
 
@@ -177,8 +198,7 @@ class TorchBandStructureModel(nn.Module):
             neighbors=graph.neighbors,
             unit_cell=graph.unit_cell,
             unit_cell_images=graph.unit_cell_images,
-            k_pts=k_pts,
-            sparse=False)
+            k_pts=k_pts)
 
     def band_projections(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -188,8 +208,7 @@ class TorchBandStructureModel(nn.Module):
             neighbors=graph.neighbors,
             unit_cell=graph.unit_cell,
             unit_cell_images=graph.unit_cell_images,
-            k_pts=k_pts,
-            sparse=False)
+            k_pts=k_pts)
 
         site_indices, orbital_indices = self.bands_model.orbital_indices(
             atomic_numbers=graph.atomic_numbers,

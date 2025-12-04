@@ -137,11 +137,7 @@ class TorchAtomGraph(BackendAtomGraph):
             device=self.positions.device,
             dtype=self.positions.dtype)
 
-        rcell = self.unit_rcell()
-
-        cart_k_pts = frac_k_pts @ rcell
-
-        return cart_k_pts
+        return frac_k_pts
     
     def unit_cell_mesh(self, size: tuple[int] | int = 5) -> torch.Tensor:
         mesh = torch.tensor(
@@ -157,7 +153,10 @@ class TorchAtomGraph(BackendAtomGraph):
             device=self.positions.device,
             dtype=self.positions.dtype)
         
-        return mesh @ self.unit_rcell()
+        return mesh
+
+    def frac_positions(self) -> torch.tensor:
+        return self.positions @ torch.linalg.pinv(self.unit_cell)
 
     def supercell(self, size: torch.IntTensor) -> 'BackendAtomGraph':
 

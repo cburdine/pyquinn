@@ -99,13 +99,13 @@ class TestLCAOHamiltonian(unittest.TestCase):
         H = model.hamiltonian_matrix(
             atomic_numbers, 
             positions, 
-            neighbors, sparse=False)
+            neighbors)
 
         # compute sparse hamiltonian
         H_sparse = model.hamiltonian_matrix(
             atomic_numbers, 
             positions, 
-            neighbors, sparse=True)
+            neighbors)
 
         # ensure H is the correct size and is symmetric
         self.assertEqual(H.shape, (H_size, H_size))
@@ -329,7 +329,6 @@ class TestTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
-            sparse=False
         )
 
         H_k_sparse_raw = model.hamiltonian_matrix(
@@ -339,11 +338,10 @@ class TestTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
-            sparse=True
         )
 
         # rectify dimensions of sparse tensor
-        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
+        H_k_sparse = H_k_sparse_raw.to_dense()
 
         # ensure H is the correct size and is symmetric
         H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
@@ -423,8 +421,7 @@ class TestTBHamiltonian(unittest.TestCase):
             positions, 
             neighbors,
             unit_cell,
-            unit_cell_images,
-            sparse=False)
+            unit_cell_images)
 
         # test if backward pass is successful
         E.sum().backward(inputs=positions)
@@ -490,7 +487,6 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
-            sparse=False
         )
 
         H_k_sparse_raw = model.hamiltonian_matrix(
@@ -500,11 +496,10 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
-            sparse=True
         )
 
         # rectify dimensions of sparse tensor
-        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
+        H_k_sparse = H_k_sparse_raw.to_dense()
 
         # ensure H is the correct size and is symmetric
         H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
@@ -521,7 +516,7 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
         # test if backward pass is successful
         (torch.abs(H_k)**2).sum().backward(inputs=[positions, unit_cell])
 
-        # ensure gradients with respect to positionsand unit cell are nonzero
+        # ensure gradients with respect to positions and unit cell are nonzero
         positions_grad = positions.grad.detach().numpy()
         self.assertFalse(
             np.allclose(positions_grad, np.zeros_like(positions_grad),
