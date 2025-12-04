@@ -8,8 +8,7 @@ A Framework for Quantum-Informed Neural Networks Framework in Pytorch
 
 ## Development
 ---
-This package is still under development, so our development procedures are likely to change in the near future until we have settled on a 
-good set of standard practices. 
+This package is still under development, so our development procedures are likely to change in the near future until we have settled on a good set of standard practices. 
 
 ### Installation
 
@@ -41,7 +40,7 @@ To lint all files, run the command:
 ```
 flake8 src/pyquinn/
 ```
-Many IDEs (such as VS Code also support )
+Many IDEs (such as VS Code also support extensions for linters)
 
 ### Building Documentation
 
@@ -79,5 +78,7 @@ python3 benchmark/torch/benchmark_lcao_gto.py
 - [x] Add support for linting
 - [x] Build documentation
 - [x] Add benchmarking suite
+- [ ] Migrate linter to [Black](https://github.com/psf/black)
+- [ ] Migrate unit testing to PyTest
 - [ ] Add a tutorial repository
 - [ ] Add a CI pipline (via github actions)
