@@ -37,7 +37,7 @@ class COD(Database):
         client installed, which you can do by running the command
 
         .. code-block:: console
-            pip install mp_api
+            pip install mp-api
         
 
     Below is an example of basic usage:

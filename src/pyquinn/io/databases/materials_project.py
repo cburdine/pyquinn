@@ -399,7 +399,6 @@ class MaterialsProject(Database):
             BandStructure | None: A BandStructure object.
         """
         
-        graph = self.get_atomgraph_by_id(id)
         bandstructure = self.mp_connector.get_bandstructure_by_material_id(id)
 
         # compute clipped bands and projections:
@@ -407,8 +406,8 @@ class MaterialsProject(Database):
         projs_list = []
 
         k_pts = np.array([
-            k.frac_coords @ graph.unit_rcell()
-            for k in bandstructure.kpoints
+            k.frac_coords
+            for k in bandstructure.k_pts
         ])
     
         for k in bandstructure.bands:
