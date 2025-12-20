@@ -82,6 +82,34 @@ def perturbed_greens_function(
     return G_ret
 
 
+def ionization_self_energy(
+        g_min: torch.Tensor, 
+        g_maj: torch.Tensor,
+        d0: float | torch.Tensor,
+        dE: float):
+
+    N = g_min.shape[-3]
+
+    g_min_pad = torch.nn.functional.pad(g_min, (0, 0, 0, 0, 0, 2*N))
+    g_maj_pad = torch.nn.functional.pad(g_maj, (0, 0, 0, 0, 0, 2*N))
+    g_maj_refl_pad = torch.nn.functional.pad(
+        torch.flip(g_maj, dims=-3),
+        (0, 0, 0, 0, 0, 2*N))
+
+    f_min = torch.fft.fft(g_min_pad, dim=-3)
+    f_maj = torch.fft.fft(g_maj_pad, dim=-3)
+    f_maj_refl = torch.fft.fft(g_maj_refl_pad, dim=-3)
+
+    f_conv = f_min * f_maj * f_maj_refl
+
+    self_energy = d0 * torch.fft.ifft(f_conv, dim=-3)[:N, :, :] * (dE**2)
+
+    return self_energy
+
+
+
+
+
 def sancho_rubio(
         energies: torch.Tensor,
         coupling_matrix: torch.Tensor,
@@ -696,11 +724,9 @@ class TorchNEGF:
 
         # compute occupation-weighted broadening matrices
 
-        gamma_weighted = 1.j*(
+        sigma_in = 1.j*(
             (self_energies - self_energies.mH) * occupations
         ).sum(-4)
-
-        print(gamma_weighted.shape)
 
         # compute retarded greens function
         g_ret = perturbed_greens_function(
@@ -711,7 +737,7 @@ class TorchNEGF:
         )
 
         # assemble lesser greens function
-        lesser_gf = g_ret @ gamma_weighted @ g_ret.mH
+        lesser_gf = g_ret @ sigma_in @ g_ret.mH
 
         return H_site, self_energies, lesser_gf
 
@@ -1079,6 +1105,108 @@ class TorchNEGF:
         out_f = occupation_probs[out_idx]
 
         return torch.trapz((T*(in_f - out_f)).sum(0), energies, dim=-1)
+
+    # def site_carrier_greens_functions(
+    #         self,
+    #         energies: torch.Tensor,
+    #         k_pts: torch.Tensor | None = None,
+    #         eta: float = 1e-5,
+    #         chemical_potentials: list[torch.Tensor] | list[float] | None = None,
+    #         kt: torch.Tensor | float = 1e-5,
+    #         boundary_gfs: list[torch.Tensor] | None = None,
+    #         d0: float | None = None,
+    #         **solver_kwargs) -> torch.Tensor:
+    #     """Returns the site Green's function with perturbations due to 
+    #     boundary coupling.
+
+    #     Args:
+    #         energies (torch.Tensor): The energies at which the Green's function 
+    #             should be evaluated (shape: [E]).
+    #         k_pts (torch.Tensor | None, optional): Reciprocal space 
+    #             :math:`\\mathbf{k}` vectors used to sample crystal momentum
+    #             degrees of freedom parallel to the boundary (shape: [M, 3]). 
+    #             Defaults to None.
+    #         eta (float, optional): Broadening parameter of the Green's 
+    #             function. Increasing this parameter may make any surface 
+    #             Green's function methods converge faster for semi-infinite
+    #             boundaries at the cost of broadening the energy spectrum. 
+    #             Defaults to 1e-5.
+    #         boundary_gfs (list[torch.Tensor] | None, optional): Pre-computed 
+    #             surface Green's functions returned from a call to 
+    #             :meth:`NEGF.surface_greens_functions`. Defaults to None.
+
+    #     Returns:
+    #         torch.Tensor: The site Green's function (shape: [M, E, N, N]).
+    #     """
+
+    #     k_pts = self._resolve_k_pts(k_pts, energies)
+
+    #     # compute self-energies
+    #     H_site, self_energies = self.site_self_energies(
+    #         energies=energies,
+    #         k_pts=k_pts,
+    #         eta=eta,
+    #         boundary_gfs=boundary_gfs,
+    #         **solver_kwargs)
+
+    #     # resolve chemical potentials and occupation probabilities
+    #     if chemical_potentials is None:
+    #         chemical_potentials = [0.0]*len(self_energies)
+
+    #     if len(chemical_potentials) != len(self.boundaries):
+    #         raise ValueError(
+    #             'Expected len(chemical_potentials) == len(self.boundaries);'
+    #             f' got {len(chemical_potentials)} != {len(self.boundaries)}.'
+    #         )
+
+    #     occupation_probs = torch.stack([
+    #         1.0 / (1.0 + torch.exp((energies - mu)/kt))
+    #         for mu in chemical_potentials
+    #     ])
+    #     occupations = occupation_probs.view(
+    #         occupation_probs.shape + (1, 1))
+
+    #     # compute occupation-weighted broadening matrices
+    #     self_energy_term = (self_energies - self_energies.mH)
+
+    #     sigma_in_boundary = (1.j*occupations * self_energy_term).sum(-4)
+
+    #     sigma_out_boundary = (1.j*(1 - occupations) * self_energy_term).sum(-4)
+
+    #     # compute retarded greens function
+    #     g_ret = perturbed_greens_function(
+    #         energies=energies,
+    #         hamiltonian_matrix=H_site,
+    #         self_energies=self_energies,
+    #         eta=eta,
+    #     )
+
+    #     theta_c = (energies <= E_c).reshape(-1, 1, 1)
+
+    #     sigma_in = sigma_in_boundary
+    #     sigma_out = sigma_out_boundary
+
+
+    #     # construct band filtering function:
+
+    #     # self-consistent loop:
+
+    #     g_in = g_ret @ sigma_in @ g_ret.mH
+    #     g_out = g_ret @ sigma_out @ g_ret.mH
+
+
+
+    #     sigma_in_s = ionization_self_energy(g_in, )
+
+
+
+
+        
+
+
+
+
+    
 
 
 
