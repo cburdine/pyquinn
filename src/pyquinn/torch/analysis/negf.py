@@ -82,32 +82,58 @@ def perturbed_greens_function(
     return G_ret
 
 
-def ionization_self_energy(
+def impact_ionization_self_energy(
         g_min: torch.Tensor, 
         g_maj: torch.Tensor,
-        d0: float | torch.Tensor,
-        dE: float):
+        D: float | torch.Tensor,
+        dE: float | torch.Tensor) -> torch.Tensor:
+    """
+    Computes the self-energy correlation function 
+
+    Args:
+        g_min (torch.Tensor): Minority charge carrier correlation function (shape: [..., E, N, N]).
+        g_maj (torch.Tensor): Majority charge carrier correlation function (shape: [..., E, N, N]).
+        d0 (float | torch.Tensor): On-site impact ionization coefficient (shape: [..., E, N, N]).
+        dE (float | torch.Tensor): Spacing of uniform energy evaluation points.
+
+    Returns:
+        torch.Tensor: The self-energy correlation function due 
+            to majority carrier ionization.
+    """
 
     N = g_min.shape[-3]
-
     g_min_pad = torch.nn.functional.pad(g_min, (0, 0, 0, 0, 0, 2*N))
     g_maj_pad = torch.nn.functional.pad(g_maj, (0, 0, 0, 0, 0, 2*N))
-    g_maj_refl_pad = torch.nn.functional.pad(
-        torch.flip(g_maj, dims=-3),
-        (0, 0, 0, 0, 0, 2*N))
 
     f_min = torch.fft.fft(g_min_pad, dim=-3)
     f_maj = torch.fft.fft(g_maj_pad, dim=-3)
-    f_maj_refl = torch.fft.fft(g_maj_refl_pad, dim=-3)
 
-    f_conv = f_min * f_maj * f_maj_refl
+    f_conv = f_min.conj() @ f_maj @ f_maj
 
-    self_energy = d0 * torch.fft.ifft(f_conv, dim=-3)[:N, :, :] * (dE**2)
+    # self_energy = d0 * torch.fft.ifft(f_conv, dim=-3)[:N, :, :] * (dE**2)
+    ifft_conv = torch.fft.ifft(f_conv, dim=-3)
+    self_energy = D * ifft_conv[..., :N, :, :] * (dE**2)
 
     return self_energy
 
+def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
+    """Computes the Hilbert transform of a Greens function operator in the energy basis
 
+    Args:
+        x (torch.Tensor): Broadening matrix operator (shape: [..., E, N, N]).
 
+    Returns:
+        torch.Tensor: Real transformed broadening matrix operator (shape: [..., E, N, N]).
+    """
+    
+    X = torch.fft.fft(x, dim=-3)
+    n = x.shape[-3]
+
+    freqs = torch.fft.fftfreq(n)
+    sgn = torch.sign(freqs)
+
+    H = torch.fft.ifft(-1j * sgn.view(-1,1,1) * X, dim=-3)
+    return H.real
 
 
 def sancho_rubio(
@@ -695,6 +721,7 @@ class TorchNEGF:
             list[float] | None = None,
             kt: torch.Tensor | float = 1e-5,
             boundary_gfs: list[torch.Tensor] | None = None,
+            greater: bool = False,
             **solver_kwargs) -> list[torch.Tensor]:
 
         # compute self-energies
@@ -719,8 +746,13 @@ class TorchNEGF:
             1.0 / (1.0 + torch.exp((energies - mu)/kt))
             for mu in chemical_potentials
         ])
+        # change to greater Green's function if desired
+        if greater:
+            occupation_probs = 1 - occupation_probs
+        
         occupations = occupation_probs.view(
             occupation_probs.shape + (1, 1))
+
 
         # compute occupation-weighted broadening matrices
 
@@ -787,9 +819,62 @@ class TorchNEGF:
             eta=eta,
             kt=kt,
             boundary_gfs=boundary_gfs,
+            greater=False,
             **solver_kwargs)
 
         return lesser_gf
+        
+    def greater_site_greens_function(
+            self,
+            energies: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            eta: float = 1e-5,
+            chemical_potentials: list[torch.Tensor] |
+                list[float] | None = None,
+            kt: torch.Tensor | float = 1e-5,
+            boundary_gfs: list[torch.Tensor] | None = None,
+            **solver_kwargs) -> torch.Tensor:
+        """Computes the greater Green's function of the site.
+
+        Args:
+            energies (torch.Tensor): The energies at which the density of 
+                states should be evaluated (shape: [E]).
+            k_pts (torch.Tensor | None, optional): Reciprocal space 
+                :math:`\\mathbf{k}` vectors used to sample crystal momentum
+                degrees of freedom parallel to the boundary (shape: [M, 3]). 
+                Defaults to None.
+            eta (float, optional): Broadening parameter of the Green's 
+                function.
+            chemical_potentials (list[torch.Tensor] | 
+                list[float] | None, optional): 
+                List of chemical potentials :math:`\\mu` of each boundary. 
+                Defaults to None.
+            kt (torch.Tensor | float, optional): 
+                The Boltzmann constant times the temperature of the device
+                (:math:`k_BT`). Defaults to 1e-5.
+            boundary_gfs (list[torch.Tensor] | None, optional): Pre-computed 
+                surface Green's functions returned from a call to 
+                :meth:`NEGF.surface_greens_functions`. Defaults to None.
+
+        Returns:
+            torch.Tensor: The greater site Green's function
+                (shape: [M, E, N, N])
+        """
+
+        k_pts = self._resolve_k_pts(k_pts, energies)
+
+        _, _, greater_gf = self._lesser_site_greens_function_data(
+            energies=energies,
+            k_pts=k_pts,
+            chemical_potentials=chemical_potentials,
+            eta=eta,
+            kt=kt,
+            boundary_gfs=boundary_gfs,
+            greater=True,
+            **solver_kwargs)
+
+        return greater_gf
+
             
     def site_charge_density(
             self,
@@ -912,7 +997,7 @@ class TorchNEGF:
 
         return I_map
 
-    def transmission(
+    def coherent_transmission(
             self,
             in_idx: torch.IntTensor | int,
             out_idx: torch.IntTensor | int,
@@ -923,7 +1008,7 @@ class TorchNEGF:
             k_resolved: bool = False,
             boundary_gfs: list[torch.Tensor] | None = None,
             **solver_kwargs) -> torch.Tensor:
-        """Computes the transmission coefficient of the site as
+        """Computes the coherent transmission coefficients of the site as
         a function of energy.
 
         The transmission is evaluated between the index of an 
@@ -1019,7 +1104,7 @@ class TorchNEGF:
 
         return T
 
-    def current(
+    def coherent_current(
             self,
             idx: int,
             energies: torch.Tensor,
@@ -1027,13 +1112,13 @@ class TorchNEGF:
             eta: float = 1e-5,
             band_mult: float = 1.0,
             k_resolved: bool = False,
-            chemical_potentials:
-                list[torch.Tensor] | list[float] | None = None,
+            chemical_potentials: list[torch.Tensor] |
+                list[float] | None = None,
             kt: torch.Tensor | float = 0.0,
             boundary_gfs: list[torch.Tensor] | None = None,
             **solver_kwargs) -> torch.Tensor:
-        """Computes the current out of a boundary into the site by integrating
-        over sampled energy values.
+        """Computes the coherent current out of a boundary into the site by
+        integrating over sampled energy values.
 
         For best results, energies should be sampled uniformly from a few
         multiples of `kt` below the lowest `chemical_potential` value to
@@ -1106,98 +1191,126 @@ class TorchNEGF:
 
         return torch.trapz((T*(in_f - out_f)).sum(0), energies, dim=-1)
 
-    # def site_carrier_greens_functions(
-    #         self,
-    #         energies: torch.Tensor,
-    #         k_pts: torch.Tensor | None = None,
-    #         eta: float = 1e-5,
-    #         chemical_potentials: list[torch.Tensor] | list[float] | None = None,
-    #         kt: torch.Tensor | float = 1e-5,
-    #         boundary_gfs: list[torch.Tensor] | None = None,
-    #         d0: float | None = None,
-    #         **solver_kwargs) -> torch.Tensor:
-    #     """Returns the site Green's function with perturbations due to 
-    #     boundary coupling.
+    def site_scattering_greens_functions(
+            self,
+            energies: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            eta: float = 1e-5,
+            chemical_potentials: list[torch.Tensor] |
+                list[float] | None = None,
+            kt: torch.Tensor | float = 0.0,
+            D: float | torch.Tensor | None = None,
+            D_ionization: float | torch.Tensor = None,
+            valence_energy_cutoff: float | torch.Tensor = 0.0,
+            mixing_alpha: float = 0.1,
+            site_gf: torch.Tensor | None = None,
+            boundary_gfs: list[torch.Tensor] | None = None,
+            max_iter: int = 1024,
+            tol: float = 1e-6) -> tuple[torch.Tensor, list[torch.Tensor]]:
 
-    #     Args:
-    #         energies (torch.Tensor): The energies at which the Green's function 
-    #             should be evaluated (shape: [E]).
-    #         k_pts (torch.Tensor | None, optional): Reciprocal space 
-    #             :math:`\\mathbf{k}` vectors used to sample crystal momentum
-    #             degrees of freedom parallel to the boundary (shape: [M, 3]). 
-    #             Defaults to None.
-    #         eta (float, optional): Broadening parameter of the Green's 
-    #             function. Increasing this parameter may make any surface 
-    #             Green's function methods converge faster for semi-infinite
-    #             boundaries at the cost of broadening the energy spectrum. 
-    #             Defaults to 1e-5.
-    #         boundary_gfs (list[torch.Tensor] | None, optional): Pre-computed 
-    #             surface Green's functions returned from a call to 
-    #             :meth:`NEGF.surface_greens_functions`. Defaults to None.
+        if torch.diff(energies).std() > tol:
+            raise ValueError('Energies must be uniformly spaced to solve for scattering self-energy.')
 
-    #     Returns:
-    #         torch.Tensor: The site Green's function (shape: [M, E, N, N]).
-    #     """
+        dE = torch.diff(energies).mean()
 
-    #     k_pts = self._resolve_k_pts(k_pts, energies)
+        # compute self-energies
+        H_site, self_energies = self.site_self_energies(
+            energies=energies,
+            k_pts=k_pts,
+            eta=eta,
+            boundary_gfs=boundary_gfs,
+            max_iter=max_iter,
+            tol=tol)
 
-    #     # compute self-energies
-    #     H_site, self_energies = self.site_self_energies(
-    #         energies=energies,
-    #         k_pts=k_pts,
-    #         eta=eta,
-    #         boundary_gfs=boundary_gfs,
-    #         **solver_kwargs)
+        # combine this function call with the inverse calculation
+        site_gf = perturbed_greens_function(
+            energies=energies,
+            hamiltonian_matrix=H_site,
+            self_energies=self_energies,
+            eta=eta,
+        )
+        site_gf_inv = torch.linalg.inv(site_gf)
 
-    #     # resolve chemical potentials and occupation probabilities
-    #     if chemical_potentials is None:
-    #         chemical_potentials = [0.0]*len(self_energies)
+        # resolve chemical potentials and occupation probabilities
+        if chemical_potentials is None:
+            chemical_potentials = [0.0]*len(self_energies)
 
-    #     if len(chemical_potentials) != len(self.boundaries):
-    #         raise ValueError(
-    #             'Expected len(chemical_potentials) == len(self.boundaries);'
-    #             f' got {len(chemical_potentials)} != {len(self.boundaries)}.'
-    #         )
+        if len(chemical_potentials) != len(self.boundaries):
+            raise ValueError(
+                'Expected len(chemical_potentials) == len(self.boundaries);'
+                f' got {len(chemical_potentials)} != {len(self.boundaries)}.'
+            )
 
-    #     occupation_probs = torch.stack([
-    #         1.0 / (1.0 + torch.exp((energies - mu)/kt))
-    #         for mu in chemical_potentials
-    #     ])
-    #     occupations = occupation_probs.view(
-    #         occupation_probs.shape + (1, 1))
+        occupation_probs = torch.stack([
+            1.0 / (1.0 + torch.exp((energies - mu)/kt))
+            for mu in chemical_potentials
+        ])
+        
+        f_in = occupation_probs.view(
+            occupation_probs.shape + (1, 1))
+        f_out = 1 - f_in
 
-    #     # compute occupation-weighted broadening matrices
-    #     self_energy_term = (self_energies - self_energies.mH)
+        # compute occupation-weighted broadening matrices
+        sigma_in = 1.j*((self_energies - self_energies.mH) * f_in).sum(-4)
+        sigma_out = 1.j*((self_energies - self_energies.mH) * f_out).sum(-4)
 
-    #     sigma_in_boundary = (1.j*occupations * self_energy_term).sum(-4)
+        sigma_in_ionization = torch.zeros_like(sigma_in)
+        sigma_out_ionization = torch.zeros_like(sigma_in)
 
-    #     sigma_out_boundary = (1.j*(1 - occupations) * self_energy_term).sum(-4)
+        # compute conduction and valence band masks:
+        theta_c = (energies.view(-1, 1, 1) > valence_energy_cutoff).to(energies.dtype)
+        theta_v = 1 - theta_c
+        
+        theta_c = theta_c.view(1, -1, 1, 1)
+        theta_v = theta_v.view(1, -1, 1, 1)
 
-    #     # compute retarded greens function
-    #     g_ret = perturbed_greens_function(
-    #         energies=energies,
-    #         hamiltonian_matrix=H_site,
-    #         self_energies=self_energies,
-    #         eta=eta,
-    #     )
+        scattering_self_energy = torch.zeros_like(site_gf)
+            
+        with torch.no_grad():
+            for _ in range(max_iter):
 
-    #     theta_c = (energies <= E_c).reshape(-1, 1, 1)
+                # compute updated Greens function with scattering self-energy terms
+                gamma_scattering = sigma_in_ionization + sigma_out_ionization
+                scattering_self_energy = -0.5j*gamma_scattering + hilbert_transform(gamma_scattering)
 
-    #     sigma_in = sigma_in_boundary
-    #     sigma_out = sigma_out_boundary
+                site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
+                
+                # compute updated lesser and greater greens function
+                g_lesser = (site_gf_new @ (sigma_in + sigma_in_ionization) @ site_gf_new.mH)
+                g_greater = (site_gf_new @ (sigma_out + sigma_out_ionization) @ site_gf_new.mH)
+
+                # compute new ionization self-energy
+                g_maj = theta_c * g_lesser
+                g_min = theta_v * g_greater
+                sigma_in_ionization_new = impact_ionization_self_energy(g_min, g_maj, D_ionization, dE)
+                sigma_out_ionization_new = impact_ionization_self_energy(g_maj, g_min, D_ionization, dE)
+
+                # update residue:
+                residue = torch.abs(sigma_in_ionization - sigma_in_ionization_new).sum() + \
+                          torch.abs(sigma_out_ionization - sigma_out_ionization_new).sum()
+
+                if residue < tol:
+                    break
+                
+
+                # mix new self energy with old
+                sigma_in_ionization = sigma_in_ionization * (1-mixing_alpha) + sigma_in_ionization_new*mixing_alpha
+                sigma_out_ionization = sigma_out_ionization * (1-mixing_alpha) + sigma_out_ionization_new*mixing_alpha
+
+        return site_gf_new, (sigma_in_ionization, sigma_out_ionization)
 
 
-    #     # construct band filtering function:
 
-    #     # self-consistent loop:
-
-    #     g_in = g_ret @ sigma_in @ g_ret.mH
-    #     g_out = g_ret @ sigma_out @ g_ret.mH
+        
 
 
 
-    #     sigma_in_s = ionization_self_energy(g_in, )
 
+
+        
+
+        
+        
 
 
 
