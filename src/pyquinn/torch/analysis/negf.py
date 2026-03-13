@@ -1104,7 +1104,7 @@ class TorchNEGF:
 
         return T
 
-    def coherent_current(
+    def current(
             self,
             idx: int,
             energies: torch.Tensor,
@@ -1115,9 +1115,10 @@ class TorchNEGF:
             chemical_potentials: list[torch.Tensor] |
                 list[float] | None = None,
             kt: torch.Tensor | float = 0.0,
+            carrier_gfs: tuple[torch.Tensor, torch.Tensor] | None = None,
             boundary_gfs: list[torch.Tensor] | None = None,
             **solver_kwargs) -> torch.Tensor:
-        """Computes the coherent current out of a boundary into the site by
+        """Computes the current flowing out of a boundary into the site by
         integrating over sampled energy values.
 
         For best results, energies should be sampled uniformly from a few
@@ -1145,6 +1146,11 @@ class TorchNEGF:
             kt (torch.Tensor | float, optional): 
                 Boltzman's constant times the temperature of the device. 
                 Defaults to 1e-5.
+            carrier_gfs: (tuple[torch.Tensor, torch.Tensor]): Pre-computed
+                lesser and greater Green's functions, such as returned from
+                a call to :meth:`NEGF.scattering_site_greens_functions`. These
+                must be specified to compute non-coherent current. Defaults
+                to None.
             boundary_gfs (list[torch.Tensor] | None, optional): Pre-computed 
                 surface Green's functions returned from a call to 
                 :meth:`NEGF.surface_greens_functions`. Defaults to None.
@@ -1174,24 +1180,56 @@ class TorchNEGF:
         out_idx = out_idx[out_idx != idx]
         in_idx = torch.full_like(out_idx, idx)
 
-        T = self.transmission(
-            energies=energies,
-            in_idx=in_idx,
-            out_idx=out_idx,
-            k_pts=k_pts,
-            eta=eta,
-            band_mult=band_mult,
-            k_resolved=k_resolved,
-            boundary_gfs=boundary_gfs,
-            **solver_kwargs,
-        )
-
         in_f = occupation_probs[in_idx]
         out_f = occupation_probs[out_idx]
+        
 
-        return torch.trapz((T*(in_f - out_f)).sum(0), energies, dim=-1)
+        if carrier_gfs is not None:
 
-    def site_scattering_greens_functions(
+            # compute current from carrier green's functions
+            g_lesser, g_greater = carrier_gfs
+
+            _, self_energies = self.site_self_energies(
+            energies=energies,
+            k_pts=k_pts,
+            eta=eta,
+            boundary_gfs=boundary_gfs,
+            **solver_kwargs)
+
+            gammas = 1.j*(self_energies - self_energies.mH)
+            gammas_in = gammas[in_idx]
+            gammas_out = gammas[out_idx]
+
+            I = torch.einsum(
+                '...ij, ...ji', 
+                gammas_in*in_f,
+                g_greater
+            ).sum(0) + torch.einsum(
+                '...ij, ...ji',
+                gammas_out*out_f,
+                g_lesser
+            ).sum(0)
+
+            return torch.trapz(I, energies, dim=-1)
+
+        else:
+
+            # compute coherent current from transmission matrix
+            T = self.transmission(
+                energies=energies,
+                in_idx=in_idx,
+                out_idx=out_idx,
+                k_pts=k_pts,
+                eta=eta,
+                band_mult=band_mult,
+                k_resolved=k_resolved,
+                boundary_gfs=boundary_gfs,
+                **solver_kwargs,
+            )
+
+            return torch.trapz((T*(in_f - out_f)).sum(0), energies, dim=-1)
+
+    def scattering_site_greens_functions(
             self,
             energies: torch.Tensor,
             k_pts: torch.Tensor | None = None,
@@ -1201,18 +1239,21 @@ class TorchNEGF:
             kt: torch.Tensor | float = 0.0,
             D: float | torch.Tensor | None = None,
             D_ionization: float | torch.Tensor = None,
-            valence_energy_cutoff: float | torch.Tensor = 0.0,
+            E_dipole: torch.Tensor = None,
+            ionization_valence_cutoff: float | torch.Tensor = 0.0,
             mixing_alpha: float = 0.1,
             site_gf: torch.Tensor | None = None,
+            site_p: torch.Tensor | None = None,
             boundary_gfs: list[torch.Tensor] | None = None,
+            return_self_energies: bool = False,
             max_iter: int = 1024,
-            tol: float = 1e-6) -> tuple[torch.Tensor, list[torch.Tensor]]:
+            tol: float = 1e-6) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
-        if torch.diff(energies).std() > tol:
-            raise ValueError('Energies must be uniformly spaced to solve for scattering self-energy.')
+        if torch.diff(energies).std() > 1e-5*(energies.max() - energies.min()):
+            raise ValueError('Energies must have size > 1 and be uniformly spaced to solve for scattering self-energy.')
 
         dE = torch.diff(energies).mean()
-
+        
         # compute self-energies
         H_site, self_energies = self.site_self_energies(
             energies=energies,
@@ -1233,7 +1274,7 @@ class TorchNEGF:
 
         # resolve chemical potentials and occupation probabilities
         if chemical_potentials is None:
-            chemical_potentials = [0.0]*len(self_energies)
+            chemical_potentials = [0.0]*len(self.boundaries)
 
         if len(chemical_potentials) != len(self.boundaries):
             raise ValueError(
@@ -1254,11 +1295,11 @@ class TorchNEGF:
         sigma_in = 1.j*((self_energies - self_energies.mH) * f_in).sum(-4)
         sigma_out = 1.j*((self_energies - self_energies.mH) * f_out).sum(-4)
 
-        sigma_in_ionization = torch.zeros_like(sigma_in)
-        sigma_out_ionization = torch.zeros_like(sigma_in)
+        sigma_in_scattering = torch.zeros_like(sigma_in)
+        sigma_out_scattering = torch.zeros_like(sigma_in)
 
         # compute conduction and valence band masks:
-        theta_c = (energies.view(-1, 1, 1) > valence_energy_cutoff).to(energies.dtype)
+        theta_c = (energies.view(-1, 1, 1) > ionization_valence_cutoff).to(energies.dtype)
         theta_v = 1 - theta_c
         
         theta_c = theta_c.view(1, -1, 1, 1)
@@ -1270,34 +1311,52 @@ class TorchNEGF:
             for _ in range(max_iter):
 
                 # compute updated Greens function with scattering self-energy terms
-                gamma_scattering = sigma_in_ionization + sigma_out_ionization
+                gamma_scattering = sigma_in_scattering + sigma_out_scattering
                 scattering_self_energy = -0.5j*gamma_scattering + hilbert_transform(gamma_scattering)
 
                 site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
                 
                 # compute updated lesser and greater greens function
-                g_lesser = (site_gf_new @ (sigma_in + sigma_in_ionization) @ site_gf_new.mH)
-                g_greater = (site_gf_new @ (sigma_out + sigma_out_ionization) @ site_gf_new.mH)
+                g_lesser = (site_gf_new @ (sigma_in + sigma_in_scattering) @ site_gf_new.mH)
+                g_greater = (site_gf_new @ (sigma_out + sigma_out_scattering) @ site_gf_new.mH)
 
-                # compute new ionization self-energy
-                g_maj = theta_c * g_lesser
-                g_min = theta_v * g_greater
-                sigma_in_ionization_new = impact_ionization_self_energy(g_min, g_maj, D_ionization, dE)
-                sigma_out_ionization_new = impact_ionization_self_energy(g_maj, g_min, D_ionization, dE)
+                sigma_in_scattering_new = torch.zeros_like(sigma_in_scattering)
+                sigma_out_scattering_new = torch.zeros_like(sigma_out_scattering)
+
+                if D is not None:
+
+                    # add new incoherent scattering self-energy
+                    sigma_in_scattering_new += D * g_lesser
+                    sigma_out_scattering_new += D * g_greater
+
+                if D_ionization is not None:
+                    
+                    # add new ionization self-energy
+                    g_maj = theta_c * g_lesser
+                    g_min = theta_v * g_greater
+                    sigma_in_scattering_new += impact_ionization_self_energy(g_min, g_maj, D_ionization, dE)
+                    sigma_out_scattering_new += impact_ionization_self_energy(g_maj, g_min, D_ionization, dE)
+
+                if E_dipole is not None:
+                    if site_p is None:
+                        try: 
+                            self.model.momentum_
 
                 # update residue:
-                residue = torch.abs(sigma_in_ionization - sigma_in_ionization_new).sum() + \
-                          torch.abs(sigma_out_ionization - sigma_out_ionization_new).sum()
+                residue = torch.abs(sigma_in_scattering - sigma_in_scattering_new).max() + \
+                          torch.abs(sigma_out_scattering - sigma_out_scattering_new).max()
 
                 if residue < tol:
                     break
-                
 
                 # mix new self energy with old
-                sigma_in_ionization = sigma_in_ionization * (1-mixing_alpha) + sigma_in_ionization_new*mixing_alpha
-                sigma_out_ionization = sigma_out_ionization * (1-mixing_alpha) + sigma_out_ionization_new*mixing_alpha
+                sigma_in_scattering = sigma_in_scattering * (1-mixing_alpha) + sigma_in_scattering_new*mixing_alpha
+                sigma_out_scattering = sigma_out_scattering * (1-mixing_alpha) + sigma_out_scattering_new*mixing_alpha
 
-        return site_gf_new, (sigma_in_ionization, sigma_out_ionization)
+        if return_self_energies:
+            return site_gf_new, sigma_in_scattering, sigma_out_scattering
+        
+        return site_gf_new, g_lesser, g_greater
 
 
 

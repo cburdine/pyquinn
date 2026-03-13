@@ -66,9 +66,12 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             cutoffs: dict | list[float] | None = None,
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
+            verbosity: int = 1,
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32,
             idx_dtype: torch.dtype = torch.int64):
+
+        dataset_iter = progress_bar if verbosity > 0 else (lambda x, **_: x)
 
         torch_graphs = [
             TorchAtomGraphDataset._compile_graph(
@@ -81,7 +84,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
                 device=device,
                 dtype=dtype,
                 idx_dtype=idx_dtype)
-            for name, graph in progress_bar(
+            for name, graph in dataset_iter(
                 dataset.items(), total=len(dataset))
         ]
 

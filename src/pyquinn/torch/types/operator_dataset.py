@@ -71,15 +71,20 @@ class TorchOperatorDataset(
         symbols: dict | list[str] | None = None,
         max_k_pts: int | None = None,
         max_bands: int | None = None,
+        verbosity: int = 1,
         device: torch.device = 'cpu',
         dtype: torch.dtype = torch.float32,
+        operator_dtype: torch.dtype = torch.complex64,
         idx_dtype: torch.dtype = torch.int64):
     
         torch_graphs = []
         torch_operators = []
         names = []
 
-        for name, (graph, operator) in progress_bar(dataset.items(), total=len(dataset)):
+        dataset_iter = progress_bar if verbosity > 0 else (lambda x, **_: x)
+
+        for name, (graph, operator) in dataset_iter(
+                dataset.items(), total=len(dataset)):
 
             # compile and add graph
             torch_graphs.append(
@@ -101,7 +106,7 @@ class TorchOperatorDataset(
                     name=name,
                     cache_dir=cache_dir,
                     device=device,
-                    dtype=dtype))
+                    dtype=operator_dtype))
 
             names.append(name)
 
@@ -118,7 +123,7 @@ class TorchOperatorDataset(
             graphs: list[str] | list[TorchAtomGraph],
             operators: list[str] | list[TorchOperator],
             names: list[str],
-            cache_dir: str,
+            cache_dir: str | None = None,
             device: torch.device = 'cpu'):
 
         super().__init__(
@@ -157,7 +162,7 @@ class TorchOperatorDataset(
             device: torch.device = 'cpu'):
 
         graphs = glob(os.path.join(cache_dir, '*.pt'))
-        operators = glob(ps.path.join(cache_dir, '*.pt.op'))
+        operators = glob(os.path.join(cache_dir, '*.pt.op'))
         names = [
             AtomGraphDataset._parse_graph_name(file)
             for file in graphs

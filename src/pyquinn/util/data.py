@@ -461,7 +461,7 @@ ATOMIC_COVALENT_RADII = np.array([
 """Contains the standard atomic covalent radii of each element in Angstroms."""
 
 NATURAL_CUTOFFS_DICT = {
-    ATOMIC_SYMBOLS[z]: ATOMIC_COVALENT_RADII[z]
+    ATOMIC_SYMBOLS[z]: 3*ATOMIC_COVALENT_RADII[z]
     for z in range(1, 118+1)
 }
 """Dictionary mapping atomic symbols to standard atomic covalent radii."""

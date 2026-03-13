@@ -70,6 +70,7 @@ class TorchBandStructureDataset(
             symbols: dict | list[str] | None = None,
             max_k_pts: int | None = None,
             max_bands: int | None = None,
+            verbosity: int = 1,
             device: torch.device = 'cpu',
             dtype: torch.dtype = torch.float32,
             idx_dtype: torch.dtype = torch.int64):
@@ -77,7 +78,10 @@ class TorchBandStructureDataset(
         torch_graphs = []
         torch_band_structures = []
 
-        for name, (graph, bands) in progress_bar(dataset.items(), total=len(dataset)):
+        dataset_iter = progress_bar if verbosity > 0 else (lambda x, **_: x)
+
+        for name, (graph, bands) in dataset_iter(
+                dataset.items(), total=len(dataset)):
 
             # compile and add graph
             torch_graphs.append(

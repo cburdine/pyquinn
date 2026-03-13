@@ -230,6 +230,7 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             cache_dir: str | None = None,
+            verbosity: int = 1,
             **backend_kwargs) -> 'BackendAtomGraphDataset':
         """Returns a Compiled form of this AtomGraphDataset that targets a specific backend.
         A compiled AtomGraphDataset can then be manipulated using backend-specific methods.
@@ -278,6 +279,7 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             masses=masses,
             symbols=symbols,
             cache_dir=cache_dir,
+            verbosity=verbosity,
             **backend_kwargs
         )
 
@@ -343,6 +345,7 @@ class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             cache_dir: str | None = None,
+            verbosity: int = 1,
             **backend_kwargs):
         pass
 

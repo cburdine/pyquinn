@@ -143,6 +143,7 @@ class BandStructureDataset(BandStructureDatasetBase):
             max_k_pts: int | None = None,
             max_bands: int | None = None,
             cache_dir: str | None = None,
+            verbosity: int = 1,
             **backend_kwargs):
 
         if backend not in BandStructureDataset._backends:
@@ -164,6 +165,7 @@ class BandStructureDataset(BandStructureDatasetBase):
             max_k_pts=max_k_pts,
             max_bands=max_bands,
             cache_dir=cache_dir,
+            verbosity=verbosity,
             **backend_kwargs,
         )
 
@@ -241,6 +243,7 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
             max_k_pts: int | None = None,
             max_bands: int | None = None,
             bands_backend_kwargs: dict | None = None,
+            verbosity: int = 1,
             **backend_kwargs):
         pass
 

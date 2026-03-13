@@ -142,6 +142,7 @@ class OperatorDataset(OperatorDatasetBase):
             masses: dict | list[float] | None = None,
             symbols: dict | list[str] | None = None,
             cache_dir: str | None = None,
+            verbosity: int = 1,
             **backend_kwargs):
 
         if backend not in OperatorDataset._backends:
@@ -160,6 +161,7 @@ class OperatorDataset(OperatorDatasetBase):
             cutoffs=cutoffs,
             masses=masses,
             symbols=symbols,
+            verbosity=verbosity,
             **backend_kwargs
         )
 
@@ -232,7 +234,7 @@ class BackendOperatorDataset(ABC, OperatorDatasetBase):
         self.graphs = graphs
         self.operators = operators
         self.names = names
-        self.cache_dir = self.cache_dir
+        self.cache_dir = cache_dir
 
     @staticmethod
     @abstractmethod
@@ -244,6 +246,7 @@ class BackendOperatorDataset(ABC, OperatorDatasetBase):
             max_k_pts: int | None = None,
             max_bands: int | None = None,
             operator_backend_kwargs: dict | None = None,
+            verbosity: int = 1,
             **backend_kwargs):
         pass
 

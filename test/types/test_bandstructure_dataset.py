@@ -102,7 +102,8 @@ class AtomGraphDatasetTest(unittest.TestCase):
                 for cache_dir in (temp_dir, None):
                     compiled_dataset = dataset.compile(
                         backend=backend, 
-                        cache_dir=cache_dir)
+                        cache_dir=cache_dir,
+                        verbosity=0)
 
                     self.assertEqual(
                         len(compiled_dataset.names), len(dataset.names))
@@ -145,4 +146,3 @@ class AtomGraphDatasetTest(unittest.TestCase):
 
                         self.assertTrue(np.allclose(
                             extracted_bands.projections,dataset_bands.projections)) # noqa
-

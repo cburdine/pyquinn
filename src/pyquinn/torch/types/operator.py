@@ -2,28 +2,43 @@ from pyquinn.types.operator import Operator, BackendOperator
 import torch
 
 
+def _value_shape(
+        onsite_values: torch.Tensor,
+        coupling_values: torch.Tensor):
+
+    onsite_shape = tuple(onsite_values.shape[1:]) if onsite_values.ndim > 1 else ()
+    coupling_shape = tuple(coupling_values.shape[1:]) if coupling_values.ndim > 1 else ()
+
+    return onsite_shape if onsite_shape else coupling_shape
+
+
 def build_nonperiodic_matrix(
         onsite_values: torch.Tensor,
         couplings: torch.IntTensor,
         coupling_values: torch.Tensor):
 
     N = onsite_values.shape[0]
+    values_shape = _value_shape(onsite_values, coupling_values)
     
     # make diagonal and off-diagonal indices
     H_diag_idxs = (N+1)*torch.arange(N, device=onsite_values.device)
     H_ij_idxs = (N*couplings[:, 0] + couplings[:, 1])
 
+    H_ij_idxs = H_ij_idxs\
+        .view(H_ij_idxs.shape + (1,)*len(values_shape))\
+        .expand(H_ij_idxs.shape + values_shape)
+
     # build dense Hamiltonian
     H = torch.zeros(
-        N*N, 
+        (N*N,) + values_shape, 
         dtype=coupling_values.dtype,
         device=onsite_values.device)
 
     H[H_diag_idxs] += onsite_values
-    H.put_(H_ij_idxs, coupling_values, accumulate=True)
+    H.scatter_add_(0, H_ij_idxs, coupling_values)
 
     # restore original shape
-    H = H.reshape((N, N))
+    H = H.reshape((N, N) + values_shape)
 
     return H
 
@@ -39,6 +54,7 @@ def build_matrix(
     
     N = onsite_values.shape[0]
     N_k = k_pts.shape[0]
+    values_shape = _value_shape(onsite_values, coupling_values)
 
     # make diagonal components
     H_diag_idxs = (N+1)*torch.arange(N, device=onsite_values.device)
@@ -51,6 +67,10 @@ def build_matrix(
     H_ij_values = coupling_values*H_ij_phases.T
     H_ij_idxs = (N*couplings[:, 0] + couplings[:, 1])\
         .unsqueeze(0).expand(H_ij_values.shape[0], -1)
+    
+    H_ij_idxs = H_ij_idxs\
+        .view(H_ij_idxs.shape + (1,)*len(values_shape))\
+        .expand(H_ij_idxs.shape + values_shape)
 
     # build dense hamiltonian
     H = torch.zeros((N_k, N*N),
@@ -61,9 +81,10 @@ def build_matrix(
     H.scatter_add_(1, H_ij_idxs, H_ij_values)
 
     # restore original shape
-    H = H.reshape((N_k, N, N))
+    H = H.reshape((N_k, N, N) + values_shape)
 
     return H
+
 
 class TorchOperator(BackendOperator):
     

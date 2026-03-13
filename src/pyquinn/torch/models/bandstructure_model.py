@@ -1,7 +1,7 @@
-from pyquinn.torch.types import TorchAtomGraph, TorchOperator
+from pyquinn.torch.types import TorchAtomGraph, TorchOperator, TorchBandStructure
 from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian, VariationalTBHamiltonian
 from pyquinn.torch.types.bandstructure_dataset import TorchBandStructureDataset
-from pyquinn.torch.types.bandstructure import TorchBandStructure
+from pyquinn.torch.types.operator_dataset import TorchOperatorDataset
 from pyquinn.torch.util import get_optimizer, cuda_stream_map
 from pyquinn.io.stdout import progress_bar
 
@@ -10,7 +10,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import numpy as np
-
 
 class TorchBandStructureModel(nn.Module):
 
@@ -110,6 +109,9 @@ class TorchBandStructureModel(nn.Module):
             orbital_indices=orbital_indices,
             images=images
         )
+    
+    def position_operator(self, graph: TorchAtomGraph):
+        
 
     def band_eigenstates(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -189,6 +191,48 @@ class TorchBandStructureModel(nn.Module):
             )
 
         return loss
+
+    def _compute_operator_loss(
+            self,
+            graph: TorchAtomGraph,
+            operator: TorchOperator,
+            onsite_weight: float = 1.0):        
+
+        # for now, assume operator ordering is consistent
+        # (i.e. operator.orbital_indices/site_indices agree)
+
+        pred_operator = self.hamiltonian_operator(graph)
+        
+
+        image_offsets = torch.minimum(
+            operator.images.amin(dim=0), 
+            pred_operator.images.amin(dim=0)
+        ).reshape(1,3)
+
+        coupling_tuples = torch.hstack((operator.couplings, operator.images + image_offsets)).to(torch.int64)
+        pred_coupling_tuples = torch.hstack((pred_operator.couplings, pred_operator.images + image_offsets)).to(torch.int64)
+
+        tuple_dim_sizes = 1 + torch.maximum(
+            coupling_tuples.amax(dim=0),
+            pred_coupling_tuples.amax(dim=0)
+        )
+
+        strides = torch.ones_like(tuple_dim_sizes)
+        strides[1:] = torch.cumprod(tuple_dim_sizes, 0)[:-1]
+
+        coupling_keys = coupling_tuples @ strides
+        pred_coupling_keys = pred_coupling_tuples @ strides
+
+        keys = torch.cat((coupling_keys, pred_coupling_keys))
+        value_diffs = torch.cat((operator.coupling_values, -pred_operator.coupling_values))
+        unique_keys, unique_inv = torch.unique(keys, return_inverse=True)
+        reduced_diffs = torch.zeros_like(unique_keys, dtype=value_diffs.dtype)
+        reduced_diffs.scatter_add_(0, unique_inv, value_diffs)
+
+        onsite_loss = torch.square(torch.abs(operator.onsite_values - pred_operator.onsite_values)).mean()
+        loss = torch.square(torch.abs(reduced_diffs)).mean()
+        
+        return loss + onsite_weight*onsite_loss
 
     def bands(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -405,6 +449,114 @@ class TorchBandStructureModel(nn.Module):
 
         return history
 
+    @staticmethod
+    def _operator_collate_fn(batch):
+
+        assert len(batch) == 1
+
+        return batch[0]
+
+    def fit_hamiltonians(
+            self,
+            train_dataset: TorchOperatorDataset,
+            val_dataset: TorchOperatorDataset | None = None,
+            epochs: int = 100,
+            batch_size: int = 1,
+            lr: float = 1e-3,
+            optimizer: str = 'adam',
+            optimizer_kwargs: dict | None = None,
+            verbosity: int = 2,
+            device: torch.device | None = None,
+            data_workers: int = 0) -> dict:
+
+
+        # move model to device
+        self.to(device)
+
+        # initialize optimizer:
+        if optimizer_kwargs is None:
+            optimizer_kwargs = {}
+        if 'lr' not in optimizer_kwargs:
+            optimizer_kwargs['lr'] = lr
+
+        optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)
+
+        # initialize data loaders
+        train_dl = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True, 
+            num_workers=data_workers,
+            collate_fn=TorchBandStructureModel._operator_collate_fn)
+        val_dl = DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False, 
+            num_workers=data_workers,
+            collate_fn=TorchBandStructureModel._operator_collate_fn)
+
+        # loss function evaluator
+        def eval_loss(data):
+            graph, operator = data
+            return self._compute_operator_loss(
+                graph=graph.to(device),
+                operator=operator.to(device))
+
+        # create history dictionary
+        history = {
+            'train_loss': [],
+            'validation_loss': [],
+        }
+
+        # epoch and dataset iterators
+        epoch_iter = progress_bar if verbosity == 1 else (lambda x: x)
+        dataset_iter = progress_bar if verbosity >= 2 else (lambda x: x)
+
+        for n in epoch_iter(range(epochs)):
+
+            if verbosity >= 2:
+                print(f'Epoch {n}:')
+            
+            for batch in dataset_iter(train_dl):                
+
+                loss = eval_loss(batch)
+
+                loss.backward()
+                optim.step()
+                self.zero_grad()
+
+            if verbosity >= 2:
+                print('Evaluating training and validation loss:')
+
+            train_losses = []
+            val_losses = []
+
+            with torch.no_grad():
+                for batch in dataset_iter(train_dl):
+
+                    # compute training loss
+                    loss = eval_loss(batch)
+                    train_losses.append(loss.detach().cpu().numpy())
+
+                if val_dataset is not None:
+                    for batch in dataset_iter(val_dl):
+                        
+                        # compute validation loss
+                        
+                        loss = eval_loss(batch)
+                        val_losses.append(loss.detach().cpu().numpy())
+
+            epoch_train_loss = np.nanmean(train_losses)
+            epoch_validation_loss = None if val_dataset is None \
+                else np.nanmean(val_losses)
+
+            history['train_loss'].append(epoch_train_loss)
+            history['validation_loss'].append(epoch_validation_loss)
+
+            if verbosity >= 2:
+                print(f'Train loss: {epoch_train_loss}; '
+                        f'Validation loss: {epoch_validation_loss}.')
+
+        for k, v in history.items():
+            history[k] = np.array(v)
+
+        return history
 
 # add TorchBandStructureModel as safe to serialize
 torch.serialization.add_safe_globals([TorchBandStructureModel])

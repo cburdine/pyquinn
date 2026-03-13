@@ -7,12 +7,19 @@ from pyquinn.torch.nn.lcao.gto import (
     gaussian_3d, l1_gaussian_3d, l2_gaussian_3d, 
     gto, sto_ng, potential_gto, potential_ng, sto_ng_norm_coeff,
     sto_ng_overlap_matrix,
+    sto_ng_kinetic_overlap_matrix,
+    sto_ng_block_kinetic_overlap_matrix,
+    sto_ng_momentum_overlap_matrix,
+    sto_ng_position_overlap_matrix,
     sto_ng_block_primitive_overlap_matrix,
     sto_ng_block_overlap_matrix, 
     sto_ng_potential_overlap_matrix,
     sto_ng_block_potential_overlap_matrix,
     cho_ng, cho_ng_norm_coeff,
     cho_ng_overlap_matrix,
+    cho_ng_kinetic_overlap_matrix,
+    cho_ng_momentum_overlap_matrix,
+    cho_ng_position_overlap_matrix,
     e3_cho_ng_overlap_matrix,
     cho_ng_potential_overlap_matrix,
     e3_cho_ng_potential_overlap_matrix,
@@ -492,6 +499,164 @@ class GTOTest(unittest.TestCase):
         cs_2_norm = sto_ng_norm_coeff(ijk_2, alphas_2, alpha_idxs_2, cs_2)
         self.assertEqual(tuple(cs_2_norm.shape), tuple(cs_2.shape[:-1]))
 
+    def test_sto_ng_block_kinetic_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 26)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        xyz_grad = xyz.detach().clone().requires_grad_(True)
+
+        alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
+        alpha_idxs = torch.zeros((1, 1), dtype=torch.int64)
+        cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
+        mu = torch.tensor([[0.0, 0.0, 0.0]])
+
+        # test for (i,j,k) = (2, 1, 0), unnormalized kinetic overlap:
+        ijk_1 = torch.tensor([[[2, 1, 0]]])
+        M_1 = sto_ng_block_kinetic_overlap_matrix(
+            mu, ijk_1, alphas,
+            alpha_idxs, cs,
+            mu, ijk_1, alphas,
+            alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_1,
+            alphas=alphas, cs=cs).reshape(x.shape)
+        grad_psi_1 = torch.autograd.grad(
+            psi_1, xyz_grad,
+            grad_outputs=torch.ones_like(psi_1),
+            create_graph=True)[0]
+
+        T_1 = 0.5*(
+            grad_psi_1[:, 0]**2 +
+            grad_psi_1[:, 1]**2 +
+            grad_psi_1[:, 2]**2
+        ).reshape(x.shape)
+
+        N_1 = torch.trapz(torch.trapz(torch.trapz(T_1, dx), dx), dx)
+        self.assertAlmostEqual(N_1.detach().numpy(),
+                               M_1.detach().numpy(),
+                               places=4)
+
+        # product of orbital (i,j,k) = (2,1,0) with (i,j,k) = (3,2,1),
+        # but shifted
+        mu_shifted = torch.tensor([0.1, 0.2, 0.5])
+        ijk_2 = torch.tensor([[3, 2, 1]])
+
+        M_12 = sto_ng_block_kinetic_overlap_matrix(
+            mu, ijk_1, alphas,
+            alpha_idxs, cs,
+            mu_shifted, ijk_2, alphas,
+            alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_1,
+            alphas=alphas, cs=cs).reshape(x.shape)
+
+        psi_2_shifted = sto_ng(
+            xyz_grad, mu=mu_shifted, ijk=ijk_2,
+            alphas=alphas, cs=cs).reshape(x.shape)
+
+        grad_psi_1 = torch.autograd.grad(
+            psi_1, xyz_grad,
+            grad_outputs=torch.ones_like(psi_1),
+            create_graph=True)[0]
+
+        grad_psi_2_shifted = torch.autograd.grad(
+            psi_2_shifted, xyz_grad,
+            grad_outputs=torch.ones_like(psi_2_shifted),
+            create_graph=True)[0]
+
+        T_12 = 0.5*(
+            grad_psi_1[:, 0]*grad_psi_2_shifted[:, 0] +
+            grad_psi_1[:, 1]*grad_psi_2_shifted[:, 1] +
+            grad_psi_1[:, 2]*grad_psi_2_shifted[:, 2]
+        ).reshape(x.shape)
+
+        N_12 = torch.trapz(torch.trapz(torch.trapz(T_12, dx), dx), dx)
+        self.assertAlmostEqual(N_12.detach().numpy(),
+                               M_12.detach().numpy(),
+                               places=4)
+
+    def test_sto_ng_momentum_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 26)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        xyz_grad = xyz.detach().clone().requires_grad_(True)
+
+        alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
+        alpha_idxs = torch.zeros((1, 1), dtype=torch.int64)
+        cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
+        mu = torch.tensor([[0.0, 0.0, 0.0]])
+
+        ijk_1 = torch.tensor([[[0, 2, 0]]])
+        ijk_2 = torch.tensor([[[0, 1, 0]]])
+
+        M = sto_ng_momentum_overlap_matrix(
+            mu, ijk_1, alphas, alpha_idxs, cs,
+            mu, ijk_2, alphas, alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_1,
+            alphas=alphas, cs=cs).reshape(x.shape)
+        psi_2 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_2,
+            alphas=alphas, cs=cs).reshape(x.shape)
+
+        grad_psi_2 = torch.autograd.grad(
+            psi_2, xyz_grad,
+            grad_outputs=torch.ones_like(psi_2),
+            create_graph=True)[0].reshape(*psi_1.shape + (3,))
+
+        for d in range(3):
+            P_d = -psi_1 * grad_psi_2[..., d]
+            I_d = torch.trapz(torch.trapz(torch.trapz(P_d.reshape(x.shape), dx), dx), dx)
+            self.assertAlmostEqual(
+                I_d.detach().numpy(),
+                M[d].detach().numpy(),
+                places=4)
+
+    def test_sto_ng_position_overlap_matrix(self):
+
+        dx = torch.linspace(-6, 6, 32)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+
+        alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
+        alpha_idxs = torch.zeros((1, 1), dtype=torch.int64)
+        cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
+        mu = torch.tensor([[0.0, 0.0, 0.0]])
+
+        ijk_1 = torch.tensor([[[0, 1, 0]]])
+        ijk_2 = torch.tensor([[[0, 2, 0]]])
+
+        M = sto_ng_position_overlap_matrix(
+            mu, ijk_1, alphas, alpha_idxs, cs,
+            mu, ijk_2, alphas, alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(xyz, mu=mu, ijk=ijk_1, alphas=alphas, cs=cs).reshape(x.shape)
+        psi_2 = sto_ng(xyz, mu=mu, ijk=ijk_2, alphas=alphas, cs=cs).reshape(x.shape)
+
+        for d in range(3):
+            coord = xyz[:, d].reshape(x.shape)
+            I_d = torch.trapz(torch.trapz(torch.trapz(psi_1 * coord * psi_2, dx), dx), dx)
+            self.assertAlmostEqual(I_d.item(), M[d].item(), places=4)
+
+        mu_shifted = torch.tensor([0.1, 0.2, 0.3])
+        M_shifted = sto_ng_position_overlap_matrix(
+            mu, ijk_1, alphas, alpha_idxs, cs,
+            mu_shifted, ijk_2, alphas, alpha_idxs, cs).squeeze()
+
+        psi_2_shifted = sto_ng(
+            xyz, mu=mu_shifted, ijk=ijk_2, alphas=alphas, cs=cs
+        ).reshape(x.shape)
+
+        for d in range(3):
+            coord = xyz[:, d].reshape(x.shape)
+            I_d = torch.trapz(torch.trapz(torch.trapz(psi_1 * coord * psi_2_shifted, dx), dx), dx)
+            self.assertAlmostEqual(I_d.item(), M_shifted[d].item(), places=4)
+
     def test_sto_ng_potential_overlap_matrix(self):
 
         dx = torch.linspace(-6, 6, 32)
@@ -620,6 +785,85 @@ class GTOTest(unittest.TestCase):
                                M_12.detach().numpy(),
                                places=5)
 
+    def test_sto_ng_kinetic_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 26)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        xyz_grad = xyz.detach().clone().requires_grad_(True)
+
+        alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
+        alpha_idxs = torch.zeros((1, 1), dtype=torch.int64)
+        cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
+        mu = torch.tensor([[0.0, 0.0, 0.0]])
+
+        # test for (i,j,k) = (2, 1, 0), unnormalized kinetic overlap:
+        ijk_1 = torch.tensor([[[2, 1, 0]]])
+        M_1 = sto_ng_kinetic_overlap_matrix(
+            mu, ijk_1, alphas,
+            alpha_idxs, cs,
+            mu, ijk_1, alphas,
+            alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_1,
+            alphas=alphas, cs=cs).reshape(x.shape)
+        grad_psi_1 = torch.autograd.grad(
+            psi_1, xyz_grad,
+            grad_outputs=torch.ones_like(psi_1),
+            create_graph=True)[0]
+
+        T_1 = 0.5*(
+            grad_psi_1[:, 0]**2 +
+            grad_psi_1[:, 1]**2 +
+            grad_psi_1[:, 2]**2
+        ).reshape(x.shape)
+
+        N_1 = torch.trapz(torch.trapz(torch.trapz(T_1, dx), dx), dx)
+        self.assertAlmostEqual(N_1.detach().numpy(),
+                               M_1.detach().numpy(),
+                               places=4)
+
+        # product of orbital (i,j,k) = (2,1,0) with (i,j,k) = (3,2,1),
+        # but shifted
+        mu_shifted = torch.tensor([0.1, 0.2, 0.5])
+        ijk_2 = torch.tensor([[3, 2, 1]])
+
+        M_12 = sto_ng_kinetic_overlap_matrix(
+            mu, ijk_1, alphas,
+            alpha_idxs, cs,
+            mu_shifted, ijk_2, alphas,
+            alpha_idxs, cs).squeeze()
+
+        psi_1 = sto_ng(
+            xyz_grad, mu=mu, ijk=ijk_1,
+            alphas=alphas, cs=cs).reshape(x.shape)
+
+        psi_2_shifted = sto_ng(
+            xyz_grad, mu=mu_shifted, ijk=ijk_2,
+            alphas=alphas, cs=cs).reshape(x.shape)
+
+        grad_psi_1 = torch.autograd.grad(
+            psi_1, xyz_grad,
+            grad_outputs=torch.ones_like(psi_1),
+            create_graph=True)[0]
+
+        grad_psi_2_shifted = torch.autograd.grad(
+            psi_2_shifted, xyz_grad,
+            grad_outputs=torch.ones_like(psi_2_shifted),
+            create_graph=True)[0]
+
+        T_12 = 0.5*(
+            grad_psi_1[:, 0]*grad_psi_2_shifted[:, 0] +
+            grad_psi_1[:, 1]*grad_psi_2_shifted[:, 1] +
+            grad_psi_1[:, 2]*grad_psi_2_shifted[:, 2]
+        ).reshape(x.shape)
+
+        N_12 = torch.trapz(torch.trapz(torch.trapz(T_12, dx), dx), dx)
+        self.assertAlmostEqual(N_12.detach().numpy(),
+                               M_12.detach().numpy(),
+                               places=4)
+
     def test_cho_ng(self):
 
         dx = torch.linspace(-5, 5, 32)
@@ -686,6 +930,173 @@ class GTOTest(unittest.TestCase):
 
         self.assertTrue(
             np.allclose(M_X_np, np.eye(M_X_np.shape[0]), atol=1e-6))
+
+    def test_cho_ng_kinetic_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 28)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        xyz_grad = xyz.detach().clone().requires_grad_(True)
+
+        n_gauss = 3
+        alphas = torch.linspace(0.5, 0.9, n_gauss)\
+            .view(1, -1).expand(1, -1)
+        cs = torch.linspace(0.1, 0.7, n_gauss)\
+            .view(1, -1).expand(1, -1)
+
+        mu_1 = torch.tensor([0.0, 0.0, 0.0])
+        mu_2 = torch.tensor([0.1, 0.2, 0.3])
+        l_1 = torch.tensor([2], dtype=torch.int32)
+        l_2 = torch.tensor([3], dtype=torch.int32)
+
+        M_X = cho_ng_kinetic_overlap_matrix(
+            mu_1, l_1, alphas, cs,
+            mu_2, l_2, alphas, cs)
+
+        for m_1 in range(-l_1, l_1+1):
+            for m_2 in range(-l_2, l_2+1):
+
+                psi_1 = cho_ng(
+                    xyz_grad, mu=mu_1,
+                    l=l_1, m=m_1,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                psi_2 = cho_ng(
+                    xyz_grad, mu=mu_2,
+                    l=l_2, m=m_2,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                grad_psi_1 = torch.autograd.grad(
+                    psi_1, xyz_grad,
+                    grad_outputs=torch.ones_like(psi_1),
+                    create_graph=True)[0]
+
+                grad_psi_2 = torch.autograd.grad(
+                    psi_2, xyz_grad,
+                    grad_outputs=torch.ones_like(psi_2),
+                    create_graph=True)[0]
+
+                T_12 = 0.5*(
+                    grad_psi_1[:, 0]*grad_psi_2[:, 0] +
+                    grad_psi_1[:, 1]*grad_psi_2[:, 1] +
+                    grad_psi_1[:, 2]*grad_psi_2[:, 2]
+                ).reshape(x.shape)
+
+                I = torch.trapz(torch.trapz(torch.trapz(T_12, dx), dx), dx)
+
+                i = m_1 + l_1.item()
+                j = m_2 + l_2.item()
+
+                self.assertAlmostEqual(
+                    I.item(),
+                    M_X[i, j].item(),
+                    places=4)
+
+    def test_cho_ng_momentum_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 26)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+        xyz_grad = xyz.detach().clone().requires_grad_(True)
+
+        n_gauss = 3
+        alphas = torch.linspace(0.5, 0.9, n_gauss)\
+            .view(1, -1).expand(1, -1)
+        cs = torch.linspace(0.1, 0.7, n_gauss)\
+            .view(1, -1).expand(1, -1)
+
+        mu_1 = torch.tensor([0.0, 0.0, 0.0])
+        mu_2 = torch.tensor([0.1, 0.2, 0.3])
+        l_1 = torch.tensor([2], dtype=torch.int32)
+        l_2 = torch.tensor([3], dtype=torch.int32)
+
+        M_X = cho_ng_momentum_overlap_matrix(
+            mu_1, l_1, alphas, cs,
+            mu_2, l_2, alphas, cs)
+
+        for m_1 in range(-l_1, l_1+1):
+            for m_2 in range(-l_2, l_2+1):
+
+                psi_1 = cho_ng(
+                    xyz_grad, mu=mu_1,
+                    l=l_1, m=m_1,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                psi_2 = cho_ng(
+                    xyz_grad, mu=mu_2,
+                    l=l_2, m=m_2,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                grad_psi_2 = torch.autograd.grad(
+                    psi_2, xyz_grad,
+                    grad_outputs=torch.ones_like(psi_2),
+                    create_graph=True)[0].reshape(*psi_1.shape + (3,))
+
+                for d in range(3):
+                    P_d = -psi_1 * grad_psi_2[..., d]
+                    I_d = torch.trapz(
+                        torch.trapz(torch.trapz(P_d.reshape(x.shape), dx), dx),
+                        dx)
+
+                    i = m_1 + l_1.item()
+                    j = m_2 + l_2.item()
+
+                    self.assertAlmostEqual(
+                        I_d.item(),
+                        M_X[i, j, d].item(),
+                        places=4)
+
+    def test_cho_ng_position_overlap_matrix(self):
+
+        dx = torch.linspace(-5, 5, 32)
+        x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
+        xyz = torch.vstack((x.flatten(), y.flatten(), z.flatten())).T
+
+        n_gauss = 3
+        alphas = torch.linspace(0.5, 0.9, n_gauss)\
+            .view(1, -1).expand(1, -1)
+        cs = torch.linspace(0.1, 0.7, n_gauss)\
+            .view(1, -1).expand(1, -1)
+
+        mu_1 = torch.tensor([0.0, 0.0, 0.0])
+        mu_2 = torch.tensor([0.1, 0.2, 0.3])
+        l_1 = torch.tensor([2], dtype=torch.int32)
+        l_2 = torch.tensor([3], dtype=torch.int32)
+
+        M_X = cho_ng_position_overlap_matrix(
+            mu_1, l_1, alphas, cs,
+            mu_2, l_2, alphas, cs)
+
+        for m_1 in range(-l_1, l_1+1):
+            for m_2 in range(-l_2, l_2+1):
+
+                psi_1 = cho_ng(
+                    xyz, mu=mu_1,
+                    l=l_1, m=m_1,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                psi_2 = cho_ng(
+                    xyz, mu=mu_2,
+                    l=l_2, m=m_2,
+                    alphas=alphas.squeeze(),
+                    cs=cs.squeeze()).reshape(x.shape)
+
+                for d in range(3):
+                    coord = xyz[:, d].reshape(x.shape)
+                    I_d = torch.trapz(torch.trapz(torch.trapz(psi_1 * coord * psi_2, dx), dx), dx)
+
+                    i = m_1 + l_1.item()
+                    j = m_2 + l_2.item()
+
+                    self.assertAlmostEqual(
+                        I_d.item(),
+                        M_X[i, j, d].item(),
+                        places=4)
 
     def test_e3_cho_ng_overlap_matrix(self):
 
