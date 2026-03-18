@@ -111,7 +111,10 @@ class TorchBandStructureModel(nn.Module):
         )
     
     def position_operator(self, graph: TorchAtomGraph):
-        
+        pass
+
+    def momentum_operator(self, graph: TorchAtomGraph):
+        pass
 
     def band_eigenstates(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
 
@@ -203,11 +206,10 @@ class TorchBandStructureModel(nn.Module):
 
         pred_operator = self.hamiltonian_operator(graph)
         
-
         image_offsets = torch.minimum(
             operator.images.amin(dim=0), 
             pred_operator.images.amin(dim=0)
-        ).reshape(1,3)
+        ).reshape(1, 3)
 
         coupling_tuples = torch.hstack((operator.couplings, operator.images + image_offsets)).to(torch.int64)
         pred_coupling_tuples = torch.hstack((pred_operator.couplings, pred_operator.images + image_offsets)).to(torch.int64)

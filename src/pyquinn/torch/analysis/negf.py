@@ -1339,8 +1339,7 @@ class TorchNEGF:
 
                 if E_dipole is not None:
                     if site_p is None:
-                        try: 
-                            self.model.momentum_
+                        pass
 
                 # update residue:
                 residue = torch.abs(sigma_in_scattering - sigma_in_scattering_new).max() + \
