@@ -1062,7 +1062,7 @@ class GTOTest(unittest.TestCase):
         cs = torch.linspace(0.1, 0.7, n_gauss)\
             .view(1, -1).expand(1, -1)
 
-        mu_1 = torch.tensor([0.0, 0.0, 0.0])
+        mu_1 = torch.tensor([[0.0, 0.0, 0.0])
         mu_2 = torch.tensor([0.1, 0.2, 0.3])
         l_1 = torch.tensor([2], dtype=torch.int32)
         l_2 = torch.tensor([3], dtype=torch.int32)
