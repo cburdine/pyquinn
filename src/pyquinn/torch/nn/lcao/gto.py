@@ -807,8 +807,11 @@ def sto_ng_kinetic_overlap_matrix(
     Returns:
         torch.Tensor: Kinetic matrix tensor M (shape: [...,I_1, I_2])
     """
+    print(mu_1.shape, mu_2.shape)
+    print(alphas_1.shape, alphas_2.shape)
+    print(alpha_idxs_1.shape, alpha_idxs_2.shape)
 
-    mu_batch_shape = mu_1.shape[:-1]
+    mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     i1_size = ijk_1.shape[-2]
@@ -816,13 +819,13 @@ def sto_ng_kinetic_overlap_matrix(
     b1_size = alphas_1.shape[-2]
     b2_size = alphas_2.shape[-2]
 
-    _mu_1 = mu_1.reshape(mu_batch_size, 3)
-    _mu_2 = mu_2.reshape(mu_batch_size, 3)
+    _mu_1 = mu_1.reshape(mu_batch_size, b1_size, 3)
+    _mu_2 = mu_2.reshape(mu_batch_size, b2_size, 3)
     _alphas_1 = alphas_1.reshape(mu_batch_size, b1_size, -1)
     _alphas_2 = alphas_2.reshape(mu_batch_size, b2_size, -1)
 
     # normalized primitive overlaps
-    T = sto_ng_block_primitive_overlap_matrix(
+    T = sto_ng_primitive_overlap_matrix(
         _mu_1, _alphas_1, _mu_2, _alphas_2)
 
     _alpha_idxs_1 = alpha_idxs_1.reshape(mu_batch_size, 1, -1, 1)\
@@ -922,10 +925,10 @@ def sto_ng_block_kinetic_overlap_matrix(
 
         M_{i,j} = -\frac{1}{2} \langle \phi_{1,i} | \nabla^2 | \phi_{2,j} \rangle
 
-    Args mirror sto_ng_overlap_matrix but for kinetic energy.
+    Args mirror sto_ng_block_overlap_matrix but for kinetic energy.
     """
 
-    mu_batch_shape = mu_1.shape[:-2]
+    mu_batch_shape = mu_1.shape[:-1]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     i1_size = ijk_1.shape[-2]
@@ -1073,7 +1076,7 @@ def sto_ng_momentum_overlap_matrix(
         torch.Tensor: Momentum matrix tensor M (shape: [...,I_1, I_2, 3])
     """
 
-    mu_batch_shape = mu_1.shape[:-1]
+    mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     i1_size = ijk_1.shape[-2]
@@ -1081,13 +1084,13 @@ def sto_ng_momentum_overlap_matrix(
     b1_size = alphas_1.shape[-2]
     b2_size = alphas_2.shape[-2]
 
-    _mu_1 = mu_1.reshape(mu_batch_size, 3)
-    _mu_2 = mu_2.reshape(mu_batch_size, 3)
+    _mu_1 = mu_1.reshape(mu_batch_size, b1_size, 3)
+    _mu_2 = mu_2.reshape(mu_batch_size, b2_size, 3)
     _alphas_1 = alphas_1.reshape(mu_batch_size, b1_size, -1)
     _alphas_2 = alphas_2.reshape(mu_batch_size, b2_size, -1)
 
     # normalized primitive overlaps
-    T = sto_ng_block_primitive_overlap_matrix(
+    T = sto_ng_primitive_overlap_matrix(
         _mu_1, _alphas_1, _mu_2, _alphas_2)
 
     _alpha_idxs_1 = alpha_idxs_1.reshape(mu_batch_size, 1, -1, 1)\
@@ -1192,7 +1195,7 @@ def sto_ng_position_overlap_matrix(
         torch.Tensor: Position overlap matrix tensor (shape: [..., I_1, I_2, 3])
     """
 
-    mu_batch_shape = mu_1.shape[:-1]
+    mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
 
     i1_size = ijk_1.shape[-2]
@@ -1200,12 +1203,12 @@ def sto_ng_position_overlap_matrix(
     b1_size = alphas_1.shape[-2]
     b2_size = alphas_2.shape[-2]
 
-    _mu_1 = mu_1.reshape(mu_batch_size, 3)
-    _mu_2 = mu_2.reshape(mu_batch_size, 3)
+    _mu_1 = mu_1.reshape(mu_batch_size, b1_size, 3)
+    _mu_2 = mu_2.reshape(mu_batch_size, b2_size, 3)
     _alphas_1 = alphas_1.reshape(mu_batch_size, b1_size, -1)
     _alphas_2 = alphas_2.reshape(mu_batch_size, b2_size, -1)
 
-    T = sto_ng_block_primitive_overlap_matrix(_mu_1, _alphas_1, _mu_2, _alphas_2)
+    T = sto_ng_primitive_overlap_matrix(_mu_1, _alphas_1, _mu_2, _alphas_2)
 
     _alpha_idxs_1 = alpha_idxs_1.reshape(mu_batch_size, 1, -1, 1)\
         .expand(mu_batch_size, 3, i1_size, i2_size)
