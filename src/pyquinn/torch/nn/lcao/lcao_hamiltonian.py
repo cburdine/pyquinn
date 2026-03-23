@@ -64,7 +64,7 @@ class LCAOHamiltonian(Hamiltonian):
         'overlap': cho_ng_overlap_matrix,
         'kinetic': cho_ng_kinetic_overlap_matrix,
         'position': cho_ng_position_overlap_matrix,
-        'momentum': cho_ng_momentum_overlap_matrix
+        'momentum_imag': cho_ng_momentum_overlap_matrix
     }
 
     HAMILTONIAN_OPERATOR_KERNELS = {
@@ -537,20 +537,20 @@ class LCAOHamiltonian(Hamiltonian):
 
         return H
 
-    def _build_operator(
-            self,
-            diagonals: list[torch.Tensor],
-            components: list[torch.Tensor],
-            component_idxs: list[torch.IntTensor]):
+    # def _build_operator(
+    #         self,
+    #         diagonals: list[torch.Tensor],
+    #         components: list[torch.Tensor],
+    #         component_idxs: list[torch.IntTensor]):
         
-        H_ij = torch.cat(component_idxs, dim=0)
-        H_values = torch.cat(components, dim=0)
+    #     H_ij = torch.cat(component_idxs, dim=0)
+    #     H_values = torch.cat(components, dim=0)
 
-        onsite_values = torch.cat(diagonals, dim=0)
-        couplings = torch.cat((H_ij, torch.fliplr(H_ij)), dim=0)
-        coupling_values = torch.cat((H_values, H_values.conj()), dim=0)
+    #     onsite_values = torch.cat(diagonals, dim=0)
+    #     couplings = torch.cat((H_ij, torch.fliplr(H_ij)), dim=0)
+    #     coupling_values = torch.cat((H_values, H_values.conj()), dim=0)
         
-        return onsite_values, couplings, coupling_values
+    #     return onsite_values, couplings, coupling_values
 
     def _get_site_orbital_data(
             self,
@@ -852,17 +852,23 @@ class LCAOHamiltonian(Hamiltonian):
                 l_cs_2=cs[neighbor_idxs, neighbor_l_idxs],
                 cho_data_1=site_data,
                 cho_data_2=neighbor_data,
-            )
+            ).flatten(start_dim=-2)
 
             H_neighborhood_idxs = torch.cartesian_prod(
                 H_site_idxs, H_neighbor_idxs)
 
-            H_diagonals.append(H_site_diagonal)
-            H_components.append(H_neighborhood.flatten())
-            H_component_idxs.append(H_neighborhood_idxs)
+            H_offdiag = torch.cat((H_neighborhood, H_neighborhood.conj()), dim=-1)
+            H_offdiag_idxs = torch.cat((H_neighborhood_idxs, H_neighborhood_idxs.flip(-1)))
 
-        return self._build_operator(
-            H_diagonals, H_components, H_component_idxs)
+            H_diagonals.append(H_site_diagonal)
+            H_components.append(H_offdiag)
+            H_component_idxs.append(H_offdiag_idxs)
+
+        onsite_values = torch.cat(H_diagonals, dim=-1)
+        couplings = torch.cat(H_component_idxs)
+        coupling_values = torch.cat(H_components, dim=-1)
+
+        return onsite_values, couplings, coupling_values
 
     def orbital_operator_entries(
             self,
@@ -884,8 +890,8 @@ class LCAOHamiltonian(Hamiltonian):
             self.get_basis_parameters(atomic_numbers, positions, neighbors)
 
         # get on-site energies:
-        onsite_energies = self.get_onsite_energies(
-            atomic_numbers, positions, neighbors)
+        #onsite_energies = self.get_onsite_energies(
+        #    atomic_numbers, positions, neighbors)
 
         H_idxs, H_blocksizes = self._get_hamiltonian_idxs(atomic_numbers)
 
@@ -910,10 +916,6 @@ class LCAOHamiltonian(Hamiltonian):
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site, H_idxs, H_blocksizes)
 
-            # print('a:',alphas[site_idxs, site_l_idxs])
-            # print('site_idxs:', site_idxs)
-            # print('site_idxs:', site_l_idxs)
-            # compute site kernel matrix:
             H_onsite = cho_ng_kernel(
                 mu_1=positions[site_idxs],
                 l_1=site_ls,
@@ -931,11 +933,9 @@ class LCAOHamiltonian(Hamiltonian):
                 H_site_idxs, H_site_idxs)
             _onsite_off_diag = H_onsite_idxs[:, 0] != H_onsite_idxs[:, 1]
 
-            H_onsite_diagonal = torch.diagonal(H_onsite)
+            H_onsite_diagonal = torch.diagonal(H_onsite, dim1=-2, dim2=-1)
             H_onsite_offdiag_idxs = H_onsite_idxs[_onsite_off_diag]
-            H_onsite_offdiag = H_onsite.flatten(end_dim=1)[_onsite_off_diag]
-
-            
+            H_onsite_offdiag = H_onsite.flatten(start_dim=-2)[..., _onsite_off_diag]
 
             # retrieve neighborhood data:
             site_neighbors_pad = neighbors[i]
@@ -950,11 +950,6 @@ class LCAOHamiltonian(Hamiltonian):
             H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site_neighbors, H_idxs, H_blocksizes)
 
-            # compute on-site diagonals:
-            # H_site_diagonal = torch.repeat_interleave(
-            #     input=onsite_energies[site_idxs, site_l_idxs],
-            #     repeats=2*site_ls+1)
-
             # compute neighborhood kernel matrix:
             H_neighborhood = cho_ng_kernel(
                 mu_1=positions[site_idxs],
@@ -967,20 +962,23 @@ class LCAOHamiltonian(Hamiltonian):
                 l_cs_2=cs[neighbor_idxs, neighbor_l_idxs],
                 cho_data_1=site_data,
                 cho_data_2=neighbor_data,
-            ).flatten(end_dim=1)
+            ).flatten(start_dim=-2)
 
             H_neighborhood_idxs = torch.cartesian_prod(
                 H_site_idxs, H_neighbor_idxs)
 
-            H_offdiag = torch.cat((H_onsite_offdiag, H_neighborhood))
-            H_offdiag_idxs = torch.cat((H_onsite_offdiag_idxs, H_neighborhood_idxs))
+            H_offdiag = torch.cat((H_onsite_offdiag, H_neighborhood, H_neighborhood.conj()), dim=-1)
+            H_offdiag_idxs = torch.cat((H_onsite_offdiag_idxs, H_neighborhood_idxs, H_neighborhood_idxs.flip(-1)))
 
             H_diagonals.append(H_onsite_diagonal)
             H_components.append(H_offdiag)
             H_component_idxs.append(H_offdiag_idxs)
 
-        return self._build_operator(
-            H_diagonals, H_components, H_component_idxs)
+        onsite_values = torch.cat(H_diagonals, dim=-1)
+        couplings = torch.cat(H_component_idxs)
+        coupling_values = torch.cat(H_components, dim=-1)
+
+        return onsite_values, couplings, coupling_values
 
     def orbital_names(
             self,
@@ -1638,9 +1636,6 @@ class TBHamiltonian(LCAOHamiltonian):
         H_component_idxs = []
         n_sites = atomic_numbers.shape[0]
 
-        # compute unit cell inverse:
-        #inv_unit_cell = torch.linalg.pinv(unit_cell)
-
         for i in range(n_sites):
 
             # retrieve site data:
@@ -1659,20 +1654,17 @@ class TBHamiltonian(LCAOHamiltonian):
             H_site_diagonal = torch.repeat_interleave(
                 onsite_energies[site_idxs, site_l_idxs],
                 repeats=2*site_ls+1)
-            H_diagonals.append(H_site_diagonal)
 
             # retrieve neighborhood data:
             site_neighbors_nz = (neighbors[i] >= 0)
             site_neighbors = neighbors[i][site_neighbors_nz]
             site_neighbor_images = unit_cell_images[i][site_neighbors_nz]
 
-
-
             # handle if neighborhood is empty:
             if site_neighbors.shape[0] == 0:
                 H_components.append(
                     torch.zeros(
-                        (0), 
+                        H_site_diagonal.shape[:-1] + (0,), 
                         device=H_site_diagonal.device,
                         dtype=H_site_diagonal.dtype))
                 H_component_idxs.append(
@@ -1726,35 +1718,31 @@ class TBHamiltonian(LCAOHamiltonian):
                 #         neighbor_ls
                 #     ).view(1, -1, 3).expand(*H_neighborhood.shape, 3)
 
-                H_neighborhood_images = \
+                H_neighborhood_images = (
                     self._get_neighborhood_hamiltonian_images(
                         neighbor_images,
                         neighbor_ls,
-                    ).view(1, -1, 3).expand(*H_neighborhood.shape, 3).reshape(-1, 3)
+                    )
+                    .view(1, -1, 3)
+                    .expand(H_neighborhood.shape[-2], H_neighborhood.shape[-1], 3)
+                    .reshape(-1, 3)
+                )
                 
-                H_neighborhood = H_neighborhood.flatten()
+                H_neighborhood = H_neighborhood.flatten(start_dim=-2)
 
                 H_neighborhood_idxs = torch.cartesian_prod(
                     H_site_idxs, H_neighbor_idxs)
 
-                H_components.append(torch.cat((H_neighborhood, H_neighborhood.conj())))
+                H_diagonals.append(H_site_diagonal)
+                H_components.append(torch.cat((H_neighborhood, H_neighborhood.conj()), dim=-1))
                 H_component_idxs.append(torch.cat((H_neighborhood_idxs, H_neighborhood_idxs.flip(-1))))
                 H_component_images.append(
                     torch.cat((H_neighborhood_images, -H_neighborhood_images)))
                 
-        onsite_values = torch.cat(H_diagonals, dim=0)
-        couplings = torch.cat(H_component_idxs, dim=0)
-        coupling_values = torch.cat(H_components, dim=0)
-        coupling_images = torch.cat(H_component_images, dim=0)
-
-        #onsite_values = 
-        # onsite_values, couplings, coupling_values, images = \
-        #     self._build_bloch_operator(
-        #         diagonals=H_diagonals,
-        #         components=H_components,
-        #         component_idxs=H_component_idxs,
-        #         component_images=H_component_images
-        #     )
+        onsite_values = torch.cat(H_diagonals, dim=-1)
+        couplings = torch.cat(H_component_idxs)
+        coupling_values = torch.cat(H_components, dim=-1)
+        coupling_images = torch.cat(H_component_images)
 
         return onsite_values, couplings, coupling_values, coupling_images
     
@@ -1783,14 +1771,6 @@ class TBHamiltonian(LCAOHamiltonian):
                 unit_cell=unit_cell,
                 unit_cell_images=unit_cell_images)
 
-        # get on-site energies:
-        # onsite_energies = self.get_onsite_energies(
-        #     atomic_numbers=atomic_numbers,
-        #     positions=positions,
-        #     neighbors=neighbors,
-        #     unit_cell=unit_cell,
-        #     unit_cell_images=unit_cell_images)
-
         # convert unit_cell_images to float:
         unit_cell_images = unit_cell_images.to(torch.float)
 
@@ -1801,9 +1781,6 @@ class TBHamiltonian(LCAOHamiltonian):
         H_component_images = []
         H_component_idxs = []
         n_sites = atomic_numbers.shape[0]
-
-        # compute unit cell inverse:
-        #inv_unit_cell = torch.linalg.pinv(unit_cell)
 
         for i in range(n_sites):
 
@@ -1818,12 +1795,6 @@ class TBHamiltonian(LCAOHamiltonian):
 
             H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
                 site, H_idxs, H_blocksizes)
-
-            # compute on-site diagonals:
-            # H_site_diagonal = torch.repeat_interleave(
-            #     onsite_energies[site_idxs, site_l_idxs],
-            #     repeats=2*site_ls+1)
-            # H_diagonals.append(H_site_diagonal)
 
             # retrieve neighborhood data:
             site_neighbors_nz = (neighbors[i] >= 0)
@@ -1844,15 +1815,16 @@ class TBHamiltonian(LCAOHamiltonian):
                 cho_data_2=site_data,
             )
 
+
             H_onsite_idxs = torch.cartesian_prod(
                 H_site_idxs, H_site_idxs)
             _onsite_off_diag = H_onsite_idxs[:, 0] != H_onsite_idxs[:, 1]
 
-            H_onsite_diagonal = torch.diagonal(H_onsite)
+            H_onsite_diagonal = torch.diagonal(H_onsite, dim1=-2, dim2=-1)
             H_onsite_offdiag_idxs = H_onsite_idxs[_onsite_off_diag]
-            H_onsite_offdiag = H_onsite.flatten(end_dim=1)[_onsite_off_diag]
+            H_onsite_offdiag = H_onsite.flatten(start_dim=-2)[..., _onsite_off_diag]
             H_onsite_offdiag_images = torch.zeros(
-                (H_onsite_offdiag.shape[0], 3), 
+                (H_onsite_offdiag_idxs.shape[0], 3), 
                 device=site_neighbor_images.device,
                 dtype=site_neighbor_images.dtype)
 
@@ -1907,31 +1879,30 @@ class TBHamiltonian(LCAOHamiltonian):
                     self._get_neighborhood_hamiltonian_images(
                         neighbor_images,
                         neighbor_ls,
-                    ).view(1, -1, 3).expand(*H_neighborhood.shape, 3).reshape(-1, 3)
+                    ).view(1, -1, 3)\
+                    .expand(H_neighborhood.shape[-2], H_neighborhood.shape[-1], 3)\
+                    .reshape(-1, 3)
                 
-                H_neighborhood = H_neighborhood.flatten()
+                H_neighborhood = H_neighborhood.flatten(start_dim=-2)
 
                 H_neighborhood_idxs = torch.cartesian_prod(
                     H_site_idxs, H_neighbor_idxs)
 
-            H_offdiag = torch.cat((H_onsite_offdiag, H_neighborhood))
-            H_offdiag_idxs = torch.cat((H_onsite_offdiag_idxs, H_neighborhood_idxs))
-            H_offdiag_images = torch.cat((H_onsite_offdiag_images, H_neighborhood_images))
+            H_offdiag = torch.cat((H_onsite_offdiag, H_neighborhood, H_neighborhood.conj()), dim=-1)
+            H_offdiag_idxs = torch.cat((H_onsite_offdiag_idxs, H_neighborhood_idxs, H_neighborhood_idxs.flip(-1)))
+            H_offdiag_images = torch.cat((H_onsite_offdiag_images, H_neighborhood_images, -H_neighborhood_images))
 
             H_diagonals.append(H_onsite_diagonal)
             H_components.append(H_offdiag)
             H_component_idxs.append(H_offdiag_idxs)
             H_component_images.append(H_offdiag_images)
 
-        onsite_values, couplings, coupling_values, images = \
-            self._build_bloch_operator(
-                diagonals=H_diagonals,
-                components=H_components,
-                component_idxs=H_component_idxs,
-                component_images=H_component_images
-            )
+        onsite_values = torch.cat(H_diagonals, dim=-1)
+        couplings = torch.cat(H_component_idxs)
+        coupling_values = torch.cat(H_components, dim=-1)
+        coupling_images = torch.cat(H_component_images)
 
-        return onsite_values, couplings, coupling_values, images
+        return onsite_values, couplings, coupling_values, coupling_images
         
     def hamiltonian_matrix(
             self, 
@@ -1940,7 +1911,8 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors: torch.IntTensor,
             unit_cell: torch.Tensor,
             unit_cell_images: torch.IntTensor,
-            k_pts: torch.Tensor | None = None) -> torch.Tensor:
+            k_pts: torch.Tensor | None = None,
+            sparse: bool = False) -> torch.Tensor:
         """Computes the Hamiltonian matrices for supplied k points.
 
         Args:
@@ -1996,7 +1968,8 @@ class TBHamiltonian(LCAOHamiltonian):
             site_indices=site_indices,
             images=images,
             k_pts=k_pts,
-            frac_positions=frac_positions
+            frac_positions=frac_positions,
+            sparse=sparse,
         )
 
     def eigenstates(

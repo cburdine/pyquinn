@@ -588,7 +588,7 @@ class GTOTest(unittest.TestCase):
         alphas = torch.linspace(0.4, 1.5, 5).view(1, 1, -1)
         alpha_idxs = torch.zeros((1, 1), dtype=torch.int64)
         cs = torch.linspace(0.9, 0.1, 5).view(1, 1, -1)
-        mu = torch.tensor([[0.0, 0.0, 0.0]])
+        mu = torch.tensor([[[0.0, 0.0, 0.0]]])
 
         ijk_1 = torch.tensor([[[0, 2, 0]]])
         ijk_2 = torch.tensor([[[0, 1, 0]]])
@@ -1047,7 +1047,7 @@ class GTOTest(unittest.TestCase):
 
                     self.assertAlmostEqual(
                         I_d.item(),
-                        M_X[i, j, d].item(),
+                        M_X[d, i, j].item(),
                         places=4)
 
     def test_cho_ng_position_overlap_matrix(self):
@@ -1062,7 +1062,7 @@ class GTOTest(unittest.TestCase):
         cs = torch.linspace(0.1, 0.7, n_gauss)\
             .view(1, -1).expand(1, -1)
 
-        mu_1 = torch.tensor([[0.0, 0.0, 0.0])
+        mu_1 = torch.tensor([[0.0, 0.0, 0.0]])
         mu_2 = torch.tensor([0.1, 0.2, 0.3])
         l_1 = torch.tensor([2], dtype=torch.int32)
         l_2 = torch.tensor([3], dtype=torch.int32)
@@ -1095,7 +1095,7 @@ class GTOTest(unittest.TestCase):
 
                     self.assertAlmostEqual(
                         I_d.item(),
-                        M_X[i, j, d].item(),
+                        M_X[d, i, j].item(),
                         places=4)
 
     def test_e3_cho_ng_overlap_matrix(self):

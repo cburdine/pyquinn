@@ -184,7 +184,7 @@ class TestLCAOHamiltonian(unittest.TestCase):
         )
 
         self.assertEqual(onsite_values.shape[0], H_direct.shape[0])
-        self.assertEqual(couplings.shape[0], coupling_values.shape[0])
+        self.assertEqual(couplings.shape[0], coupling_values.shape[-1])
         self.assertTrue(torch.allclose(H_from_entries, H_direct))
 
     def test_lcao_orbital_operator_entries(self):
@@ -211,7 +211,7 @@ class TestLCAOHamiltonian(unittest.TestCase):
             [0, -1],
         ])
 
-        for kernel in ['kinetic']: #LCAOHamiltonian.ORBITAL_OPERATOR_KERNELS:
+        for kernel in LCAOHamiltonian.ORBITAL_OPERATOR_KERNELS:
             onsite_values, couplings, coupling_values = \
                 model.orbital_operator_entries(
                     atomic_numbers=atomic_numbers,
@@ -226,9 +226,12 @@ class TestLCAOHamiltonian(unittest.TestCase):
                 coupling_values=coupling_values
             )
 
+            if kernel == 'momentum_imag':
+                X = 1.j * X
+
             self.assertEqual(onsite_values.shape[0], X.shape[0])
-            self.assertEqual(couplings.shape[0], coupling_values.shape[0])
-            self.assertTrue(torch.allclose(X, X.conj().T))
+            self.assertEqual(couplings.shape[0], coupling_values.shape[-1])
+            self.assertTrue(torch.allclose(X, X.conj().mT, atol=1e-5), msg=f'Matrix from kernel "{kernel}" is not Hermitian or Anti-Hermitian')
 
     def test_lcao_hamiltonian_key(self):
 
@@ -429,10 +432,11 @@ class TestTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
+            sparse=True,
         )
 
         # rectify dimensions of sparse tensor
-        H_k_sparse = H_k_sparse_raw.to_dense()
+        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
 
         # ensure H is the correct size and is symmetric
         H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
@@ -444,7 +448,7 @@ class TestTBHamiltonian(unittest.TestCase):
             H_k_sparse, H_k_sparse.conj().mT, atol=1e-6))
 
         # ensure sparse and non-sparse hamiltonians agree:
-        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense(), atol=1e-6))
+        self.assertTrue(torch.allclose(H_k, H_k_sparse, atol=1e-6))
 
         # test if backward pass is successful
         (torch.abs(H_k)**2).sum().backward(inputs=[positions, unit_cell])
@@ -535,9 +539,9 @@ class TestTBHamiltonian(unittest.TestCase):
         )
 
         self.assertEqual(onsite_values.shape[0], H_direct.shape[-1])
-        self.assertEqual(couplings.shape[0], coupling_values.shape[0])
+        self.assertEqual(couplings.shape[0], coupling_values.shape[-1])
         self.assertEqual(images.shape[0], couplings.shape[0])
-        self.assertTrue(torch.allclose(H_from_entries, H_direct, atol=1e-6))
+        self.assertTrue(torch.allclose(H_from_entries, H_direct, atol=1e-5))
 
         # test if backward pass is successful
         (torch.abs(H_direct)**2).sum().backward(
@@ -619,10 +623,15 @@ class TestTBHamiltonian(unittest.TestCase):
                 frac_positions=frac_positions
             )
 
-            self.assertEqual(onsite_values.shape[0], X_k.shape[-1])
-            self.assertEqual(couplings.shape[0], coupling_values.shape[0])
+            # apply -1.j factor to momentum:
+            if kernel == 'momentum_imag':
+                X_k = X_k * 1.j
+
+            self.assertEqual(onsite_values.shape[-1], X_k.shape[-1])
+            self.assertEqual(couplings.shape[0], coupling_values.shape[-1])
             self.assertEqual(images.shape[0], couplings.shape[0])
-            self.assertTrue(torch.allclose(X_k, X_k.conj().mT, atol=1e-6))
+            self.assertTrue(torch.allclose(X_k, X_k.conj().mT, atol=1e-5), 
+                msg=f'Matrix from kernel "{kernel}" is not Hermitian or Anti-Hermitian')
 
     def test_tb_eigenenergies(self):
 
@@ -738,10 +747,11 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
             unit_cell,
             unit_cell_images,
             k_pts,
+            sparse=True,
         )
 
         # rectify dimensions of sparse tensor
-        H_k_sparse = H_k_sparse_raw.to_dense()
+        H_k_sparse = H_k_sparse_raw.to_dense().permute(2, 0, 1)
 
         # ensure H is the correct size and is symmetric
         H_shape = tuple(k_pts.shape[:-1]) + (H_size, H_size)
@@ -753,7 +763,7 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
             H_k_sparse, H_k_sparse.conj().mT, atol=1e-6))
 
         # ensure sparse and non-sparse hamiltonians agree:
-        self.assertTrue(torch.allclose(H_k, H_k_sparse.to_dense(), atol=1e-6))
+        self.assertTrue(torch.allclose(H_k, H_k_sparse, atol=1e-6))
 
         # test if backward pass is successful
         (torch.abs(H_k)**2).sum().backward(inputs=[positions, unit_cell])

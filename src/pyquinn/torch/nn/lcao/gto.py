@@ -781,7 +781,7 @@ def sto_ng_kinetic_overlap_matrix(
     and I_2 > B_2.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
+        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., B_1, 3])
         ijk_1 (torch.IntTensor): Cartesian powers of x,y,z for orbital 1 
                                  (shape: [..., I_1, 3])
         alphas_1 (torch.Tensor): Gaussian widths of orbital 1 
@@ -792,7 +792,7 @@ def sto_ng_kinetic_overlap_matrix(
                                         zeros (shape: [...,I_1])
         cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 
                              (shape: [..., I_1, N_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., 3])
+        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., B_2, 3])
         ijk_2 (torch.IntTensor): Cartesian powers of x,y,z for orbital 2 
                                  (shape: [..., I_2, 3])
         alphas_2 (torch.Tensor): Gaussian widths of orbital 2
@@ -807,9 +807,6 @@ def sto_ng_kinetic_overlap_matrix(
     Returns:
         torch.Tensor: Kinetic matrix tensor M (shape: [...,I_1, I_2])
     """
-    print(mu_1.shape, mu_2.shape)
-    print(alphas_1.shape, alphas_2.shape)
-    print(alpha_idxs_1.shape, alpha_idxs_2.shape)
 
     mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
@@ -1049,7 +1046,7 @@ def sto_ng_momentum_overlap_matrix(
     and I_2 > B_2.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
+        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., B_1, 3])
         ijk_1 (torch.IntTensor): Cartesian powers of x,y,z for orbital 1 
                                  (shape: [..., I_1, 3])
         alphas_1 (torch.Tensor): Gaussian widths of orbital 1 
@@ -1060,7 +1057,7 @@ def sto_ng_momentum_overlap_matrix(
                                         zeros (shape: [...,I_1])
         cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 
                              (shape: [..., I_1, N_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., 3])
+        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., B_2, 3])
         ijk_2 (torch.IntTensor): Cartesian powers of x,y,z for orbital 2 
                                  (shape: [..., I_2, 3])
         alphas_2 (torch.Tensor): Gaussian widths of orbital 2
@@ -1073,7 +1070,7 @@ def sto_ng_momentum_overlap_matrix(
                                 (shape: [..., I_2, N_2])
 
     Returns:
-        torch.Tensor: Momentum matrix tensor M (shape: [...,I_1, I_2, 3])
+        torch.Tensor: Momentum matrix tensor M (shape: [...,3, I_1, I_2])
     """
 
     mu_batch_shape = mu_1.shape[:-2]
@@ -1166,8 +1163,8 @@ def sto_ng_momentum_overlap_matrix(
     # -d/dx : -(b_i |i-1> - a_i |i+1>) = -b_i|i-1> + a_i|i+1>
     P_ijk = (A_2 * S_p) - (B_2 * S_m)
 
-    M = torch.einsum('...im, ...dijmn, ...jn -> ...ijd', _cs_1, P_ijk, _cs_2)\
-        .reshape(*mu_batch_shape, i1_size, i2_size, 3)
+    M = torch.einsum('...im, ...dijmn, ...jn -> ...dij', _cs_1, P_ijk, _cs_2)\
+        .reshape(*mu_batch_shape, 3, i1_size, i2_size)
 
     return M
 
@@ -1192,7 +1189,7 @@ def sto_ng_position_overlap_matrix(
     assumes overlaps between l2-normalized Cartesian Gaussian primitives.
 
     Returns:
-        torch.Tensor: Position overlap matrix tensor (shape: [..., I_1, I_2, 3])
+        torch.Tensor: Position overlap matrix tensor (shape: [..., 3, I_1, I_2])
     """
 
     mu_batch_shape = mu_1.shape[:-2]
@@ -1252,7 +1249,10 @@ def sto_ng_position_overlap_matrix(
     S_p[:, 1] = T_dim_p[:, 1] * T_x * T_z
     S_p[:, 2] = T_dim_p[:, 2] * T_x * T_y
 
-    mu2 = _mu_2.to(dtype=S_base.dtype)[:, :, None, None, None, None]
+    mu_2_orb = _mu_2.take_along_dim(
+        alpha_idxs_2.reshape(mu_batch_size, -1, 1), dim=-2
+    ).view(mu_batch_size, i2_size, 3)
+    mu2 = mu_2_orb.to(dtype=S_base.dtype).transpose(-2, -1)[:, :, None, :, None, None]
 
     # normalized raising coefficient for x on the ket:
     # x|i> = mu|i> + sqrt(2i+1)/(2*sqrt(alpha)) |i+1>
@@ -1262,8 +1262,8 @@ def sto_ng_position_overlap_matrix(
 
     R_ijk = mu2 * S_base.unsqueeze(1) + c_2 * S_p
 
-    M = torch.einsum('...im, ...dijmn, ...jn -> ...ijd', _cs_1, R_ijk, _cs_2)\
-        .reshape(*mu_batch_shape, i1_size, i2_size, 3)
+    M = torch.einsum('...im, ...dijmn, ...jn -> ...dij', _cs_1, R_ijk, _cs_2)\
+        .reshape(*mu_batch_shape, 3, i1_size, i2_size)
 
     return M
 
@@ -2089,8 +2089,8 @@ def cho_ng_momentum_overlap_matrix(
                                   Defaults to None.
         
     Returns:
-        torch.Tensor: Pairwise momentum overlap matrix with x, y, and z 
-                components. (shape: [H_1, H_2, 3]).
+        torch.Tensor: Pairwise momentum overlap matrices with x, y, and z 
+                components. (shape: [3, H_1, H_2]).
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2109,10 +2109,16 @@ def cho_ng_momentum_overlap_matrix(
         mu_2, l_ijk_2,
         l_alphas_2, l_alpha_idxs_2, l_block_cs_2)
 
-    M_X_vec = torch.einsum(
-        'ai, ...ijd, bj-> abd', cho_tensor_1, M, cho_tensor_2)
+    # Apply temorary workaround to avoid pytorch unsupported expand()
+    # for sparse matrix operations
+    Mx, My, Mz = M.unbind(dim=-3)  # each [I1, I2]
 
-    return M_X_vec
+    # Each component matmul stays 2D → sparse-safe
+    Hx = cho_tensor_1 @ Mx @ cho_tensor_2.T
+    Hy = cho_tensor_1 @ My @ cho_tensor_2.T
+    Hz = cho_tensor_1 @ Mz @ cho_tensor_2.T
+
+    return torch.stack([Hx, Hy, Hz], dim=-3)
 
 
 def cho_ng_position_overlap_matrix(
@@ -2132,7 +2138,7 @@ def cho_ng_position_overlap_matrix(
 
     Returns:
         torch.Tensor: Pairwise position overlap matrix with x, y, and z
-            components. (shape: [H_1, H_2, 3]).
+            components. (shape: [3, H_1, H_2]).
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2151,10 +2157,16 @@ def cho_ng_position_overlap_matrix(
         mu_2, l_ijk_2,
         l_alphas_2, l_alpha_idxs_2, l_block_cs_2)
 
-    M_X_vec = torch.einsum(
-        'ai, ...ijd, bj-> abd', cho_tensor_1, M, cho_tensor_2)
+    # Apply temorary workaround to avoid pytorch unsupported expand()
+    # for sparse matrix operations
+    Mx, My, Mz = M.unbind(dim=-3)  # each [I1, I2]
 
-    return M_X_vec
+    # Each component matmul stays 2D → sparse-safe
+    Hx = cho_tensor_1 @ Mx @ cho_tensor_2.T
+    Hy = cho_tensor_1 @ My @ cho_tensor_2.T
+    Hz = cho_tensor_1 @ Mz @ cho_tensor_2.T
+
+    return torch.stack([Hx, Hy, Hz], dim=-3)
 
 
 def cho_ng_potential_overlap_matrix(
