@@ -231,7 +231,8 @@ class TestLCAOHamiltonian(unittest.TestCase):
 
             self.assertEqual(onsite_values.shape[0], X.shape[0])
             self.assertEqual(couplings.shape[0], coupling_values.shape[-1])
-            self.assertTrue(torch.allclose(X, X.conj().mT, atol=1e-5), msg=f'Matrix from kernel "{kernel}" is not Hermitian or Anti-Hermitian')
+            self.assertTrue(torch.allclose(X, X.conj().mT, atol=1e-5), 
+                msg=f'Matrix from kernel "{kernel}" is not Hermitian or Anti-Hermitian')
 
     def test_lcao_hamiltonian_key(self):
 

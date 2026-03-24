@@ -116,6 +116,23 @@ def impact_ionization_self_energy(
 
     return self_energy
 
+def optical_dipole_self_energy(
+        g_lesser: torch.Tensor, 
+        g_greater: torch.Tensor,
+        energies: torch.Tensor,
+        frequencies: torch.Tensor,
+        W: torch.Tensor,
+        P: torch.Tensor,
+        S_vac: torch.Tensor | None,
+        hbar: float | torch.Tensor = 1.0,
+        e0: float | torch.Tensor = 1.0,
+        c: float | torch.Tensor) -> torch.Tensor:
+
+    if S_vac is None:
+        S_vac = hbar * frequencies**3 / (6 * torch.pi * e0 * c**3)
+
+    W_vac = (2/3)*S_vac
+
 def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
     """Computes the Hilbert transform of a Greens function operator in the energy basis
 
