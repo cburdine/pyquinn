@@ -15,7 +15,7 @@ class Hamiltonian(nn.Module):
     of this class must at a minimum provide an
     implementation of
 
-    `get_hamiltonian_matrix()`
+    `get_hamiltonian_matrix()
 
     and 
 

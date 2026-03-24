@@ -3,7 +3,7 @@ from pyquinn.torch.nn import AtomwiseE3Conv
 
 from pyquinn.torch.nn.atomwise_e3 import _scalar_irreps
 from pyquinn.torch.nn.lcao.gto import (
-    e3_cho_ng_potential_overlap_matrix, 
+    e3_cho_ng_hamiltonian_potential_matrix, 
     e3_cho_overlap_matrix_metadata,
     cho_ng_norm_coeff
 )
@@ -540,7 +540,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
                     neighbor_images @ unit_cell
 
                 # compute neighborhood Hamiltonian matrix
-                H_neighborhood = e3_cho_ng_potential_overlap_matrix(
+                H_neighborhood = e3_cho_ng_hamiltonian_potential_matrix(
                     mu_1=positions[site_idxs],
                     l_1=site_ls,
                     l_alphas_1=alphas[site_idxs, site_l_idxs],

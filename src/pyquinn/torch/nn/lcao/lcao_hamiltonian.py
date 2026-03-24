@@ -6,10 +6,12 @@ from pyquinn.torch.nn.lcao.gto import (
     _ELEMENT_CHO_VALENCE_SHELLS,
     GTO_L_MAX,
     cho_ng_kinetic_overlap_matrix,
-    cho_ng_potential_overlap_matrix,
     cho_ng_position_overlap_matrix,
     cho_ng_momentum_overlap_matrix,
     cho_ng_overlap_matrix,
+    cho_ng_hamiltonian_kinetic_matrix,
+    cho_ng_hamiltonian_potential_matrix,
+    cho_ng_hamiltonian_matrix,
     cho_overlap_matrix_metadata,
     cho_ng_norm_coeff,
     _get_cho_orbital_name,
@@ -68,7 +70,9 @@ class LCAOHamiltonian(Hamiltonian):
     }
 
     HAMILTONIAN_OPERATOR_KERNELS = {
-        'hamiltonian': cho_ng_potential_overlap_matrix,
+        'hamiltonian': cho_ng_hamiltonian_matrix,
+        'kinetic': cho_ng_hamiltonian_kinetic_matrix,
+        'potential': cho_ng_hamiltonian_potential_matrix,
     }
 
     @staticmethod
@@ -779,7 +783,7 @@ class LCAOHamiltonian(Hamiltonian):
             atomic_numbers: torch.IntTensor, 
             positions: torch.Tensor, 
             neighbors: torch.IntTensor,
-            kernel: str = 'hamiltonian',
+            kernel: str = 'hamiltonian',            
             **kwargs) -> tuple:
 
         _kernel = kernel.lower()

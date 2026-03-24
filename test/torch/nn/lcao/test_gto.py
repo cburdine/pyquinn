@@ -2,29 +2,10 @@ import unittest
 
 import torch
 import numpy as np
+from pyquinn.torch.nn.lcao.gto import *
+
 from pyquinn.torch.nn.lcao.gto import (
-    _make_gto_cho_tensor, 
-    gaussian_3d, l1_gaussian_3d, l2_gaussian_3d, 
-    gto, sto_ng, potential_gto, potential_ng, sto_ng_norm_coeff,
-    sto_ng_overlap_matrix,
-    sto_ng_kinetic_overlap_matrix,
-    sto_ng_block_kinetic_overlap_matrix,
-    sto_ng_momentum_overlap_matrix,
-    sto_ng_position_overlap_matrix,
-    sto_ng_block_primitive_overlap_matrix,
-    sto_ng_block_overlap_matrix, 
-    sto_ng_potential_overlap_matrix,
-    sto_ng_block_potential_overlap_matrix,
-    cho_ng, cho_ng_norm_coeff,
-    cho_ng_overlap_matrix,
-    cho_ng_kinetic_overlap_matrix,
-    cho_ng_momentum_overlap_matrix,
-    cho_ng_position_overlap_matrix,
-    e3_cho_ng_overlap_matrix,
-    cho_ng_potential_overlap_matrix,
-    e3_cho_ng_potential_overlap_matrix,
-    cho_ng_block_overlap_matrix,
-    cho_ng_block_potential_overlap_matrix
+    _make_gto_cho_tensor # here we manually test this subroutine
 )
 
 
@@ -1125,7 +1106,7 @@ class GTOTest(unittest.TestCase):
         self.assertTrue(
             np.allclose(M_X_np, np.eye(M_X_np.shape[0]), atol=1e-6))
 
-    def test_cho_ng_potential_overlap_matrix(self):
+    def test_cho_ng_hamiltonian_potential_matrix(self):
 
         dx = torch.linspace(-5, 5, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
@@ -1153,7 +1134,7 @@ class GTOTest(unittest.TestCase):
             vs=vs_1).reshape(x.shape)
 
         # compute block overlap matrix:
-        M_X = cho_ng_potential_overlap_matrix(
+        M_X = cho_ng_hamiltonian_potential_matrix(
             mu_1, l_1, alphas, cs,
             gammas_1, vs_1,
             mu_2, l_2, alphas, cs)
@@ -1182,7 +1163,7 @@ class GTOTest(unittest.TestCase):
                     M_X[l_1+m_1, l_2+m_2].item(), 
                     places=5)
 
-    def test_e3_cho_ng_potential_overlap_matrix(self):
+    def test_e3_cho_ng_hamiltonian_potential_matrix(self):
 
         dx = torch.linspace(-5, 5, 32)
         x, y, z = torch.meshgrid((dx, dx, dx), indexing='ij')
@@ -1213,7 +1194,7 @@ class GTOTest(unittest.TestCase):
             vs=vs_1).reshape(x.shape)
 
         # compute block overlap matrix:
-        M_X = e3_cho_ng_potential_overlap_matrix(
+        M_X = e3_cho_ng_hamiltonian_potential_matrix(
             mu_1, l_1, alphas, cs_1,
             gammas_1, vs_1,
             mu_2, l_2, alphas, cs_2)
@@ -1242,7 +1223,7 @@ class GTOTest(unittest.TestCase):
                     M_X[l_1+m_1, l_2+m_2].item(), 
                     places=5)
 
-    def test_cho_ng_potential_overlap_matrix_shape(self):
+    def test_cho_ng_hamiltonian_potential_matrix_shape(self):
 
         n_gauss = 3
         V_n_gauss = 5
@@ -1275,7 +1256,7 @@ class GTOTest(unittest.TestCase):
         gammas_1 = torch.linspace(0.2, 0.5, V_n_gauss)
         vs_1 = torch.linspace(-100, -20, V_n_gauss)
 
-        M_X = cho_ng_potential_overlap_matrix(
+        M_X = cho_ng_hamiltonian_potential_matrix(
             mu_1, l_1, alphas_1, cs_1,
             gammas_1, vs_1,
             mu_2, l_2, alphas_2, cs_2
