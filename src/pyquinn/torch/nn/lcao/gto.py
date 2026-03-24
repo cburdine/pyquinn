@@ -4,8 +4,8 @@ from math import factorial, sqrt, comb, gamma
 from pyquinn.torch.util import sparse_coo_block_diag
 
 GTO_L_MAX = 4
-""" Maximum angular momentum :math:`l` supported by default for 
-representations of gaussian atomic orbitals."""
+r"""Maximum angular momentum :math:`l` supported by default for Gaussian-type
+orbital (GTO) representations."""
 
 
 def _make_flat_tensors(tensor_list: list):
@@ -32,8 +32,14 @@ def _get_flat_tensor(data, i):
 
 
 def _make_gto_ijk_coeffs(l_max):
-    """ Generates a tensor of coefficients corresponding to IJK values up
-    to l=l_max"""
+    """Generate factorial-based normalization coefficients for Cartesian powers.
+
+    Args:
+        l_max (int): Maximum angular momentum :math:`l` (inclusive).
+
+    Returns:
+        torch.Tensor: 1D tensor `c` where `c[i] = i!/(2i)!` for `0 <= i <= l_max`.
+    """
     return torch.tensor([
         factorial(i) / factorial(2*i)
         for i in range(l_max+1)
@@ -41,13 +47,19 @@ def _make_gto_ijk_coeffs(l_max):
 
 
 _GTO_IJK_COEFFS = _make_gto_ijk_coeffs(GTO_L_MAX)
-""" Normalizing constant factors for ijk gaussian-type orbitals up to
-l=GTO_L_MAX"""
+r"""Normalizing constant factors for Cartesian GTOs up to `l = GTO_L_MAX`."""
 
 
 def _make_potential_ijk_coeffs(l_max):
-    """ Generates a tensor of coefficients corresponding to IJK values up
-    to l=l_max"""
+    """Generate normalization coefficients for Cartesian Gaussian potentials.
+
+    Args:
+        l_max (int): Maximum angular momentum :math:`l` (inclusive).
+
+    Returns:
+        torch.Tensor: 1D tensor `c` where `c[i] = 1/Gamma((i+1)/2)` for
+        `0 <= i <= l_max`.
+    """
     return torch.tensor([
         1/gamma((i + 1)/2)
         for i in range(l_max+1)
@@ -55,12 +67,19 @@ def _make_potential_ijk_coeffs(l_max):
 
 
 _POTENTIAL_IJK_COEFFS = _make_potential_ijk_coeffs(GTO_L_MAX)
-""" Normalizing constant factors for ijk l1 gaussian-type 
-potentials up to l=GTO_L_MAX"""
+r"""Normalizing constant factors for Cartesian l1-normalized Gaussian potentials
+up to `l = GTO_L_MAX`."""
 
 
 def _make_gto_ijk_values(l):
-    """ Generates a tensor of all IJK values wiht angular momentum l"""
+    """Generate the ordered list of all `(i, j, k)` with `i + j + k = l`.
+
+    Args:
+        l (int): Angular momentum (total Cartesian power).
+
+    Returns:
+        torch.Tensor: Integer tensor of shape `[n, 3]` listing all triples.
+    """
 
     return torch.tensor([
         [l-(j+k), j, k]
@@ -73,12 +92,19 @@ _GTO_IJK_VALUES = [
     _make_gto_ijk_values(l)
     for l in range(GTO_L_MAX+1)
 ]
-""" IJK values for each angular momentum  l up to l = GTO_L_MAX"""
+r"""IJK values for each angular momentum `l` up to `l = GTO_L_MAX`."""
 
 
 def _make_gto_hermite_tensor(l_max):
-    """ Generates a matrix of Hermite polynomial coefficients up to
-    order n = 2*l+1"""
+    """Generate a matrix of Hermite polynomial coefficients.
+
+    Args:
+        l_max (int): Maximum angular momentum :math:`l` (inclusive).
+
+    Returns:
+        torch.Tensor: Coefficient matrix `H` of shape `[n, n]` where
+        `n = 2 * (l_max + 1)`.
+    """
     n = 2*(l_max + 1)
     H = torch.zeros((n, n), requires_grad=False)
     for j in range(n):
@@ -90,11 +116,18 @@ def _make_gto_hermite_tensor(l_max):
 
 
 _GTO_HERMITE_TENSOR = _make_gto_hermite_tensor(GTO_L_MAX)
-""" Matrix of Hermite polynomial coefficients up to order n = 2*GTO_MAX + 1"""
+r"""Matrix of Hermite polynomial coefficients up to order
+`n = 2 * (GTO_L_MAX + 1)`."""
 
 def _make_gto_alpha_tensor(l_max):
-    """ Generates a matrix of alpha coefficients for multiplying the product
-    of Gaussian primitives up to l = GTO_L_MAX"""
+    """Generate a matrix of coefficients used for products of primitives.
+
+    Args:
+        l_max (int): Maximum angular momentum :math:`l` (inclusive).
+
+    Returns:
+        torch.Tensor: Coefficient matrix `A` of shape `[l_max+1, l_max+1]`.
+    """
     n = l_max+1
     A = torch.zeros((n, n), requires_grad=False)
     for l in range(n):
@@ -107,23 +140,26 @@ def _make_gto_alpha_tensor(l_max):
 
 
 _GTO_ALPHA_TENSOR = _make_gto_alpha_tensor(GTO_L_MAX)
-""" Matrix of alphas coefficients up to l = GTO_L_MAX"""
+r"""Matrix of coefficients up to `l = GTO_L_MAX`."""
 
 def _make_gto_cho_tensor(l, ijks=None) -> torch.Tensor:
-    """Generates a matrix mapping the basis of l2-normalized gaussian
-    functions with i+j+k=l to the basis of orthonormal 2l+1 cubic
-    yharmonics with angular momentum l
+    r"""Generate the Cartesian-to-cubic-harmonic transformation matrix.
+
+    The returned matrix `X` maps the basis of l2-normalized Cartesian GTOs
+    with `i + j + k = l` to the basis of real cubic harmonics with the same
+    angular momentum:
+
+    .. math::
+
+        \chi_{l m}(\mathbf{x}) = \sum_{i+j+k=l} X_{l m,\, i j k}\,\phi^{i j k}(\mathbf{x})
 
     Args:
-        l (int): Angular momentum of gaussian basis functions (l = i+j+k)
-        ijks (torch.Tensor, optional): Matrix of ordered ijk values
-                                       (shape: [n,3]). If None, uses
-                                       the default ordering of ijk values
-                                       for the given l. Defaults to None.
-        padded (bool): Whether or not to  return the tensor padded 
+        l (int): Angular momentum (total Cartesian power).
+        ijks (torch.Tensor, optional): Ordered `(i, j, k)` values of shape
+            `[n, 3]`. If `None`, uses the default ordering for the given `l`.
 
     Returns:
-        torch.Tensor: Matrix of coefficients (shape: [2l+1, len(ijks)])
+        torch.Tensor: Transformation matrix `X` of shape `[2l+1, n]`.
     """
 
     if ijks is None:
@@ -182,8 +218,8 @@ _GTO_CHO_TENSORS = [
     _make_gto_cho_tensor(l, _GTO_IJK_VALUES[l].detach().cpu().numpy())
     for l in range(GTO_L_MAX+1)
 ]
-""" List of matrices mapping gaussian bases to cubic harmonics for
-each l up to l=GTO_L_MAX."""
+r"""List of matrices mapping Cartesian GTO bases to cubic harmonics for each
+`l` up to `l = GTO_L_MAX`."""
 
 
 def _make_gto_e3_cho_tensor(l, cho_tensor=None, ijks=None):
@@ -226,19 +262,21 @@ def gaussian_3d(
         x: torch.Tensor,
         mu: torch.Tensor,
         beta: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a 3D unnormalized gaussian primitive function.
+    r"""Evaluate a 3D unnormalized Gaussian primitive function.
 
     .. math::
 
         f(\mathbf{x}) = \exp(-\beta(\mathbf{x}-\boldsymbol{\mu})^2)
 
     Args:
-        x (torch.Tensor): Points x in space (shap2e: [...,3])
-        mu (torch.Tensor): Gaussian center (shape: [...,3])
-        beta (torch.Tensor): Gaussian widths (shape: [...])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Gaussian center (shape: `[..., 3]`, broadcastable to
+            `x`).
+        beta (torch.Tensor): Gaussian exponent (shape: `[...]`, broadcastable to
+            `x[..., 0]`).
 
     Returns:
-        torch.Tensor: Value of gaussians at points x (shape: [...,1])
+        torch.Tensor: Values at `x` (shape: `[..., 1]`).
     """
     return torch.exp(-beta*torch.sum((x-mu)**2, dim=-1, keepdim=True))
 
@@ -247,7 +285,7 @@ def l1_gaussian_3d(
         x: torch.Tensor,
         mu: torch.Tensor,
         gamma: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a 3D l1-normalized gaussian primitive function.
+    r"""Evaluate a 3D l1-normalized Gaussian primitive function.
 
     .. math::
 
@@ -255,13 +293,14 @@ def l1_gaussian_3d(
         \exp(-\gamma(\mathbf{x}-\boldsymbol{\mu})^2)
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Gaussian center (shape: [...,3])
-        gamma (torch.Tensor): Normalized gaussian widths 
-                              (shape: [...])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Gaussian center (shape: `[..., 3]`, broadcastable to
+            `x`).
+        gamma (torch.Tensor): Gaussian exponent (shape: `[...]`, broadcastable
+            to `x[..., 0]`).
 
     Returns:
-        torch.Tensor: Value of gaussians at points x (shape: [...,1])
+        torch.Tensor: Values at `x` (shape: `[..., 1]`).
     """
     return (gamma/torch.pi)**(3/2) * \
         torch.exp(-gamma*torch.sum((x-mu)**2, dim=-1, keepdim=True))
@@ -270,7 +309,7 @@ def l1_gaussian_3d(
 def l2_gaussian_3d(x: torch.Tensor,
                    mu: torch.Tensor,
                    alpha: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a 3D l2-normalized gaussian primitive function.
+    r"""Evaluate a 3D l2-normalized Gaussian primitive function.
 
     .. math::
 
@@ -278,13 +317,14 @@ def l2_gaussian_3d(x: torch.Tensor,
         \exp(-\alpha(\mathbf{x}-\boldsymbol{\mu})^2)
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Gaussian center (shape: [...,3])
-        alpha (torch.Tensor): Normalized gaussian widths 
-                              (shape: [...])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Gaussian center (shape: `[..., 3]`, broadcastable to
+            `x`).
+        alpha (torch.Tensor): Gaussian exponent (shape: `[...]`, broadcastable
+            to `x[..., 0]`).
 
     Returns:
-        torch.Tensor: Value of gaussians at points x (shape: [...,1])
+        torch.Tensor: Values at `x` (shape: `[..., 1]`).
     """
     return (2*alpha/torch.pi)**(3/4) * \
         torch.exp(-alpha*torch.sum((x-mu)**2, dim=-1, keepdim=True))
@@ -294,13 +334,13 @@ def gto(x: torch.Tensor,
         mu: torch.Tensor, 
         ijk: torch.IntTensor, 
         alpha: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates an l2-normalized cartesian gaussian-type Orbital (GTO) 
-    function.
+    r"""Evaluate an l2-normalized Cartesian Gaussian-type orbital (GTO).
 
     .. math::
 
-        \phi_\alpha^{ijk}(\mathbf{x}) = N(x-\mu_x)^i(y-\mu_y)^j(z-\mu_z)^k
-        \exp(-\alpha(\mathbf{x}-\boldsymbol{\mu})^2)
+        \phi_{\alpha}^{i j k}(\mathbf{x}) =
+        N\,(x-\mu_x)^i\,(y-\mu_y)^j\,(z-\mu_z)^k\,
+        \exp\!\left(-\alpha\,\lVert\mathbf{x}-\boldsymbol{\mu}\rVert^2\right)
 
     where :math:`N` is a normalization coefficient.
 
@@ -308,13 +348,16 @@ def gto(x: torch.Tensor,
     represent a cartesian Slater-type orbital (STO).
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Orbital center (shape: [3])
-        ijk (torch.IntTensor): Cartesian powers of x,y,z (shape: [3])
-        alpha (torch.Tensor): Normalized gaussian widths (shape: [3])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Orbital center (shape: `[3]` or `[..., 3]`,
+            broadcastable to `x`).
+        ijk (torch.IntTensor): Cartesian powers `(i, j, k)` (shape: `[3]` or
+            `[..., 3]`, broadcastable to `x`).
+        alpha (torch.Tensor): Gaussian exponent (shape: `[...]` or scalar,
+            broadcastable to `x[..., 0]`).
 
     Returns:
-        torch.Tensor: Value of cartesian GTO at points x (shape: [...])
+        torch.Tensor: Values at `x` (shape: `[..., 1]`).
     """
 
     dx = x - mu
@@ -331,13 +374,13 @@ def potential_gto(
         mu: torch.Tensor, 
         ijk: torch.IntTensor, 
         gamma: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates an l1-normalized cartesian gaussian-type orbital
-    function.
+    r"""Evaluate an l1-normalized Cartesian Gaussian potential basis function.
 
     .. math::
 
-        F_\gamma^{ijk}(\mathbf{x}) = N(x-\mu_x)^i(y-\mu_y)^j(z-\mu_z)^k
-        \exp(-\gamma(\mathbf{x}-\boldsymbol{\mu})^2)
+        F_{\gamma}^{i j k}(\mathbf{x}) =
+        N\,(x-\mu_x)^i\,(y-\mu_y)^j\,(z-\mu_z)^k\,
+        \exp\!\left(-\gamma\,\lVert\mathbf{x}-\boldsymbol{\mu}\rVert^2\right)
 
     where :math:`N` is a normalization coefficient.
 
@@ -345,13 +388,16 @@ def potential_gto(
     used to represent an effective core potential.
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Orbital center (shape: [3])
-        ijk (torch.IntTensor): Cartesian powers of x,y,z (shape: [3])
-        gamma (torch.Tensor): Normalized gaussian widths (shape: [3])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Potential center (shape: `[3]` or `[..., 3]`,
+            broadcastable to `x`).
+        ijk (torch.IntTensor): Cartesian powers `(i, j, k)` (shape: `[3]` or
+            `[..., 3]`, broadcastable to `x`).
+        gamma (torch.Tensor): Gaussian exponent (shape: `[...]` or scalar,
+            broadcastable to `x[..., 0]`).
 
     Returns:
-        torch.Tensor: Value of cartesian potential at points x (shape: [...])
+        torch.Tensor: Values at `x` (shape: `[..., 1]`).
     """
 
     dx = x - mu
@@ -368,27 +414,26 @@ def sto_ng(
         ijk: torch.IntTensor, 
         alphas: torch.Tensor, 
         cs: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a cartesian Slater-type orbital (STO) represented as the 
-    contraction of :math:`N` primitive gaussians.
+    r"""Evaluate a contracted Cartesian orbital as a Gaussian contraction.
 
     .. math::
 
-        \phi^{ijk}(\mathbf{x}) = \sum_{n=1}^N c_n 
-        \phi_{\alpha_n}^{ijk}(\mathbf{x})
+        \phi^{i j k}(\mathbf{x}) = \sum_{n=1}^{N} c_n\,\phi_{\alpha_n}^{i j k}(\mathbf{x})
 
-    The contraction coefficients `cs` are not normalized when :math:`\phi`
-    is evaluated.
+    The contraction coefficients `cs` are used as-is (they are not internally
+    normalized).
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Orbital center (shape: [3])
-        ijk (torch.IntTensor): Cartesian powers of x,y,z (shape: [3])
-        alphas (torch.Tensor): Gaussian widths (shape: [N])
-        cs (torch.Tensor): Gaussian coeffficients (shape: [N])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Orbital center (shape: `[3]` or `[..., 3]`,
+            broadcastable to `x`).
+        ijk (torch.IntTensor): Cartesian powers `(i, j, k)` (shape: `[3]` or
+            `[..., 3]`, broadcastable to `x`).
+        alphas (torch.Tensor): Primitive Gaussian exponents (shape: `[N]`).
+        cs (torch.Tensor): Primitive contraction coefficients (shape: `[N]`).
 
     Returns:
-        torch.Tensor: Value of the unnormalized orbital at points x 
-                      (shape: [...])
+        torch.Tensor: Values at `x` (shape: `[...]`).
     """
 
     gto_3d_component = torch.vmap(lambda a, c: c*gto(x, mu, ijk, a),
@@ -405,29 +450,31 @@ def potential_ng(
         ijk: torch.IntTensor, 
         gammas: torch.Tensor, 
         vs: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a cartesian effective potential function expanded as an
-    weighted contraction of :math:`N` l1-normalized gaussians. 
+    r"""Evaluate a contracted Cartesian effective potential function.
 
     .. math::
 
-        V^{ijk}(\mathbf{x}) = \sum_{n=1}^N v_n 
-        F{\gamma_n}^{ijk}(\mathbf{x})
+        V^{i j k}(\mathbf{x}) = \sum_{n=1}^{N} v_n\,F_{\gamma_n}^{i j k}(\mathbf{x})
 
-    The contraction coefficients `cs` are not normalized when :math:`\phi`
-    is evaluated.
+    The contraction coefficients `vs` are used as-is (they are not internally
+    normalized).
 
     For a radially symmetric potential, the value of
     (i,j,k) = (0,0,0) should be used.
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Potential center (shape: [3])
-        ijk (torch.IntTensor): Cartesian powers of x,y,z (shape: [3])
-        gammas (torch.Tensor): Potential Gaussian widths (shape: [N])
-        vs (torch.Tensor): Potential Gaussian coeffficients (shape: [N])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Potential center (shape: `[3]` or `[..., 3]`,
+            broadcastable to `x`).
+        ijk (torch.IntTensor): Cartesian powers `(i, j, k)` (shape: `[3]` or
+            `[..., 3]`, broadcastable to `x`).
+        gammas (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[N]`).
+        vs (torch.Tensor): Primitive potential contraction coefficients
+            (shape: `[N]`).
 
     Returns:
-        torch.Tensor: Value of the potential at points x.
+        torch.Tensor: Values at `x` (shape: `[...]`).
     """
 
     v_3d_component = torch.vmap(lambda g, v: v*potential_gto(x, mu, ijk, g),
@@ -441,6 +488,35 @@ def potential_ng(
 def sto_ng_primitive_overlap_matrix(
         mu_1: torch.Tensor, alphas_1: torch.Tensor, 
         mu_2: torch.Tensor, alphas_2: torch.Tensor) -> torch.Tensor:
+    r"""Evaluate primitive 1D overlap tensors for l2-normalized Gaussian primitives.
+
+    This routine computes the per-dimension primitive overlap tensor used to
+    build Cartesian overlaps between primitives centered at `mu_1` and `mu_2`.
+    It is used internally by :func:`sto_ng_overlap_matrix` and
+    :func:`sto_ng_kinetic_overlap_matrix`.
+
+    .. math::
+
+        T_{n_1,n_2,d,i_1,i_2}
+        \;\propto\;
+        \int_{-\infty}^{\infty} x^{i_1}\,e^{-\alpha_{1,n_1}(x-\mu_{1,d})^2}\;
+        x^{i_2}\,e^{-\alpha_{2,n_2}(x-\mu_{2,d})^2}\;dx
+
+    Args:
+        mu_1 (torch.Tensor): Centers for primitive set 1 (shape: `[..., 3]` or
+            `[..., B_1, 3]` depending on caller; broadcastable with `alphas_1`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for set 1
+            (shape: `[..., B_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for primitive set 2 (shape: `[..., 3]` or
+            `[..., B_2, 3]` depending on caller; broadcastable with `alphas_2`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for set 2
+            (shape: `[..., B_2, N_2]`).
+
+    Returns:
+        torch.Tensor: Primitive overlap tensor `T` (shape:
+        `[..., B_1, B_2, N_1, N_2, 3, L+1, L+1]`), where
+        `L = GTO_L_MAX`.
+    """
 
     _alphas_1 = alphas_1.unsqueeze(-1).unsqueeze(-3)
     _alphas_2 = alphas_2.unsqueeze(-2).unsqueeze(-4)
@@ -501,11 +577,14 @@ def sto_ng_primitive_overlap_matrix(
 def sto_ng_block_primitive_overlap_matrix(
         mu_1: torch.Tensor, alphas_1: torch.Tensor, 
         mu_2: torch.Tensor, alphas_2: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates the primitive overlap matrices for contracted slater-type
-    orbitals expanded as the sum of :math:`N` gaussians. This overlap matrix 
-    has the shape [...,N_1,N_2,3,L+1,L+1], where L is is the maximum allowed 
-    angular momentum 
-    (equal to :attr:`GTO_L_MAX <pyquinn.torch.lcao.gto.GTO_L_MAX>` by default).
+    r"""Evaluate primitive 1D overlap tensors for l2-normalized Gaussian primitives.
+
+    The returned tensor provides per-dimension overlaps that can be combined
+    (via a Hadamard product over `d = 1,2,3`) to obtain Cartesian primitive
+    overlaps for any two Cartesian GTOs.
+
+    The maximum supported angular momentum is
+    :attr:`GTO_L_MAX <pyquinn.torch.lcao.gto.GTO_L_MAX>`.
 
     For any two sets of cartesian GTOs :math:`\phi_1, \phi_2` with powers 
     :math:`(i_1, j_1, k_1)` and :math:`(i_2,j_2,k_2)`, the returned tensor
@@ -522,26 +601,23 @@ def sto_ng_block_primitive_overlap_matrix(
     where the product :math:`\odot` (the Hadamard product) is computed 
     elementwise.
 
-    This function also supports the batch pairwise evaluation of overlap
-    integrals between sets of contracted gaussians, with set sizes of
-    B_1, and B_2 respectively. If batch pairwise evaluation is not 
-    desired, the tensors `alphas_1` and `alphas_2` should have a first 
-    dimension of B_1 = B_2 = 1.
+    This function supports pairwise batching over sets of exponents via the
+    `B_1` and `B_2` axes of `alphas_1` and `alphas_2`.
 
     Note that any leading dimensions to the tensors `mu_1`
     and `mu_2` are not evaluated in this batch-pairwise fashion.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
-        alphas_1 (torch.Tensor): Gaussian widths of orbital 1 
-                                 (shape: [..., B_1, N_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., 3])
-        alphas_2 (torch.Tensor): Gaussian widths of orbital 2 
-                                 (shape: [..., B_2, N_2])
+        mu_1 (torch.Tensor): Centers for set 1 (shape: `[..., 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for set 1
+            (shape: `[..., B_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for set 2 (shape: `[..., 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for set 2
+            (shape: `[..., B_2, N_2]`).
 
     Returns:
-        torch.Tensor: Overlap matrix tensor T.
-                      (shape: [..., B_1, B_2, N_1, N_2, 3, L+1, L+1])
+        torch.Tensor: Primitive overlap tensor `T` (shape:
+        `[..., B_1, B_2, N_1, N_2, 3, L+1, L+1]`).
     """
 
     _alphas_1 = alphas_1.unsqueeze(-1).unsqueeze(-3)
@@ -607,6 +683,39 @@ def sto_ng_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
+    r"""Evaluate pairwise contracted Cartesian orbital overlap matrix.
+
+    .. math::
+
+        M_{i,j} = \langle \phi_{1,i} \mid \phi_{2,j} \rangle
+
+    Pairwise batching over exponent sets is supported through `alphas_1` and
+    `alphas_2` (axes `B_1` and `B_2`). Each orbital selects which exponent set
+    to use via `alpha_idxs_1` and `alpha_idxs_2`.
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital set 1 (shape: `[..., B_1, 3]`).
+        ijk_1 (torch.IntTensor): Cartesian powers for orbital set 1
+            (shape: `[..., I_1, 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        alpha_idxs_1 (torch.IntTensor): Exponent-set indices for orbital set 1
+            (shape: `[..., I_1]`, values in `[0, B_1)`).
+        cs_1 (torch.Tensor): Contraction coefficients for orbital set 1
+            (shape: `[..., I_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for orbital set 2 (shape: `[..., B_2, 3]`).
+        ijk_2 (torch.IntTensor): Cartesian powers for orbital set 2
+            (shape: `[..., I_2, 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+        alpha_idxs_2 (torch.IntTensor): Exponent-set indices for orbital set 2
+            (shape: `[..., I_2]`, values in `[0, B_2)`).
+        cs_2 (torch.Tensor): Contraction coefficients for orbital set 2
+            (shape: `[..., I_2, N_2]`).
+
+    Returns:
+        torch.Tensor: Overlap matrix `M` (shape: `[..., I_1, I_2]`).
+    """
 
     mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
@@ -666,7 +775,7 @@ def sto_ng_block_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise orbital overlap matrix 
+    r"""Evaluate the Cartesian GTO pairwise orbital overlap matrix
     between all orbitals on adjacent sites.
 
     .. math::
@@ -677,7 +786,7 @@ def sto_ng_block_overlap_matrix(
     the same alpha values, pairwise batching of the overlap integrals between
     sites is supported. This allows for the passing of a smaller list of alphas 
     (of size B_1 and B_2), which are then indexed in each orbital by 
-    `alpha_idxs+1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1 
+    `alpha_idxs_1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1
     and I_2 > B_2.
 
     Args:
@@ -690,7 +799,7 @@ def sto_ng_block_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_1])
-        cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 
+        cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
                              (shape: [..., I_1, N_1])
         mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., 3])
         ijk_2 (torch.IntTensor): Cartesian powers of x,y,z for orbital 2 
@@ -701,7 +810,7 @@ def sto_ng_block_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_2])
-        cs_2 (torch.IntTensor): Gaussian coeffficients of orbital 2 
+        cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
                                 (shape: [..., I_2, N_2])
 
     Returns:
@@ -766,8 +875,7 @@ def sto_ng_kinetic_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise kinetic energy
-    matrix between all orbitals on adjacent sites.
+    r"""Evaluate pairwise contracted Cartesian kinetic energy overlap matrix.
 
     .. math::
 
@@ -777,7 +885,7 @@ def sto_ng_kinetic_overlap_matrix(
     the same alpha values, pairwise batching of the overlap integrals between
     sites is supported. This allows for the passing of a smaller list of alphas 
     (of size B_1 and B_2), which are then indexed in each orbital by 
-    `alpha_idxs+1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1 
+    `alpha_idxs_1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1
     and I_2 > B_2.
 
     Args:
@@ -790,7 +898,7 @@ def sto_ng_kinetic_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_1])
-        cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 
+        cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
                              (shape: [..., I_1, N_1])
         mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., B_2, 3])
         ijk_2 (torch.IntTensor): Cartesian powers of x,y,z for orbital 2 
@@ -801,7 +909,7 @@ def sto_ng_kinetic_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_2])
-        cs_2 (torch.IntTensor): Gaussian coeffficients of orbital 2 
+        cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
                                 (shape: [..., I_2, N_2])
 
     Returns:
@@ -915,14 +1023,38 @@ def sto_ng_block_kinetic_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise kinetic energy matrix between
-    orbitals on adjacent sites, supporting pairwise batching over alpha sets.
+    r"""Evaluate pairwise Cartesian kinetic energy overlap matrix (unbatched centers).
 
     .. math::
 
         M_{i,j} = -\frac{1}{2} \langle \phi_{1,i} | \nabla^2 | \phi_{2,j} \rangle
 
-    Args mirror sto_ng_block_overlap_matrix but for kinetic energy.
+    This has the same batching conventions as
+    :func:`sto_ng_block_overlap_matrix`, but evaluates the kinetic energy
+    operator instead of the identity operator.
+
+    Args:
+        mu_1 (torch.Tensor): Center of orbital set 1 (shape: `[..., 3]`).
+        ijk_1 (torch.IntTensor): Cartesian powers for orbital set 1
+            (shape: `[..., I_1, 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        alpha_idxs_1 (torch.IntTensor): Exponent-set indices for orbital set 1
+            (shape: `[..., I_1]`, values in `[0, B_1)`).
+        cs_1 (torch.Tensor): Contraction coefficients for orbital set 1
+            (shape: `[..., I_1, N_1]`).
+        mu_2 (torch.Tensor): Center of orbital set 2 (shape: `[..., 3]`).
+        ijk_2 (torch.IntTensor): Cartesian powers for orbital set 2
+            (shape: `[..., I_2, 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+        alpha_idxs_2 (torch.IntTensor): Exponent-set indices for orbital set 2
+            (shape: `[..., I_2]`, values in `[0, B_2)`).
+        cs_2 (torch.Tensor): Contraction coefficients for orbital set 2
+            (shape: `[..., I_2, N_2]`).
+
+    Returns:
+        torch.Tensor: Kinetic energy matrix `M` (shape: `[..., I_1, I_2]`).
     """
 
     mu_batch_shape = mu_1.shape[:-1]
@@ -1031,8 +1163,7 @@ def sto_ng_momentum_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise momentum
-    matrix between all orbitals on adjacent sites. The momentum is 
+    r"""Evaluate pairwise contracted Cartesian momentum overlap matrix.
 
     .. math::
 
@@ -1055,7 +1186,7 @@ def sto_ng_momentum_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_1])
-        cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 
+        cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
                              (shape: [..., I_1, N_1])
         mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., B_2, 3])
         ijk_2 (torch.IntTensor): Cartesian powers of x,y,z for orbital 2 
@@ -1066,7 +1197,7 @@ def sto_ng_momentum_overlap_matrix(
                                         evaluated set of alphas. If batching
                                         of alphas is not used, should be all
                                         zeros (shape: [...,I_2])
-        cs_2 (torch.IntTensor): Gaussian coeffficients of orbital 2 
+        cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
                                 (shape: [..., I_2, N_2])
 
     Returns:
@@ -1178,18 +1309,37 @@ def sto_ng_position_overlap_matrix(
         alphas_2: torch.Tensor,
         alpha_idxs_2: torch.IntTensor,
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise position operator overlap
-    matrix between all orbitals on adjacent sites.
+    r"""Evaluate pairwise contracted Cartesian position overlap matrix.
 
     .. math::
 
         \vec{R}_{i,j} = \langle \phi_{1,i} | \vec{r} | \phi_{2,j} \rangle
 
-    This uses the same conventions as :func:`sto_ng_overlap_matrix` and
-    assumes overlaps between l2-normalized Cartesian Gaussian primitives.
+    This uses the same batching conventions as :func:`sto_ng_overlap_matrix`
+    and assumes l2-normalized Cartesian Gaussian primitives.
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital set 1 (shape: `[..., B_1, 3]`).
+        ijk_1 (torch.IntTensor): Cartesian powers for orbital set 1
+            (shape: `[..., I_1, 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        alpha_idxs_1 (torch.IntTensor): Exponent-set indices for orbital set 1
+            (shape: `[..., I_1]`, values in `[0, B_1)`).
+        cs_1 (torch.Tensor): Contraction coefficients for orbital set 1
+            (shape: `[..., I_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for orbital set 2 (shape: `[..., B_2, 3]`).
+        ijk_2 (torch.IntTensor): Cartesian powers for orbital set 2
+            (shape: `[..., I_2, 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+        alpha_idxs_2 (torch.IntTensor): Exponent-set indices for orbital set 2
+            (shape: `[..., I_2]`, values in `[0, B_2)`).
+        cs_2 (torch.Tensor): Contraction coefficients for orbital set 2
+            (shape: `[..., I_2, N_2]`).
 
     Returns:
-        torch.Tensor: Position overlap matrix tensor (shape: [..., 3, I_1, I_2])
+        torch.Tensor: Position overlap tensor `R` (shape: `[..., 3, I_1, I_2]`).
     """
 
     mu_batch_shape = mu_1.shape[:-2]
@@ -1272,6 +1422,37 @@ def sto_ng_primitive_potential_overlap_matrix(
         mu_1: torch.Tensor, alphas_1: torch.Tensor,
         gammas_1: torch.Tensor,
         mu_2: torch.Tensor, alphas_2: torch.Tensor) -> torch.Tensor:
+    r"""Evaluate primitive overlap tensors with an l1-normalized Gaussian potential.
+
+    This routine computes per-dimension primitive overlap tensors used to build
+    Cartesian matrix elements of a Gaussian-expanded potential centered at the
+    first site.
+
+    .. math::
+
+        T_{m,n_1,n_2,d,i_1,i_2}
+        \;\propto\;
+        \int_{-\infty}^{\infty} x^{i_1}\,e^{-\alpha_{1,n_1}(x-\mu_{1,d})^2}\;
+        F_{\gamma_m}^{0 0 0}(x-\mu_{1,d})\;
+        x^{i_2}\,e^{-\alpha_{2,n_2}(x-\mu_{2,d})^2}\;dx
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital set 1 (shape: `[..., 3]` or
+            `[..., B_1, 3]`, depending on caller).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[..., M_1]`).
+        mu_2 (torch.Tensor): Centers for orbital set 2 (shape: `[..., 3]` or
+            `[..., B_2, 3]`, depending on caller).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+
+    Returns:
+        torch.Tensor: Primitive potential overlap tensor `T` (shape:
+        `[..., M_1, B_1, B_2, N_1, N_2, 3, L+1, L+1]`), where
+        `L = GTO_L_MAX`.
+    """
 
     _alphas_1 = alphas_1.unsqueeze(-1).unsqueeze(-3).unsqueeze(-5)
     _alphas_2 = alphas_2.unsqueeze(-2).unsqueeze(-4).unsqueeze(-5)
@@ -1351,12 +1532,15 @@ def sto_ng_block_primitive_potential_overlap_matrix(
         mu_1: torch.Tensor, alphas_1: torch.Tensor,
         gammas_1: torch.Tensor,
         mu_2: torch.Tensor, alphas_2: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates the primitive overlap matrices for contracted slater-type
-    orbitals expanded as the sum of :math:`N` gaussians under the influence of
-    an effective cartesian potential centered at the first site. This overlap 
-    matrix has the shape [..., M_1, N_1,N_2,3,L+1,L+1], where L is is the 
-    maximum allowed angular momentum. 
-    (equal to :attr:`GTO_L_MAX <pyquinn.torch.lcao.gto.GTO_L_MAX>` by default).
+    r"""Evaluate primitive overlap tensors under a Gaussian-expanded potential.
+
+    The potential at site 1 is expanded as a weighted sum of `M_1`
+    l1-normalized Gaussians, and the returned tensor provides per-dimension
+    primitive overlaps used to assemble
+    :math:`\langle \phi_1 \mid V_1 \mid \phi_2 \rangle`.
+
+    The maximum supported angular momentum is
+    :attr:`GTO_L_MAX <pyquinn.torch.lcao.gto.GTO_L_MAX>`.
 
     The potential function :math:`V_1(\vec{r})` is expanded as the sum of 
     :math:`M` primitive Gaussians.
@@ -1367,34 +1551,32 @@ def sto_ng_block_primitive_potential_overlap_matrix(
 
     .. math::
 
-        \langle \phi_1 | V_1 | \phi_2 \rangle = 
-        \sum_{n_1=1}^{N_1}\sum_{n_2=1}^{N_2} v_m c_{n_1} c_{n_2} 
-        (T_{m, n_1, n_2, 1, i_1, i_2} 
-            \odot T_{m, n_1, n_2, 2, j_1, j_2} 
-            \odot T_{m, n_2, n_2, 3, k_1, k_2})
+        \langle \phi_1 \mid V_1 \mid \phi_2 \rangle =
+        \sum_{m=1}^{M_1} v_m
+        \sum_{n_1=1}^{N_1}\sum_{n_2=1}^{N_2} c_{n_1} c_{n_2}
+        \left(T_{m,n_1,n_2,1,i_1,i_2}
+        \odot T_{m,n_1,n_2,2,j_1,j_2}
+        \odot T_{m,n_1,n_2,3,k_1,k_2}\right)
 
     where the product :math:`\odot` (the Hadamard product) is computed 
     elementwise.
 
-    This function also supports the batch pairwise evaluation of overlap
-    integrals between sets of contracted gaussians, with set sizes of
-    B_1, and B_2 respectively. If batch pairwise evaluation is not 
-    desired, the tensors `alphas_1` and `alphas_2` should have a first 
-    dimension of B_1 = B_2 = 1.
+    Pairwise batching over exponent sets is supported through the `B_1` and
+    `B_2` axes of `alphas_1` and `alphas_2`.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
-        alphas_1 (torch.Tensor): Gaussian widths of orbital 1 
-                                 (shape: [..., B_1, N_1])
-        gammas_1 (torch.Tensor): Gaussian widths of potential 1
-                                 (shape: [..., M_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [..., 3])
-        alphas_2 (torch.Tensor): Gaussian widths of orbital 2 
-                                 (shape: [..., B_2, N_2])
+        mu_1 (torch.Tensor): Centers for orbital set 1 (shape: `[..., 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[..., M_1]`).
+        mu_2 (torch.Tensor): Centers for orbital set 2 (shape: `[..., 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
 
     Returns:
-        torch.Tensor: Overlap matrix tensor T.
-                      (shape: [..., M_1, B_1, B_2, N_1, N_2, 3, L+1, L+1])
+        torch.Tensor: Primitive potential overlap tensor `T` (shape:
+        `[..., M_1, B_1, B_2, N_1, N_2, 3, L+1, L+1]`).
     """
 
     _alphas_1 = alphas_1.unsqueeze(-1).unsqueeze(-3).unsqueeze(-5)
@@ -1479,6 +1661,52 @@ def sto_ng_potential_overlap_matrix(
         alphas_2: torch.Tensor,
         alpha_idxs_2: torch.IntTensor, 
         cs_2: torch.IntTensor) -> torch.Tensor:
+    r"""Evaluate pairwise contracted Cartesian potential overlap matrix.
+
+    The potential at site 1 is expanded as a contraction of l1-normalized
+    Gaussian potentials:
+
+    .. math::
+
+        V_1(\mathbf{r}) = \sum_{m=1}^{M_1} v_m\,F_{\gamma_m}^{0 0 0}(\mathbf{r}-\boldsymbol{\mu}_1)
+
+    and the matrix elements are
+
+    .. math::
+
+        M_{i,j} = \langle \phi_{1,i} \mid V_1 \mid \phi_{2,j} \rangle
+
+    Pairwise batching over exponent sets is supported through `alphas_1` and
+    `alphas_2` (axes `B_1` and `B_2`). Each orbital selects which exponent set
+    to use via `alpha_idxs_1` and `alpha_idxs_2`.
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital set 1 (shape: `[..., B_1, 3]`).
+        ijk_1 (torch.IntTensor): Cartesian powers for orbital set 1
+            (shape: `[..., I_1, 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        alpha_idxs_1 (torch.IntTensor): Exponent-set indices for orbital set 1
+            (shape: `[..., I_1]`, values in `[0, B_1)`).
+        cs_1 (torch.Tensor): Contraction coefficients for orbital set 1
+            (shape: `[..., I_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[..., M_1]`).
+        vs_1 (torch.Tensor): Potential contraction coefficients
+            (shape: `[..., M_1]`).
+        mu_2 (torch.Tensor): Centers for orbital set 2 (shape: `[..., B_2, 3]`).
+        ijk_2 (torch.IntTensor): Cartesian powers for orbital set 2
+            (shape: `[..., I_2, 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+        alpha_idxs_2 (torch.IntTensor): Exponent-set indices for orbital set 2
+            (shape: `[..., I_2]`, values in `[0, B_2)`).
+        cs_2 (torch.Tensor): Contraction coefficients for orbital set 2
+            (shape: `[..., I_2, N_2]`).
+
+    Returns:
+        torch.Tensor: Potential overlap matrix `M` (shape: `[..., I_1, I_2]`).
+    """
     
     mu_batch_shape = mu_1.shape[:-2]
     mu_batch_size = torch.prod(torch.tensor(mu_batch_shape, dtype=torch.int))
@@ -1545,9 +1773,7 @@ def sto_ng_block_potential_overlap_matrix(
         alphas_2: torch.Tensor, 
         alpha_idxs_2: torch.IntTensor, 
         cs_2: torch.IntTensor) -> torch.Tensor:
-    r"""Evaluates the cartesian GTO pairwise orbital overlap matrix 
-    between all orbitals on adjacent sites under the influence of a
-    potential at the first site
+    r"""Evaluate pairwise Cartesian potential overlap matrix (unbatched centers).
 
     .. math::
 
@@ -1557,30 +1783,35 @@ def sto_ng_block_potential_overlap_matrix(
     the same alpha values, pairwise batching of the overlap integrals between
     sites is supported. This allows for the passing of a smaller list of alphas 
     (of size B_1 and B_2), which are then indexed in each orbital by 
-    `alpha_idxs+1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1 
+    `alpha_idxs_1` and `alpha_idxs_2`, which are arrays of length I_1 > B_1
     and I_2 > B_2.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [..., 3])
-        ijk_1 (torch.IntTensor): Cartesian powers of x,y,z for orbital 1 
-                                 (shape: [..., I_1, 3])
-        alphas_1 (torch.Tensor): Gaussian widths of orbital 1 
-                                 (shape: [..., B_1, N_1])
-        alpha_idxs_1 (torch.IntTensor): Batch indexes i (0 <= i < B_1) of the 
-                                        evaluated set of alphas. If batching
-                                        of alphas is not used, should be all
-                                        zeros (shape: [...,I_1])
-        cs_1 (torch.Tensor): Gaussian coeffficients of orbital 1 exa  orbital 2
-                                 (shape: [..., B_2, N_2])
-        alpha_idxs_2 (torch.IntTensor): Batch indexes i (0 < i < B_2) of the 
-                                        evaluated set of alphas. If batching
-                                        of alphas is not used, should be all
-                                        zeros (shape: [...,I_2])
-        cs_2 (torch.IntTensor): Gaussian coeffficients of orbital 2 
-                                (shape: [..., I_2, N_2])
+        mu_1 (torch.Tensor): Center of orbital set 1 (shape: `[..., 3]`).
+        ijk_1 (torch.IntTensor): Cartesian powers for orbital set 1
+            (shape: `[..., I_1, 3]`).
+        alphas_1 (torch.Tensor): Primitive Gaussian exponents for orbital set 1
+            (shape: `[..., B_1, N_1]`).
+        alpha_idxs_1 (torch.IntTensor): Exponent-set indices for orbital set 1
+            (shape: `[..., I_1]`, values in `[0, B_1)`).
+        cs_1 (torch.Tensor): Contraction coefficients for orbital set 1
+            (shape: `[..., I_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[..., M_1]`).
+        vs_1 (torch.Tensor): Potential contraction coefficients
+            (shape: `[..., M_1]`).
+        mu_2 (torch.Tensor): Center of orbital set 2 (shape: `[..., 3]`).
+        ijk_2 (torch.IntTensor): Cartesian powers for orbital set 2
+            (shape: `[..., I_2, 3]`).
+        alphas_2 (torch.Tensor): Primitive Gaussian exponents for orbital set 2
+            (shape: `[..., B_2, N_2]`).
+        alpha_idxs_2 (torch.IntTensor): Exponent-set indices for orbital set 2
+            (shape: `[..., I_2]`, values in `[0, B_2)`).
+        cs_2 (torch.Tensor): Contraction coefficients for orbital set 2
+            (shape: `[..., I_2, N_2]`).
 
     Returns:
-        torch.Tensor: Overlap matrix tensor M (shape: [...,I_1, I_2])
+        torch.Tensor: Potential overlap matrix `M` (shape: `[..., I_1, I_2]`).
     """
 
     mu_batch_shape = mu_1.shape[:-1]
@@ -1643,23 +1874,33 @@ def sto_ng_norm_coeff(
         alphas: torch.Tensor, 
         alpha_idxs: torch.IntTensor, 
         cs: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates the normalization coefficients of cartesian GTOs.
+    r"""Evaluate normalization coefficients for contracted Cartesian orbitals.
+
+    For a contracted orbital
+
+    .. math::
+
+        \phi_i(\mathbf{r}) = \sum_{n=1}^{N} c_{i n}\,\phi_{\alpha_{b_i n}}^{i j k}(\mathbf{r}),
+
+    this returns
+
+    .. math::
+
+        C_i = \sqrt{\langle \phi_i \mid \phi_i \rangle},
+
+    so that `c_{i n} / C_i` produces an l2-normalized contracted orbital.
 
     Args:
         ijk (torch.IntTensor): Cartesian powers of x,y,z for the orbitals
-                               (shape: [..., I, 3])
-        alphas (torch.Tensor): Gaussian widths of the orbitals
-                               (shape: [..., B, N])
-        alpha_idxs (torch.IntTensor): Batch indexes i (0 <= i < B) of the 
-                                      evaluated set of alphas. If batching
-                                      of alphas is not used, should be all
-                                      zeros (shape: [...,I])
-        cs (torch.Tensor): Gaussian coeffficients of orbitals 
-                           (shape: [..., I, N])
+            (shape: `[..., I, 3]`).
+        alphas (torch.Tensor): Primitive Gaussian exponents for the orbitals
+            (shape: `[..., B, N]`).
+        alpha_idxs (torch.IntTensor): Exponent-set indices for the orbitals
+            (shape: `[..., I]`, values in `[0, B)`).
+        cs (torch.Tensor): Contraction coefficients (shape: `[..., I, N]`).
 
     Returns:
-        torch.Tensor: The normalization constants of the orbitals
-                      coefficients (shape: [..., I]).
+        torch.Tensor: Normalization coefficients `C` (shape: `[..., I]`).
     """
 
     mu_batch_shape = ijk.shape[:-2]
@@ -1693,24 +1934,29 @@ def cho_ng(
         x: torch.Tensor, mu: torch.Tensor, l: torch.IntTensor,
         m: torch.IntTensor, alphas: torch.Tensor, 
         cs: torch.Tensor) -> torch.Tensor:
-    r"""Evaluates a cubic harmonic orbital with the radial function represented 
-    as powers of the radius times a contraction of :math:`N` primitive 
-    gaussians.
+    r"""Evaluate a cubic-harmonic orbital expanded in contracted Cartesian GTOs.
 
-    The contraction coefficients `cs` are not normalized when the orbital is
-    evaluated.
+    The cubic harmonic orbital :math:`\chi_{l m}` is represented as a linear
+    combination of contracted Cartesian orbitals (see :func:`sto_ng`):
+
+    .. math::
+
+        \chi_{l m}(\mathbf{x}) = \sum_{i+j+k=l} X_{l m,\, i j k}\,\phi^{i j k}(\mathbf{x})
+
+    The contraction coefficients `cs` are used as-is (they are not internally
+    normalized).
 
     Args:
-        x (torch.Tensor): Points x in space (shape: [...,3])
-        mu (torch.Tensor): Orbital center (shape: [3])
-        l (torch.IntTensor): Angular quantum numbers (shape: [1])
-        m (torch.IntTensor): Magnetic quantum numbers (shape: [1])
-        alphas (torch.Tensor): Gaussian widths (shape: [N])
-        cs (torch.Tensor): Gaussian coefficients (shape: [N])
+        x (torch.Tensor): Cartesian points (shape: `[..., 3]`).
+        mu (torch.Tensor): Orbital center (shape: `[3]` or `[..., 3]`,
+            broadcastable to `x`).
+        l (torch.IntTensor): Angular momentum quantum number (scalar tensor).
+        m (torch.IntTensor): Magnetic quantum number (scalar tensor).
+        alphas (torch.Tensor): Primitive Gaussian exponents (shape: `[N]`).
+        cs (torch.Tensor): Primitive contraction coefficients (shape: `[N]`).
 
     Returns:
-        torch.Tensor: Value of the unnormalized orbital at points x 
-                      (shape: [...])
+        torch.Tensor: Values at `x` (shape: `[...]`).
     """
 
     m_idx = l + m
@@ -1736,24 +1982,25 @@ def cho_ng_norm_coeff(
         l: torch.IntTensor, alphas: torch.Tensor, 
         alpha_idxs: torch.IntTensor, 
         cs: torch.Tensor) -> torch.Tensor:
-    """Evaluates the normalization coefficients of gaussian cubic
-    harmonic orbitals.
+    r"""Evaluate normalization coefficients for cubic-harmonic contracted orbitals.
+
+    This returns `C_i = sqrt(<chi_i|chi_i>)`, analogous to
+    :func:`sto_ng_norm_coeff`. Internally it uses the Cartesian proxy
+    `(i, j, k) = (l, 0, 0)` for each `l`.
+
+    .. math::
+
+        C_i = \sqrt{\langle \chi_i \mid \chi_i \rangle}
 
     Args:
-        l (torch.IntTensor): Angular quantum number for the orbitals 
-                             (shape: [..., I])
-        alphas (torch.Tensor): Gaussian widths of the orbitals
-                               (shape: [..., B, N])
-        alpha_idxs (torch.IntTensor): Batch indexes i (0 <= i < B) of the 
-                                      evaluated set of alphas. If batching
-                                      of alphas is not used, should be all
-                                      zeros (shape: [...,I])
-        cs (torch.Tensor): Gaussian coeffficients of orbitals 
-                           (shape: [..., I, N])
+        l (torch.IntTensor): Angular momentum for the orbitals (shape: `[..., I]`).
+        alphas (torch.Tensor): Primitive Gaussian exponents (shape: `[..., B, N]`).
+        alpha_idxs (torch.IntTensor): Exponent-set indices (shape: `[..., I]`,
+            values in `[0, B)`).
+        cs (torch.Tensor): Contraction coefficients (shape: `[..., I, N]`).
 
     Returns:
-        torch.Tensor: The normalization constants of the orbitals
-                      coefficients (shape: [..., I]).
+        torch.Tensor: Normalization coefficients `C` (shape: `[..., I]`).
     """
     l_zeros = torch.zeros_like(l)
     ijk = torch.stack((l, l_zeros, l_zeros), dim=-1)
@@ -1764,32 +2011,38 @@ def cho_ng_norm_coeff(
 def cho_overlap_matrix_metadata(
         l_i: torch.Tensor,
         sparse: bool = False) -> tuple:
-    """Computes the necessary metadata tensors for a single dimension 
-    (i.e. rows or columns) of a cubic harmonic orbital overlap matrix.
+    r"""Compute metadata for building cubic-harmonic (CHO) overlap matrices.
+
+    For each angular momentum value `l`, let `X_l` be the Cartesian-to-CHO
+    transformation returned by :func:`_make_gto_cho_tensor`. This routine builds
+    the block-diagonal transformation for a sequence `l_i`:
+
+    .. math::
+
+        X = \mathrm{blockdiag}\left(X_{l_1}, X_{l_2}, \ldots\right),
+
+    so that a Cartesian overlap matrix `S` can be converted to the CHO basis as
+
+    .. math::
+
+        S_{\mathrm{CHO}} = X\,S\,X^\mathsf{T}.
 
     Args:
-        l_i (torch.IntTensor): A 1D sequence of angular momenta `l`
-                            in the overlap matrix (shape: [I]).
-        sparse (bool): If True, returns a sparse representation of
-                       the cho_tensor, which is recommended if l_i
-                       is long and contains large l values. Defaults
-                       to False.
+        l_i (torch.IntTensor): Angular momenta for blocks (shape: `[I]`).
+        sparse (bool, optional): If `True`, returns a sparse block-diagonal
+            transformation matrix. Defaults to `False`.
 
     Returns:
         tuple: A tuple containing the following:
 
-        - cho_tensor (torch.Tensor): 
-            A matrix representing the transformation 
-            from cartesian to CHO orbitals.
-        - l_ijk (torch.IntTensor): 
-            A list of all cartesian ijk values for which 
-            overlap orbitals are computed.
-        - l_alpha_idxs (torch.IntTensor): 
-            A list of indices corresponding to the alpha 
-            values indexed for each block.
-        - l_block_idxs (torch.IntTensor): 
-            A tensor of starting indices for
-            each block in the overlap matrix.
+        - cho_tensor (torch.Tensor): Cartesian-to-CHO transformation matrix
+          `X` (shape: `[H, I]`, where `H = sum(2l+1)` and `I = sum(n_{ijk}(l))`).
+        - l_ijk (torch.IntTensor): Concatenated Cartesian `(i, j, k)` values for
+          all blocks (shape: `[I, 3]`).
+        - l_alpha_idxs (torch.IntTensor): Block index for each Cartesian row
+          (shape: `[I]`, values in `[0, len(l_i))`).
+        - l_block_idxs (torch.IntTensor): Starting row indices for each CHO block
+          in the transformed basis (shape: `[len(l_i)]`).
     """
 
     # dynamically construct block cho transformation matrix
@@ -1825,35 +2078,31 @@ def cho_overlap_matrix_metadata(
 def e3_cho_overlap_matrix_metadata(
         l_i: torch.Tensor,
         sparse: bool = True) -> tuple:
-    """Computes the necessary metadata tensors for a single dimension
-       (i.e. rows or columns) of a cubic harmonic orbital overlap matrix
-       where the orbital coefficients are equivariant, meaning they 
-       vary within each block.
+    r"""Compute metadata for CHO overlaps with per-orbital (E3) coefficients.
+
+    This is analogous to :func:`cho_overlap_matrix_metadata`, but also returns
+    an index array `l_c_idxs` that expands per-block coefficient tensors into
+    per-Cartesian-row coefficients (for cases where coefficients vary within a
+    `(2l+1)` block).
+
+    .. math::
+
+        X = \mathrm{blockdiag}\left(X_{l_1}, X_{l_2}, \ldots\right), \qquad
+        S_{\mathrm{CHO}} = X\,S\,X^\mathsf{T}
 
     Args:
-        l_i (torch.IntTensor): A 1D sequence of angular momenta `l`
-                            in the overlap matrix (shape: [I]).
-        sparse (bool, optional): If True, returns a sparse representation of
-                       the cho_tensor, which is recommended if l_i
-                       is long and contains large l values. Defaults
-                       to False.. Defaults to True.
+        l_i (torch.IntTensor): Angular momenta for blocks (shape: `[I]`).
+        sparse (bool, optional): If `True`, returns a sparse block-diagonal
+            transformation matrix. Defaults to `True`.
 
     Returns:
         tuple: A tuple containing the following:
 
-        - cho_tensor (torch.Tensor): 
-            A matrix representing the transformation 
-            from cartesian to CHO orbitals.
-        - l_ijk (torch.IntTensor): 
-            A list of all cartesian ijk values for which 
-            overlap orbitals are computed.
-        - l_alpha_idxs (torch.IntTensor): 
-            A list of indices corresponding to the alpha 
-            values indexed for each block.
-        - l_block_idxs (torch.IntTensor): 
-            A tensor of starting indices for
-            each block in the overlap matrix.
-        - c_block_tensor (torch.IntTensor)
+        - cho_tensor (torch.Tensor): Cartesian-to-CHO transformation matrix `X`.
+        - l_ijk (torch.IntTensor): Concatenated Cartesian `(i, j, k)` values.
+        - l_alpha_idxs (torch.IntTensor): Block index per Cartesian row.
+        - l_c_idxs (torch.IntTensor): Indices selecting per-CHO-row coefficients
+          for expanding per-block coefficient tensors.
     """
 
     # dynamically construct block cho transformation matrix
@@ -1895,8 +2144,19 @@ def e3_cho_overlap_matrix_metadata(
 def _cho_block_data(l_i: torch.Tensor, 
                     l_cs_i: torch.Tensor,
                     cho_data: tuple = None) -> tuple:
-    """ Builds the data necessary for a cho block overlap matrix. The
-        alpha and c values are padded to fit the batch size."""
+    """Build block metadata and expanded coefficients for CHO block overlap calls.
+
+    Args:
+        l_i (torch.Tensor): Angular momenta for blocks (shape: `[..., I]`).
+        l_cs_i (torch.Tensor): Per-block contraction coefficients
+            (shape: `[..., I, N]`).
+        cho_data (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata`. Defaults to `None`.
+
+    Returns:
+        tuple: `(cho_tensor, l_ijk, l_alpha_idxs, l_block_cs)` suitable for the
+        corresponding CHO block overlap function.
+    """
 
     batch_shape = l_cs_i.shape[:-2]
     batch_ndim = l_cs_i.ndim - 2
@@ -1930,36 +2190,44 @@ def cho_ng_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between different sites with different angular momenta blocks. 
+    r"""Evaluate pairwise cubic-harmonic (CHO) orbital overlap matrix.
+
+    .. math::
+
+        M_{i,j} = \langle \chi_{1,i} \mid \chi_{2,j} \rangle
+
+    This is computed by transforming the contracted Cartesian overlap matrix
+    `S` into the CHO basis:
+
+    .. math::
+
+        M = X_1\,S\,X_2^\mathsf{T}.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
-        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
-                               (shape: [I_1])
-        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
-                                   (shape: [I_1, N_1])
-        l_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
-                               (shape: [I_1, N_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
-        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
-                               (shape: [I_2])
-        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
-                                   (shape: [I_2, N_2])
-        l_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
-                               (shape: [I_2, N_2])
-        cho_data_1 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `cho_overlap_matrix_metadata(l_1)`.
-                                  Defaults to None.
-        cho_data_2 (tuple, optional): Precomputed data tuple returned from a
-                                  call to
-                                  `cho_overlap_matrix_metadata(l_2)`.
-                                  Defaults to None.
+        mu_1 (torch.Tensor): Centers for orbital blocks on site 1
+            (shape: `[I_1, 3]`).
+        l_1 (torch.IntTensor): Angular momenta for blocks on site 1
+            (shape: `[I_1]`).
+        l_alphas_1 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 1 (shape: `[I_1, N_1]`).
+        l_cs_1 (torch.Tensor): Contraction coefficients per block on site 1
+            (shape: `[I_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for orbital blocks on site 2
+            (shape: `[I_2, 3]`).
+        l_2 (torch.IntTensor): Angular momenta for blocks on site 2
+            (shape: `[I_2]`).
+        l_alphas_2 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 2 (shape: `[I_2, N_2]`).
+        l_cs_2 (torch.Tensor): Contraction coefficients per block on site 2
+            (shape: `[I_2, N_2]`).
+        cho_data_1 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_1`. Defaults to `None`.
+        cho_data_2 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_2`. Defaults to `None`.
 
     Returns:
-        torch.Tensor: Pairwise overlap matrix of orbitals 
-                      (shape: [H_1, H_2]).
+        torch.Tensor: CHO overlap matrix `M` (shape: `[H_1, H_2]`), where
+        `H_s = sum_i (2 l_{s,i} + 1)`.
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -1994,37 +2262,43 @@ def cho_ng_kinetic_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise kinetic energy
-    overlap matrix  between different sites with different 
-    angular momenta blocks. 
+    r"""Evaluate pairwise cubic-harmonic (CHO) kinetic energy overlap matrix.
+
+    .. math::
+
+        M_{i,j} = -\frac{1}{2}\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
+
+    This is computed by transforming the contracted Cartesian kinetic energy
+    matrix into the CHO basis:
+
+    .. math::
+
+        M = X_1\,T\,X_2^\mathsf{T}.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
-        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
-                               (shape: [I_1])
-        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
-                                   (shape: [I_1, N_1])
-        l_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
-                               (shape: [I_1, N_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
-        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
-                               (shape: [I_2])
-        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
-                                   (shape: [I_2, N_2])
-        l_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
-                               (shape: [I_2, N_2])
-        cho_data_1 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `cho_overlap_matrix_metadata(l_1)`.
-                                  Defaults to None.
-        cho_data_2 (tuple, optional): Precomputed data tuple returned from a
-                                  call to
-                                  `cho_overlap_matrix_metadata(l_2)`.
-                                  Defaults to None.
+        mu_1 (torch.Tensor): Centers for orbital blocks on site 1
+            (shape: `[I_1, 3]`).
+        l_1 (torch.IntTensor): Angular momenta for blocks on site 1
+            (shape: `[I_1]`).
+        l_alphas_1 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 1 (shape: `[I_1, N_1]`).
+        l_cs_1 (torch.Tensor): Contraction coefficients per block on site 1
+            (shape: `[I_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for orbital blocks on site 2
+            (shape: `[I_2, 3]`).
+        l_2 (torch.IntTensor): Angular momenta for blocks on site 2
+            (shape: `[I_2]`).
+        l_alphas_2 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 2 (shape: `[I_2, N_2]`).
+        l_cs_2 (torch.Tensor): Contraction coefficients per block on site 2
+            (shape: `[I_2, N_2]`).
+        cho_data_1 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_1`. Defaults to `None`.
+        cho_data_2 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_2`. Defaults to `None`.
 
     Returns:
-        torch.Tensor: Pairwise overlap matrix of orbitals 
-                      (shape: [H_1, H_2]).
+        torch.Tensor: CHO kinetic energy matrix `M` (shape: `[H_1, H_2]`).
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2059,10 +2333,14 @@ def cho_ng_momentum_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise momentum orbital
-    overlap matrix between blocks of orbitals. The blocks are evaluated
-    for a fixed set of angular momenta l. The returned matrix contains
-    the x, y, and z momentum components.
+    r"""Evaluate pairwise cubic-harmonic (CHO) momentum overlap matrix.
+
+    .. math::
+
+        \vec{M}_{i,j} = \langle \chi_{1,i} \mid -\nabla \mid \chi_{2,j} \rangle
+
+    This is computed by transforming the contracted Cartesian momentum tensor
+    into the CHO basis for each component.
 
     Args:
         mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
@@ -2132,13 +2410,39 @@ def cho_ng_position_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise position operator overlap
-    matrix between blocks of orbitals. The returned matrix contains x, y, and
-    z components.
+    r"""Evaluate pairwise cubic-harmonic (CHO) position overlap matrix.
+
+    .. math::
+
+        \vec{R}_{i,j} = \langle \chi_{1,i} \mid \vec{r} \mid \chi_{2,j} \rangle
+
+    This is computed by transforming the contracted Cartesian position tensor
+    into the CHO basis for each component.
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital blocks on site 1
+            (shape: `[I_1, 3]`).
+        l_1 (torch.IntTensor): Angular momenta for blocks on site 1
+            (shape: `[I_1]`).
+        l_alphas_1 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 1 (shape: `[I_1, N_1]`).
+        l_cs_1 (torch.Tensor): Contraction coefficients per block on site 1
+            (shape: `[I_1, N_1]`).
+        mu_2 (torch.Tensor): Centers for orbital blocks on site 2
+            (shape: `[I_2, 3]`).
+        l_2 (torch.IntTensor): Angular momenta for blocks on site 2
+            (shape: `[I_2]`).
+        l_alphas_2 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 2 (shape: `[I_2, N_2]`).
+        l_cs_2 (torch.Tensor): Contraction coefficients per block on site 2
+            (shape: `[I_2, N_2]`).
+        cho_data_1 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_1`. Defaults to `None`.
+        cho_data_2 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_2`. Defaults to `None`.
 
     Returns:
-        torch.Tensor: Pairwise position overlap matrix with x, y, and z
-            components. (shape: [3, H_1, H_2]).
+        torch.Tensor: CHO position overlap tensor `R` (shape: `[3, H_1, H_2]`).
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2185,44 +2489,45 @@ def cho_ng_hamiltonian_potential_matrix(
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0
     ) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital potential energy
-    component of the Hamiltonian matrix between blocks of orbitals under the influence of 
-    a cartesian potential function centered at the first orbital. 
-    The blocks are evaluated for a fixed set of angular momenta l.
+    r"""Evaluate the CHO Hamiltonian potential-energy matrix component.
+
+    .. math::
+
+        H^{(V)}_{i,j} = v_0\,\langle \chi_{1,i} \mid V_1 \mid \chi_{2,j} \rangle
+
+    Note:
+        `t0` is accepted for API consistency but is not used by this function.
 
     Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
-        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
-                               (shape: [I_1])
-        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
-                                   (shape: [I_1, N_1])
-        l_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
-                               (shape: [I_1, N_1])
-        gammas_1: (torch.Tensor): Gaussian widths of potential 1
-                                  (shape: [M_1])
-        vs_1: (torch.Tensor): Gaussian coefficients of potential 1
-                                  (shape: [M_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
-        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
-                               (shape: [I_2])
-        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
-                                   (shape: [I_2, N_2])
-        l_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
-                               (shape: [I_2, N_2])
-        cho_data_1 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `cho_overlap_matrix_metadata(l_1)`.
-                                  Defaults to None.
-        cho_data_2 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `cho_overlap_matrix_metadata(l_2)`.
-                                  Defaults to None.
-        t0 (torch.Tensor | float, optional): The kinetic energy scalar prefactor. Defaults to 1.0.
-        v0 (torch.Tensor | float, optional): The potential energy scalar prefactor. Defaults to 1.0.   
+        mu_1 (torch.Tensor): Centers for orbital blocks on site 1
+            (shape: `[I_1, 3]`).
+        l_1 (torch.IntTensor): Angular momenta for blocks on site 1
+            (shape: `[I_1]`).
+        l_alphas_1 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 1 (shape: `[I_1, N_1]`).
+        l_cs_1 (torch.Tensor): Contraction coefficients per block on site 1
+            (shape: `[I_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[M_1]`).
+        vs_1 (torch.Tensor): Potential contraction coefficients (shape: `[M_1]`).
+        mu_2 (torch.Tensor): Centers for orbital blocks on site 2
+            (shape: `[I_2, 3]`).
+        l_2 (torch.IntTensor): Angular momenta for blocks on site 2
+            (shape: `[I_2]`).
+        l_alphas_2 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 2 (shape: `[I_2, N_2]`).
+        l_cs_2 (torch.Tensor): Contraction coefficients per block on site 2
+            (shape: `[I_2, N_2]`).
+        cho_data_1 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_1`. Defaults to `None`.
+        cho_data_2 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_2`. Defaults to `None`.
+        t0 (torch.Tensor | float, optional): Unused. Defaults to `1.0`.
+        v0 (torch.Tensor | float, optional): Potential energy scalar prefactor.
+            Defaults to `1.0`.
 
     Returns:
-        torch.Tensor: Pairwise overlap matrix
-                      (shape: [H_1, H_2]).
+        torch.Tensor: Potential-energy matrix `H^(V)` (shape: `[H_1, H_2]`).
     """
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2261,6 +2566,18 @@ def cho_ng_hamiltonian_kinetic_matrix(
         cho_data_2: tuple = None,
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0):
+    r"""Evaluate the CHO Hamiltonian kinetic-energy matrix component.
+
+    .. math::
+
+        H^{(T)} = t_0\,M^{(T)}, \qquad
+        M^{(T)}_{i,j} = -\frac{1}{2}\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
+
+    Parameters are forwarded to :func:`cho_ng_kinetic_overlap_matrix`.
+
+    .. seealso::
+        :func:`cho_ng_kinetic_overlap_matrix`
+    """
 
     return t0 * cho_ng_kinetic_overlap_matrix(
         mu_1=mu_1, l_1=l_1, l_alphas_1=l_alphas_1, l_cs_1=l_cs_1,
@@ -2283,6 +2600,45 @@ def cho_ng_hamiltonian_matrix(
         cho_data_2: tuple = None,
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0):
+    r"""Evaluate the full CHO Hamiltonian matrix (potential + kinetic).
+
+    .. math::
+
+        H_{i,j} = v_0\,\langle \chi_{1,i} \mid V_1 \mid \chi_{2,j} \rangle
+        \;-\; \frac{t_0}{2}\,\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
+
+    Args:
+        mu_1 (torch.Tensor): Centers for orbital blocks on site 1
+            (shape: `[I_1, 3]`).
+        l_1 (torch.IntTensor): Angular momenta for blocks on site 1
+            (shape: `[I_1]`).
+        l_alphas_1 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 1 (shape: `[I_1, N_1]`).
+        l_cs_1 (torch.Tensor): Contraction coefficients per block on site 1
+            (shape: `[I_1, N_1]`).
+        gammas_1 (torch.Tensor): Primitive potential Gaussian exponents
+            (shape: `[M_1]`).
+        vs_1 (torch.Tensor): Potential contraction coefficients (shape: `[M_1]`).
+        mu_2 (torch.Tensor): Centers for orbital blocks on site 2
+            (shape: `[I_2, 3]`).
+        l_2 (torch.IntTensor): Angular momenta for blocks on site 2
+            (shape: `[I_2]`).
+        l_alphas_2 (torch.Tensor): Primitive Gaussian exponents per block on
+            site 2 (shape: `[I_2, N_2]`).
+        l_cs_2 (torch.Tensor): Contraction coefficients per block on site 2
+            (shape: `[I_2, N_2]`).
+        cho_data_1 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_1`. Defaults to `None`.
+        cho_data_2 (tuple, optional): Precomputed output from
+            :func:`cho_overlap_matrix_metadata` for `l_2`. Defaults to `None`.
+        t0 (torch.Tensor | float, optional): Kinetic energy scalar prefactor.
+            Defaults to `1.0`.
+        v0 (torch.Tensor | float, optional): Potential energy scalar prefactor.
+            Defaults to `1.0`.
+
+    Returns:
+        torch.Tensor: Hamiltonian matrix `H` (shape: `[H_1, H_2]`).
+    """
 
     cho_tensor_1, l_ijk_1, l_alpha_idxs_1, _ = \
         cho_data_1 if cho_data_1 is not None else \
@@ -2325,18 +2681,19 @@ def e3_cho_ng_overlap_matrix(
         e3_cs_2: torch.Tensor,
         e3_cho_data_1: tuple = None,
         e3_cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between different sites with different angular momenta blocks.
-    The blocks are evaluated for a set of alpha coefficients that are
-    fixed for each angular momentum value l, but where the coefficients 
-    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+    r"""Evaluate pairwise CHO orbital overlap matrix with per-orbital coefficients.
+
+    .. math::
+
+        M_{i,j} = \langle \chi_{1,i} \mid \chi_{2,j} \rangle
+
+    This uses the same basis transforms as :func:`cho_ng_overlap_matrix`, but
+    allows the contraction coefficients to vary within each `(2l+1)` block
+    (e.g. from an E(3)-equivariant model).
 
     The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
-    must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
-    in `l_1` and `l_2` respectively. It is recommended that the 
-    coefficients are determined through some e3-equivariant function 
-    of the coordination
-    geometry.
+    must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l`
+    in `l_1` and `l_2` respectively.
 
     Args:
         mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
@@ -2399,11 +2756,11 @@ def e3_cho_ng_kinetic_overlap_matrix(
         e3_cs_2: torch.Tensor,
         e3_cho_data_1: tuple = None,
         e3_cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital kinetic energy 
-    overlap matrix  between different sites with different angular momenta blocks.
-    The blocks are evaluated for a set of alpha coefficients that are
-    fixed for each angular momentum value l, but where the coefficients 
-    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+    r"""Evaluate pairwise CHO kinetic energy overlap matrix with per-orbital coefficients.
+
+    .. math::
+
+        M_{i,j} = -\frac{1}{2}\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
 
     The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
     must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
@@ -2477,12 +2834,14 @@ def e3_cho_ng_hamiltonian_potential_matrix(
         e3_cho_data_2: tuple = None,
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between blocks of orbitals under the influence of 
-    a cartesian potential function centered at the first orbital. 
-    The blocks are evaluated for a set of alpha coefficients that are
-    fixed for each angular momentum value l, but where the coefficients 
-    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+    r"""Evaluate the CHO Hamiltonian potential-energy component (per-orbital coefficients).
+
+    .. math::
+
+        H^{(V)}_{i,j} = v_0\,\langle \chi_{1,i} \mid V_1 \mid \chi_{2,j} \rangle
+
+    Note:
+        `t0` is accepted for API consistency but is not used by this function.
 
     The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
     must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
@@ -2563,53 +2922,17 @@ def e3_cho_ng_hamiltonian_kinetic_matrix(
         e3_cho_data_2: tuple = None,
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between blocks of orbitals under the influence of 
-    a cartesian potential function centered at the first orbital. 
-    The blocks are evaluated for a set of alpha coefficients that are
-    fixed for each angular momentum value l, but where the coefficients 
-    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+    r"""Evaluate the CHO Hamiltonian kinetic-energy component (per-orbital coefficients).
 
-    The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
-    must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
-    in `l_1` and `l_2` respectively. It is recommended that the 
-    coefficients are determined through some e3-equivariant function 
-    of the coordination
-    geometry.
+    .. math::
 
-    Args:
-        mu_1 (torch.Tensor): Center of orbital 1 (shape: [I_1, 3])
-        l_1 (torch.IntTensor): Angular momenta of blocks for orbital 1
-                               (shape: [I_1])
-        l_alphas_1 (torch.Tensor): Gaussian widths of blocks for orbital 1
-                                   (shape: [I_1, N_1])
-        e3_cs_1 (torch.Tensor): Gaussian coefficients of orbital 1
-                               (shape: [C_1, N_1])
-        gammas_1: (torch.Tensor): Gaussian widths of potential 1
-                                  (shape: [M_1])
-        vs_1: (torch.Tensor): Gaussian coefficients of potential 1
-                                  (shape: [M_1])
-        mu_2 (torch.Tensor): Center of orbital 2 (shape: [I_2, 3])
-        l_2 (torch.IntTensor): Angular momenta of blocks for orbital 2
-                               (shape: [I_2])
-        l_alphas_2 (torch.Tensor): Gaussian widths of blocks for orbital 2
-                                   (shape: [I_2, N_2])
-        e3_cs_2 (torch.Tensor): Gaussian coefficients of orbital 2
-                               (shape: [C_2, N_2])
-        e3_cho_data_1 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `e3_cho_overlap_matrix_metadata(l_1)`.
-                                  Defaults to None.
-        e3_cho_data_2 (tuple, optional): Precomputed data tuple returned from a
-                                  call to 
-                                  `e3_cho_overlap_matrix_metadata(l_2)`.
-                                  Defaults to None.
-        t0 (torch.Tensor | float, optional): The kinetic energy scalar prefactor. Defaults to 1.0.
-        v0 (torch.Tensor | float, optional): The potential energy scalar prefactor. Defaults to 1.0.
+        H^{(T)} = t_0\,M^{(T)}, \qquad
+        M^{(T)}_{i,j} = -\frac{1}{2}\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
 
-    Returns:
-        torch.Tensor: Pairwise overlap matrix
-                      (shape: [H_1, H_2]).
+    Parameters are forwarded to :func:`e3_cho_ng_kinetic_overlap_matrix`.
+
+    .. seealso::
+        :func:`e3_cho_ng_kinetic_overlap_matrix`
     """
     
     return t0 * e3_cho_ng_kinetic_overlap_matrix(
@@ -2633,12 +2956,12 @@ def e3_cho_ng_hamiltonian_matrix(
         e3_cho_data_2: tuple = None,
         t0: float | torch.Tensor = 1.0,
         v0: float | torch.Tensor = 1.0) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between blocks of orbitals under the influence of 
-    a cartesian potential function centered at the first orbital. 
-    The blocks are evaluated for a set of alpha coefficients that are
-    fixed for each angular momentum value l, but where the coefficients 
-    `e3_cs_1` and `e3_cs_2` are different for each orbital in the block.
+    r"""Evaluate the full CHO Hamiltonian matrix (per-orbital coefficients).
+
+    .. math::
+
+        H_{i,j} = v_0\,\langle \chi_{1,i} \mid V_1 \mid \chi_{2,j} \rangle
+        \;-\; \frac{t_0}{2}\,\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
 
     The size of axis 0 for `e3_cs_1` and `e3_cs_2` (`C_1` and `C_2`)
     must satisfy `C = sum(2*l + 1)` where the sum is taken over all `l` 
@@ -2721,9 +3044,11 @@ def cho_ng_block_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between batches of identically-sized blocks of orbitals 
-    with fixed angular momenta l.
+    r"""Evaluate batched CHO orbital overlap matrices for fixed-size blocks.
+
+    .. math::
+
+        M_{i,j} = \langle \chi_{1,i} \mid \chi_{2,j} \rangle
 
     (This function is currently unused, but may be helpful in the future
      if a large fixed basis is used for all sites.)
@@ -2786,9 +3111,11 @@ def cho_ng_block_kinetic_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between batches of identically-sized blocks of orbitals 
-    with fixed angular momenta l.
+    r"""Evaluate batched CHO kinetic energy overlap matrices for fixed-size blocks.
+
+    .. math::
+
+        M_{i,j} = -\frac{1}{2}\langle \chi_{1,i} \mid \nabla^2 \mid \chi_{2,j} \rangle
 
     (This function is currently unused, but may be helpful in the future
      if a large fixed basis is used for all sites.)
@@ -2855,10 +3182,11 @@ def cho_ng_block_potential_overlap_matrix(
         l_cs_2: torch.Tensor,
         cho_data_1: tuple = None,
         cho_data_2: tuple = None) -> torch.Tensor:
-    """Evaluates the cubic harmonic GTO pairwise orbital overlap matrix 
-    between blocks of orbitals under the influence of 
-    a cartesian potential function centered at the first orbital. 
-    The blocks are evaluated for a fixed set of angular momenta l.
+    r"""Evaluate batched CHO potential overlap matrices for fixed-size blocks.
+
+    .. math::
+
+        M_{i,j} = \langle \chi_{1,i} \mid V_1 \mid \chi_{2,j} \rangle
 
     (This function is currently unused, but may be helpful in the future
      if a large fixed basis is used for all sites.)
@@ -2930,7 +3258,7 @@ _CHO_BASIS_SIZES = torch.tensor([
     for l in range(GTO_L_MAX+1)
 ])
 """ Cubic harmonic basis sizes for each
-anglar momentum l"""
+angular momentum l"""
 
 
 def _get_valence_shells(Z: int) -> list:
