@@ -93,7 +93,7 @@ def impact_ionization_self_energy(
     Args:
         g_min (torch.Tensor): Minority charge carrier correlation function (shape: [..., E, N, N]).
         g_maj (torch.Tensor): Majority charge carrier correlation function (shape: [..., E, N, N]).
-        d0 (float | torch.Tensor): On-site impact ionization coefficient (shape: [..., E, N, N]).
+        D (float | torch.Tensor): On-site impact ionization coefficient (shape: [..., E, N, N]).
         dE (float | torch.Tensor): Spacing of uniform energy evaluation points.
 
     Returns:
@@ -101,9 +101,10 @@ def impact_ionization_self_energy(
             to majority carrier ionization.
     """
 
-    N = g_min.shape[-3]
-    g_min_pad = torch.nn.functional.pad(g_min, (0, 0, 0, 0, 0, 2*N))
-    g_maj_pad = torch.nn.functional.pad(g_maj, (0, 0, 0, 0, 0, 2*N))
+    # Here the convolution is performed along the energy axis (dim=-3).
+    n_E = g_min.shape[-3]
+    g_min_pad = torch.nn.functional.pad(g_min, (0, 0, 0, 0, 0, 2*n_E))
+    g_maj_pad = torch.nn.functional.pad(g_maj, (0, 0, 0, 0, 0, 2*n_E))
 
     f_min = torch.fft.fft(g_min_pad, dim=-3)
     f_maj = torch.fft.fft(g_maj_pad, dim=-3)
@@ -112,9 +113,146 @@ def impact_ionization_self_energy(
 
     # self_energy = d0 * torch.fft.ifft(f_conv, dim=-3)[:N, :, :] * (dE**2)
     ifft_conv = torch.fft.ifft(f_conv, dim=-3)
-    self_energy = D * ifft_conv[..., :N, :, :] * (dE**2)
+    self_energy = D * ifft_conv[..., :n_E, :, :] * (dE**2)
 
     return self_energy
+
+
+def einstein_phonon_self_energy(
+        g_lesser: torch.Tensor,
+        g_greater: torch.Tensor,
+        energies: torch.Tensor,
+        omega0: float | torch.Tensor,
+        g2: float | torch.Tensor,
+        kT: float | torch.Tensor,
+        M: torch.Tensor | None = None,
+        hbar: float | torch.Tensor = 1.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """SCBA self-energy for a single (Einstein) optical phonon mode.
+
+    This is a lightweight inelastic relaxation model that avoids computing a
+    full phonon spectrum/dispersion. It is often sufficient to introduce
+    energy relaxation/cooling in steady-state NEGF iterations.
+
+    Conventions:
+    - `energies` is a 1D, (approximately) uniformly-spaced grid (shape: [E]).
+    - `g_lesser/g_greater` are electronic :math:`G^{</>}` on the same grid
+      (shape: ``[..., E, N, N]``).
+    - `omega0` is the phonon angular frequency (>0). The phonon energy is
+      :math:`\\hbar\\omega_0`.
+    - `kT` is the lattice thermal energy (same units as `energies`).
+    - `M` is an optional electron-phonon coupling operator in the same basis
+      (shape: [..., N, N] or [N, N]). If omitted, a scalar local coupling is
+      assumed and the operator sandwich reduces to
+      :math:`G^{</>}(E\\pm\\hbar\\omega_0)`.
+
+    Bose factor:
+
+    .. math::
+
+        N_0 = \\frac{1}{\\exp\\left(\\frac{\\hbar\\omega_0}{kT}\\right) - 1}
+
+    Positive-frequency SCBA correlation self-energies:
+
+    .. math::
+
+        \\Sigma^{<}_{\\mathrm{ph}}(E) = g^2\\Big[
+            (N_0 + 1)\\, M\\, G^{<}(E+\\hbar\\omega_0)\\, M^{\\dagger}
+            + N_0\\, M\\, G^{<}(E-\\hbar\\omega_0)\\, M^{\\dagger}
+        \\Big]
+
+    .. math::
+
+        \\Sigma^{>}_{\\mathrm{ph}}(E) = g^2\\Big[
+            (N_0 + 1)\\, M\\, G^{>}(E-\\hbar\\omega_0)\\, M^{\\dagger}
+            + N_0\\, M\\, G^{>}(E+\\hbar\\omega_0)\\, M^{\\dagger}
+        \\Big]
+
+    Returns:
+        (sigma_lesser, sigma_greater): phonon-induced correlation self-energies
+        (shape: [..., E, N, N] each).
+    """
+
+    def _shift_energy_linear_uniform(
+            g: torch.Tensor,
+            energies_1d: torch.Tensor,
+            shift: torch.Tensor) -> torch.Tensor:
+        # Returns g(E + shift) sampled onto the original `energies` grid.
+        # Out-of-range values are set to zero.
+        if energies_1d.ndim != 1:
+            raise ValueError('Expected `energies` to be 1D.')
+        if energies_1d.numel() < 2:
+            raise ValueError('Expected `energies` to have length >= 2.')
+
+        dE = energies_1d[1] - energies_1d[0]
+        if torch.diff(energies_1d).std() > 1e-6 * (energies_1d.max() - energies_1d.min()):
+            raise ValueError('Expected `energies` to be (approximately) uniformly spaced.')
+
+        E0 = energies_1d[0]
+        E_min = energies_1d[0]
+        E_max = energies_1d[-1]
+
+        E_shift = energies_1d + shift
+        valid = (E_shift >= E_min) & (E_shift <= E_max)
+
+        idx_f = (E_shift - E0) / dE
+        idx0 = torch.floor(idx_f).to(torch.int64)
+        idx0 = torch.clamp(idx0, 0, energies_1d.numel() - 2)
+        idx1 = idx0 + 1
+        frac = (idx_f - idx0.to(idx_f.dtype)).to(g.dtype)
+
+        leading_shape = g.shape[:-3]
+        E = g.shape[-3]
+        N = g.shape[-1]
+        g_flat = g.reshape((-1, E, N * N))
+
+        g0 = g_flat[:, idx0, :]
+        g1 = g_flat[:, idx1, :]
+        g_out = (1 - frac).view(1, -1, 1) * g0 + frac.view(1, -1, 1) * g1
+        g_out = g_out * valid.to(g_out.dtype).view(1, -1, 1)
+
+        return g_out.reshape(leading_shape + (E, N, N))
+
+    def _sandwich(GE: torch.Tensor) -> torch.Tensor:
+        if M is None:
+            return GE
+        Mop = M
+        if Mop.shape[-2:] != GE.shape[-2:]:
+            raise ValueError('Expected `M` to have shape [..., N, N] matching `G`.')
+        return Mop.unsqueeze(-3) @ GE @ Mop.mH.unsqueeze(-3)
+
+    if energies.ndim != 1:
+        raise ValueError('Expected `energies` to have shape [E].')
+    if g_lesser.shape != g_greater.shape:
+        raise ValueError('Expected `g_lesser` and `g_greater` to have the same shape.')
+    if g_lesser.shape[-3] != energies.numel():
+        raise ValueError('Expected g_* energy dimension to match len(energies).')
+    if g_lesser.shape[-1] != g_lesser.shape[-2]:
+        raise ValueError('Expected g_* to have shape [..., E, N, N].')
+
+    # Bose occupation at the lattice temperature (make these tensors so we can
+    # safely use torch.exp even when the inputs are plain floats).
+    dev = energies.device
+    dt = energies.dtype
+    dE0 = torch.as_tensor(hbar, device=dev, dtype=dt) * torch.as_tensor(omega0, device=dev, dtype=dt)
+    kT_t = torch.as_tensor(kT, device=dev, dtype=dt)
+
+    # Avoid divide-by-zero at kT ~ 0 by clamping.
+    kT_safe = torch.clamp(kT_t, min=1e-30)
+
+    N0 = 1.0 / (torch.exp(dE0 / kT_safe) - 1.0)
+    N0 = N0.to(dtype=g_lesser.real.dtype)
+
+    # Energy shifts.
+    GL_plus = _sandwich(_shift_energy_linear_uniform(g_lesser, energies, +dE0))
+    GL_minus = _sandwich(_shift_energy_linear_uniform(g_lesser, energies, -dE0))
+    GG_plus = _sandwich(_shift_energy_linear_uniform(g_greater, energies, +dE0))
+    GG_minus = _sandwich(_shift_energy_linear_uniform(g_greater, energies, -dE0))
+
+    sigma_lesser = g2 * ((N0 + 1) * GL_plus + N0 * GL_minus)
+    sigma_greater = g2 * ((N0 + 1) * GG_minus + N0 * GG_plus)
+
+    return sigma_lesser, sigma_greater
+
 
 def optical_dipole_self_energy(
         g_lesser: torch.Tensor, 
@@ -122,16 +260,249 @@ def optical_dipole_self_energy(
         energies: torch.Tensor,
         frequencies: torch.Tensor,
         W: torch.Tensor,
-        P: torch.Tensor,
-        S_vac: torch.Tensor | None,
+        p_xyz: torch.Tensor,
+        rho_pol: torch.Tensor | None = None,
+        S_vac: torch.Tensor | None = None,
+        k_hat: torch.Tensor | None = None,
         hbar: float | torch.Tensor = 1.0,
-        e0: float | torch.Tensor = 1.0,
-        c: float | torch.Tensor) -> torch.Tensor:
+        e_charge: float | torch.Tensor = 1.0,
+        m0: float | torch.Tensor = 1.0,
+        eps0: float | torch.Tensor = 1.0,
+        c: float | torch.Tensor = 1.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """Photon (optical) self-energy in SCBA using the velocity gauge.
+
+    This routine is meant to be "straightforward": you provide the electronic
+    lesser/greater Green's functions and a momentum operator in your working
+    orbital basis; the function returns the corresponding photon-induced
+    correlation self-energies :math:`\\Sigma^{<,>}_{ph}(E)`.
+
+    The photon polarization state can be supplied as a 3x3 density matrix
+    `rho_pol` that weights correlations between the Cartesian field components.
+    This allows modeling tunable polarization decoherence as a mixture between
+    pure states (off-diagonal coherence) and incoherent mixtures (diagonal).
+
+    The polarization contraction used in this implementation is:
+
+    .. math::
+
+        \\mathcal{P}_{\\rho}[G] \\,=\\, \\sum_{i,j\\in\\{x,y,z\\}} \\rho_{ij}\\, p_i\\, G\\, p_j^{\\dagger}.
+
+    Important conventions/assumptions:
+    - `W(omega)` is interpreted as a photon occupation number :math:`N(\\omega)`
+      (dimensionless). If you have an intensity/irradiance spectrum instead,
+      it must be converted to an occupation spectrum before calling this.
+    - `energies` must be uniformly spaced for the internal linear interpolation.
+    - Free-space vacuum fluctuations are included via the
+      :math:`N(\\omega)+1` terms; i.e. emission persists even when `W == 0`.
+
+    Correlation self-energies (for :math:`\\omega>0`):
+
+    .. math::
+
+        \\Sigma^{<}_{ph}(E) = \\int_0^{\\infty} d\\omega\\, J(\\omega)\\Big[
+            N(\\omega)\\, \\mathcal{P}_{\\rho}[G^{<}(E-\\hbar\\omega)]
+            + (N(\\omega)+1)\\, \\mathcal{P}_{\\rho}[G^{<}(E+\\hbar\\omega)]
+        \\Big]
+
+    .. math::
+
+        \\Sigma^{>}_{ph}(E) = \\int_0^{\\infty} d\\omega\\, J(\\omega)\\Big[
+            (N(\\omega)+1)\\, \\mathcal{P}_{\\rho}[G^{>}(E-\\hbar\\omega)]
+            + N(\\omega)\\, \\mathcal{P}_{\\rho}[G^{>}(E+\\hbar\\omega)]
+        \\Big]
+
+    Args:
+        g_lesser: Electronic lesser Green's function (shape: [..., E, N, N]).
+        g_greater: Electronic greater Green's function (shape: [..., E, N, N]).
+        energies: Energy grid (shape: [E]), assumed uniform spacing.
+        frequencies: Positive frequency grid (shape: [F]).
+        W: Photon occupation N(omega) (shape: [F]) or broadcastable to [F].
+        p_xyz: Momentum operator components (shape: [..., 3, N, N] or [3, N, N]).
+        rho_pol: 3x3 polarization density matrix (shape: [3, 3]). If None,
+            defaults to an unpolarized state (identity/3), optionally projected
+            to the transverse subspace if `k_hat` is given.
+        S_vac: Photon spectral density / LDOS weighting (shape: [F]). If None,
+            uses a simple free-space scaling :math:`\\propto \\omega^3`.
+        k_hat: Optional propagation direction unit vector (shape: [3]). If
+            provided and `rho_pol` is None, an unpolarized transverse density
+            matrix `(I - k_hat k_hat^T)/2` is used.
+        hbar, e_charge, m0, eps0, c: Physical constants / scalings.
+
+    Returns:
+        (sigma_lesser, sigma_greater): Photon-induced self-energies
+        (shape: [..., E, N, N] each).
+    """
+
+    def _shift_energy_linear_uniform(
+            g: torch.Tensor,
+            energies_1d: torch.Tensor,
+            shift: torch.Tensor) -> torch.Tensor:
+        # Returns g(E + shift) sampled onto the original `energies` grid.
+        # Out-of-range values are set to zero.
+        if energies_1d.ndim != 1:
+            raise ValueError('Expected `energies` to be 1D.')
+        if energies_1d.numel() < 2:
+            raise ValueError('Expected `energies` to have length >= 2.')
+
+        dE = energies_1d[1] - energies_1d[0]
+        if torch.diff(energies_1d).std() > 1e-6 * (energies_1d.max() - energies_1d.min()):
+            raise ValueError('Expected `energies` to be (approximately) uniformly spaced.')
+
+        E0 = energies_1d[0]
+        E_min = energies_1d[0]
+        E_max = energies_1d[-1]
+
+        # We want g_shifted[E_idx] = g(Energies[E_idx] + shift)
+        E_shift = energies_1d + shift
+        valid = (E_shift >= E_min) & (E_shift <= E_max)
+
+        # Fractional index in the original grid.
+        idx_f = (E_shift - E0) / dE
+        idx0 = torch.floor(idx_f).to(torch.int64)
+        idx0 = torch.clamp(idx0, 0, energies_1d.numel() - 2)
+        idx1 = idx0 + 1
+        frac = (idx_f - idx0.to(idx_f.dtype)).to(g.dtype)
+
+        # Flatten everything except energy, and flatten (N,N) -> (NN) to gather easily.
+        leading_shape = g.shape[:-3]
+        E = g.shape[-3]
+        N = g.shape[-1]
+        g_flat = g.reshape((-1, E, N * N))
+
+        g0 = g_flat[:, idx0, :]  # [B, E, NN]
+        g1 = g_flat[:, idx1, :]
+        g_out = (1 - frac).view(1, -1, 1) * g0 + frac.view(1, -1, 1) * g1
+
+        # Zero out out-of-range energies.
+        g_out = g_out * valid.to(g_out.dtype).view(1, -1, 1)
+
+        return g_out.reshape(leading_shape + (E, N, N))
+
+    def _polarization_sandwich(
+            gE: torch.Tensor,
+            p_xyz_op: torch.Tensor,
+            rho: torch.Tensor) -> torch.Tensor:
+        # Computes sum_{i,j} rho[i,j] * p_i * gE * p_j^\dagger
+        out = torch.zeros_like(gE)
+        for i in range(3):
+            p_i = p_xyz_op[..., i, :, :].unsqueeze(-3)  # [..., 1, N, N]
+            left = p_i @ gE
+            for j in range(3):
+                coeff = rho[i, j]
+                if torch.is_tensor(coeff) and coeff.ndim != 0:
+                    raise ValueError('Expected `rho_pol` entries to be scalars.')
+                p_j = p_xyz_op[..., j, :, :].mH.unsqueeze(-3)
+                out = out + coeff * (left @ p_j)
+        return out
+
+    # Basic validation.
+    if energies.ndim != 1:
+        raise ValueError('Expected `energies` to have shape [E].')
+    if frequencies.ndim != 1:
+        raise ValueError('Expected `frequencies` to have shape [F].')
+    if g_lesser.shape != g_greater.shape:
+        raise ValueError('Expected `g_lesser` and `g_greater` to have the same shape.')
+    if g_lesser.shape[-3] != energies.numel():
+        raise ValueError('Expected g_* energy dimension to match len(energies).')
+    if g_lesser.shape[-1] != g_lesser.shape[-2]:
+        raise ValueError('Expected g_* to have shape [..., E, N, N].')
+
+    # Normalize / broadcast momentum operator shape to [..., 3, N, N]
+    if p_xyz.ndim == 3:
+        # [3, N, N] -> [1..., 3, N, N] broadcast over g leading dims
+        p_xyz_op = p_xyz
+    elif p_xyz.ndim >= 4:
+        p_xyz_op = p_xyz
+    else:
+        raise ValueError('Expected `p_xyz` to have shape [3, N, N] or [..., 3, N, N].')
+    if p_xyz_op.shape[-3] != 3:
+        raise ValueError('Expected `p_xyz[..., 3, N, N]` (3 Cartesian components).')
+
+    # Make rho_pol.
+    device = energies.device
+    dtype = g_lesser.dtype
+    if rho_pol is None:
+        if k_hat is not None:
+            if k_hat.shape != (3,):
+                raise ValueError('Expected `k_hat` to have shape [3].')
+            k = k_hat.to(device=device, dtype=torch.float64)
+            k = k / (k.norm() + 1e-30)
+            I3 = torch.eye(3, device=device, dtype=torch.float64)
+            rho = (I3 - torch.outer(k, k)) / 2.0
+        else:
+            rho = torch.eye(3, device=device, dtype=torch.float64) / 3.0
+        rho = rho.to(device=device, dtype=dtype)
+    else:
+        if rho_pol.shape != (3, 3):
+            raise ValueError('Expected `rho_pol` to have shape [3, 3].')
+        rho = rho_pol.to(device=device, dtype=dtype)
+
+    # Sort frequencies (and corresponding W, S_vac).
+    freqs, sort_idx = torch.sort(frequencies)
+    W = W.to(device=device, dtype=dtype).reshape(-1)
+    if W.numel() == 1:
+        W = W.expand(freqs.numel())
+    elif W.numel() != freqs.numel():
+        raise ValueError('Expected `W` to have shape [F] or be a scalar.')
+    W = W[sort_idx]
 
     if S_vac is None:
-        S_vac = hbar * frequencies**3 / (6 * torch.pi * e0 * c**3)
+        # Simple free-space scaling. Users can pass a more faithful LDOS if needed.
+        S = hbar * freqs**3 / (6 * torch.pi * eps0 * c**3)
+    else:
+        S = S_vac.to(device=device, dtype=dtype).reshape(-1)
+        if S.numel() == 1:
+            S = S.expand(freqs.numel())
+        elif S.numel() != freqs.numel():
+            raise ValueError('Expected `S_vac` to have shape [F] or be a scalar.')
+        S = S[sort_idx]
 
-    W_vac = (2/3)*S_vac
+    # Coupling strength prefactor in the velocity gauge.
+    J = (e_charge / m0) ** 2 * S  # [F]
+
+    # Integrate with a memory-friendly trapezoid rule.
+    sigma_lesser = torch.zeros_like(g_lesser)
+    sigma_greater = torch.zeros_like(g_greater)
+
+    prev_less = None
+    prev_great = None
+    prev_w = None
+
+    for i in range(freqs.numel()):
+        w = freqs[i]
+        Nw = W[i]
+        Jw = J[i]
+
+        dE = hbar * w
+
+        # G(E - ħω) and G(E + ħω)
+        gL_minus = _shift_energy_linear_uniform(g_lesser, energies, -dE)
+        gL_plus = _shift_energy_linear_uniform(g_lesser, energies, +dE)
+        gG_minus = _shift_energy_linear_uniform(g_greater, energies, -dE)
+        gG_plus = _shift_energy_linear_uniform(g_greater, energies, +dE)
+
+        # SCBA correlation self-energies.
+        # Sigma^<(E): absorption (N) from E-Δ, emission (N+1) from E+Δ
+        # Sigma^>(E): emission (N+1) from E-Δ, absorption (N) from E+Δ
+        I_less = Jw * (
+            Nw * _polarization_sandwich(gL_minus, p_xyz_op, rho) +
+            (Nw + 1) * _polarization_sandwich(gL_plus, p_xyz_op, rho)
+        )
+        I_great = Jw * (
+            (Nw + 1) * _polarization_sandwich(gG_minus, p_xyz_op, rho) +
+            Nw * _polarization_sandwich(gG_plus, p_xyz_op, rho)
+        )
+
+        if prev_less is not None:
+            dw = (w - prev_w).to(dtype)
+            sigma_lesser = sigma_lesser + 0.5 * (prev_less + I_less) * dw
+            sigma_greater = sigma_greater + 0.5 * (prev_great + I_great) * dw
+
+        prev_less = I_less
+        prev_great = I_great
+        prev_w = w
+
+    return sigma_lesser, sigma_greater
 
 def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
     """Computes the Hilbert transform of a Greens function operator in the energy basis
@@ -1257,6 +1628,10 @@ class TorchNEGF:
             D: float | torch.Tensor | None = None,
             D_ionization: float | torch.Tensor = None,
             E_dipole: torch.Tensor = None,
+            omega0_phonon: float | torch.Tensor | None = None,
+            g2_phonon: float | torch.Tensor | None = None,
+            kt_phonon: float | torch.Tensor | None = None,
+            M_phonon: torch.Tensor | None = None,
             ionization_valence_cutoff: float | torch.Tensor = 0.0,
             mixing_alpha: float = 0.1,
             site_gf: torch.Tensor | None = None,
@@ -1357,6 +1732,28 @@ class TorchNEGF:
                 if E_dipole is not None:
                     if site_p is None:
                         pass
+
+                if omega0_phonon is not None or g2_phonon is not None:
+                    if omega0_phonon is None or g2_phonon is None:
+                        raise ValueError('Expected both `omega0_phonon` and `g2_phonon` to be set.')
+                    if kt_phonon is None:
+                        # Default: use the device thermal energy `kt` as the lattice temperature.
+                        kt_phonon_eff = kt
+                    else:
+                        kt_phonon_eff = kt_phonon
+
+                    sigL_ph, sigG_ph = einstein_phonon_self_energy(
+                        g_lesser=g_lesser,
+                        g_greater=g_greater,
+                        energies=energies,
+                        omega0=omega0_phonon,
+                        g2=g2_phonon,
+                        kT=kt_phonon_eff,
+                        M=M_phonon,
+                        hbar=1.0,
+                    )
+                    sigma_in_scattering_new += sigL_ph
+                    sigma_out_scattering_new += sigG_ph
 
                 # update residue:
                 residue = torch.abs(sigma_in_scattering - sigma_in_scattering_new).max() + \
