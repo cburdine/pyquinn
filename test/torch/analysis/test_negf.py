@@ -5,7 +5,7 @@ import torch
 
 from pyquinn.torch.analysis.negf import (
     optical_dipole_self_energy,
-    einstein_phonon_self_energy
+    einstein_phonon_self_energy,
     sancho_rubio,
     greens_function,   
 )
@@ -69,8 +69,8 @@ class TorchNEGFTest(unittest.TestCase):
 
         # Check on a central energy point to avoid boundary-zeroing effects.
         mid = E // 2
-        self.assertTrue(torch.allclose(sigmaL[0, mid], gL[0, mid] * domega, atol=1e-5, rtol=1e-5))
-        self.assertTrue(torch.allclose(sigmaG[0, mid], gG[0, mid] * domega, atol=1e-5, rtol=1e-5))
+        self.assertTrue(torch.allclose(sigmaL[0, mid], g_lesser[0, mid] * domega, atol=1e-5, rtol=1e-5))
+        self.assertTrue(torch.allclose(sigmaG[0, mid], g_greater[0, mid] * domega, atol=1e-5, rtol=1e-5))
 
     def test_einstein_phonon_self_energy_scaling(self):
         # check for constant g scaling:
@@ -183,17 +183,13 @@ class TorchNEGFTest(unittest.TestCase):
         e_onsite = 1.0
         t_hop = -1.0
         a_lat = 1.0
-        k_pts = torch.arange(0, 1/a_lat, 100)
+        k_pts = torch.linspace(0, 1/a_lat, 100)
         
         H = (e_onsite * torch.eye(2)).view(1, 2, 2) + \
             (2*t_hop*torch.cos(2*torch.pi*k_pts*a_lat)).view(-1, 1, 1) * \
             torch.tensor([[[0.0, 1.0], [1.0, 0.0]]]).view(1, 2, 2)
 
-        print(H.shape)
-
         energies = torch.linspace(-2, 2, 10)
         gf = greens_function(energies, H, eta=1e-5)
-                
-        print(gf.shape)
     
         self.assertTupleEqual(tuple(gf.shape), (100, 10, 2, 2))

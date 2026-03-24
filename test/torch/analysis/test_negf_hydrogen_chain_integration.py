@@ -1,0 +1,109 @@
+import unittest
+
+import torch
+
+from pyquinn.torch.analysis.negf import TorchNEGFDevice, TorchSCBASolver
+from pyquinn.torch.models.bandstructure_model import TorchBandStructureModel
+from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian
+from pyquinn.torch.types.atom_graph import TorchAtomGraph
+
+
+def _hydrogen_chain_graph(
+        n_atoms: int,
+        a: float,
+        x0: float,
+        periodic_x: bool) -> TorchAtomGraph:
+    dev = torch.device("cpu")
+
+    positions = torch.zeros((n_atoms, 3), dtype=torch.float32, device=dev)
+    positions[:, 0] = x0 + a * torch.arange(n_atoms, dtype=torch.float32, device=dev)
+
+    unit_cell = torch.diag(torch.tensor([a, 10.0 * a, 10.0 * a], dtype=torch.float32, device=dev))
+    periodic = torch.tensor([periodic_x, False, False], dtype=torch.bool, device=dev)
+
+    atomic_numbers = torch.ones((n_atoms,), dtype=torch.int64, device=dev)  # Hydrogen (Z=1)
+    masses = torch.ones((n_atoms,), dtype=torch.float32, device=dev)
+    features = torch.zeros((n_atoms, 1), dtype=torch.float32, device=dev)
+    outputs = torch.zeros((n_atoms, 1), dtype=torch.float32, device=dev)
+    graph_outputs = torch.zeros((n_atoms, 1), dtype=torch.float32, device=dev)
+
+    # Choose cutoffs so nearest neighbors at distance a are included
+    # (ASE neighborlist uses cutoffs[i]+cutoffs[j]).
+    cutoffs = torch.full((n_atoms,), 0.6 * a, dtype=torch.float32, device=dev)
+
+    return TorchAtomGraph(
+        atomic_numbers=atomic_numbers,
+        positions=positions,
+        masses=masses,
+        unit_cell=unit_cell,
+        periodic=periodic,
+        features=features,
+        outputs=outputs,
+        graph_outputs=graph_outputs,
+        cutoffs=cutoffs,
+        compute_neighbors=True,
+    )
+
+
+class HydrogenChainIntegrationTest(unittest.TestCase):
+
+    def test_device_and_solver_run_on_hydrogen_chain(self):
+        # Deterministic-ish default weights.
+        torch.manual_seed(0)
+
+        # Simple TB model (not physically calibrated; just plumbing coverage).
+        model = TorchBandStructureModel(bands_model=TBHamiltonian())
+        model.eval()
+
+        a = 1.0
+
+        # Finite "device" region: 3 atoms.
+        site = _hydrogen_chain_graph(n_atoms=3, a=a, x0=0.0, periodic_x=False)
+
+        # Two leads: single-atom unit cells, positioned to couple to the site ends.
+        left = _hydrogen_chain_graph(n_atoms=1, a=a, x0=-a, periodic_x=True)
+        right = _hydrogen_chain_graph(n_atoms=1, a=a, x0=3 * a, periodic_x=True)
+
+        dev = TorchNEGFDevice(
+            model=model,
+            site=site,
+            boundaries=[left, right],
+            orientations=[torch.tensor([0, 0, 0]), torch.tensor([0, 0, 0])],
+        )
+
+        energies = torch.linspace(-2.0, 2.0, 64)
+        k_pts = torch.zeros((1, 3), dtype=torch.float32)
+
+        # Exercise device assembly.
+        system = dev.system_graph()
+        self.assertEqual(system.atomic_numbers.numel(), 3 + 1 + 1)
+
+        H_site, Sigma_leads = dev.site_self_energies(energies=energies, k_pts=k_pts, eta=1e-3)
+        self.assertEqual(H_site.shape[0], 1)  # K
+        self.assertEqual(Sigma_leads.shape[0], 2)  # two boundaries
+        self.assertEqual(Sigma_leads.shape[1], 1)  # K
+        self.assertEqual(Sigma_leads.shape[2], energies.numel())  # E
+
+        G_site = dev.site_greens_function(energies=energies, k_pts=k_pts, eta=1e-3)
+        self.assertEqual(G_site.shape[0], 1)
+        self.assertEqual(G_site.shape[1], energies.numel())
+        self.assertTrue(torch.isfinite(G_site.real).all())
+        self.assertTrue(torch.isfinite(G_site.imag).all())
+
+        # Exercise solver path end-to-end (no scatterers => should converge immediately).
+        solver = TorchSCBASolver(device=dev, mixing_alpha=0.2, max_iter=10, tol=1e-8)
+        G_ret, G_less, G_great = solver.solve(
+            energies=energies,
+            k_pts=k_pts,
+            eta=1e-3,
+            kt=0.05,
+        )
+
+        self.assertEqual(G_ret.shape, (1, energies.numel(), 3, 3))
+        self.assertEqual(G_less.shape, (1, energies.numel(), 3, 3))
+        self.assertEqual(G_great.shape, (1, energies.numel(), 3, 3))
+
+
+if __name__ == "__main__":
+    unittest.main()
+

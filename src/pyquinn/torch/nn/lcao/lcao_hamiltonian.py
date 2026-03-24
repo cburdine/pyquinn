@@ -30,7 +30,7 @@ from collections.abc import Callable
 
 
 class LCAOHamiltonian(Hamiltonian):
-    r"""A LCAO (Linear Combination of Atomic Orbitals) 
+    r"""A LCAO (Linear Combination of Atomic Orbitals)
     Hamiltonian Module.
 
     This module contains a fixed set of Gaussian 
@@ -45,7 +45,7 @@ class LCAOHamiltonian(Hamiltonian):
     pseudopotential that is also expanded as a set of Gaussian functions:
 
         .. math::
-            H_{ij} = \langle \phi_i | V_i + V_j | \phi_j \rangle
+            H_{ij} = \langle \phi_i | -\frac{\hbar^2}{2m_e}\nabla^2 +  V_i + V_j | \phi_j \rangle
 
     This module currently supports the following eigensolvers:
         - `torch_eigh`
@@ -179,6 +179,8 @@ class LCAOHamiltonian(Hamiltonian):
                  potential_basis_size: int = 5,
                  energy_scale: float = 1.0,
                  orbital_shells: dict | None = None,
+                 hbar: float = 1.0,
+                 m_e: float = 1.0,
                  ) -> None:
         """Constructs a LCAO (Linear Combination of Atomic Orbitals) 
         Hamiltonian kernel. This module contains a fixed set of Gaussian 
@@ -210,6 +212,10 @@ class LCAOHamiltonian(Hamiltonian):
                 these orbitals. For any elements not specified in this 
                 dictionary, the valence shell orbitals are used.
                 Defaults to None.
+            hbar (float, optional): Planck's constant, used as a prefactor in 
+                returned Hamiltonian kernel entries.
+            m_e (float, optaional): Electron mass, used as a prefactor in
+                returned Hamiltonian kernel entries.
 
         Raises:
             ValueError: If invalid basis options are supplied.
@@ -269,6 +275,9 @@ class LCAOHamiltonian(Hamiltonian):
         # initialize on-site logscale energies
         self.logscale_onsite_energies = \
             LCAOHamiltonian._make_logscale_energy_parameters(shells=orbital_shells)
+
+        self.hbar = hbar
+        self.m_e = m_e
 
     def _get_c_normalization_coeffs(
             self,

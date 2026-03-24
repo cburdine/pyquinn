@@ -1,6 +1,199 @@
 import torch
+from abc import ABC, abstractmethod
 from pyquinn.torch.types import TorchAtomGraph
 from pyquinn.torch.models import TorchBandStructureModel
+
+
+class Scatterer(ABC):
+    """Interface for SCBA-style scattering models that contribute NEGF self-energies.
+
+    A scatterer maps the current electronic correlation Green's functions
+    :math:`G^{<}(E)` and :math:`G^{>}(E)` onto correlation self-energies
+    :math:`\\Sigma^{<}(E)` and :math:`\\Sigma^{>}(E)`.
+
+    The steady-state solver can then iterate these self-energies to
+    self-consistency.
+    """
+
+    @abstractmethod
+    def correlation_self_energy(
+            self,
+            g_lesser: torch.Tensor,
+            g_greater: torch.Tensor,
+            energies: torch.Tensor,
+            **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError
+
+
+class ElasticDephasingScatterer(Scatterer):
+    """Elastic dephasing model: :math:`\\Sigma^{</>}(E) = D\\,G^{</>}(E)`."""
+
+    def __init__(self, D: float | torch.Tensor):
+        self.D = D
+
+    def correlation_self_energy(
+            self,
+            g_lesser: torch.Tensor,
+            g_greater: torch.Tensor,
+            energies: torch.Tensor,
+            **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.D * g_lesser, self.D * g_greater
+
+
+class ImpactIonizationScatterer(Scatterer):
+    """Impact ionization correlation self-energies built from electron/hole GFs."""
+
+    def __init__(
+            self,
+            D_ionization: float | torch.Tensor,
+            valence_cutoff: float | torch.Tensor = 0.0):
+        self.D_ionization = D_ionization
+        self.valence_cutoff = valence_cutoff
+
+    def correlation_self_energy(
+            self,
+            g_lesser: torch.Tensor,
+            g_greater: torch.Tensor,
+            energies: torch.Tensor,
+            **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+
+        dE = kwargs.get('dE', None)
+        if dE is None:
+            if energies.numel() < 2:
+                raise ValueError('Expected `energies` to have length >= 2.')
+            dE = torch.diff(energies).mean()
+
+        # Conduction/valence masks along the energy axis.
+        theta_c = (energies.view(-1, 1, 1) > self.valence_cutoff).to(energies.dtype)
+        theta_v = 1 - theta_c
+
+        lead_ndim = g_lesser.ndim - 3
+        theta_c = theta_c.view((1,) * lead_ndim + (-1, 1, 1))
+        theta_v = theta_v.view((1,) * lead_ndim + (-1, 1, 1))
+
+        g_maj = theta_c * g_lesser
+        g_min = theta_v * g_greater
+
+        sigma_lesser = impact_ionization_self_energy(g_min, g_maj, self.D_ionization, dE)
+        sigma_greater = impact_ionization_self_energy(g_maj, g_min, self.D_ionization, dE)
+
+        return sigma_lesser, sigma_greater
+
+
+class EinsteinPhononScatterer(Scatterer):
+    """Single Einstein (optical) phonon bath scattering model."""
+
+    def __init__(
+            self,
+            omega0: float | torch.Tensor,
+            g2: float | torch.Tensor,
+            kT: float | torch.Tensor | None = None,
+            M: torch.Tensor | None = None,
+            hbar: float | torch.Tensor = 1.0):
+        
+        self.omega0 = omega0
+        self.g2 = g2
+        self.kT = kT
+        self.M = M
+        self.hbar = hbar
+
+    def correlation_self_energy(
+            self,
+            g_lesser: torch.Tensor,
+            g_greater: torch.Tensor,
+            energies: torch.Tensor,
+            **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+
+        kT_eff = self.kT
+        if kT_eff is None:
+            kT_eff = kwargs.get('kt', None)
+        if kT_eff is None:
+            raise ValueError('EinsteinPhononScatterer requires `kT` (or pass `kt=...` in solver kwargs).')
+
+        return einstein_phonon_self_energy(
+            g_lesser=g_lesser,
+            g_greater=g_greater,
+            energies=energies,
+            omega0=self.omega0,
+            g2=self.g2,
+            kT=kT_eff,
+            M=self.M,
+            hbar=self.hbar,
+        )
+
+
+class PhotonDipoleScatterer(Scatterer):
+    """Photon bath scattering via the velocity-gauge (momentum) coupling."""
+
+    def __init__(
+            self,
+            frequencies: torch.Tensor,
+            W: torch.Tensor,
+            p_xyz: torch.Tensor,
+            rho_pol: torch.Tensor | None = None,
+            S_vac: torch.Tensor | None = None,
+            k_hat: torch.Tensor | None = None,
+            hbar: float | torch.Tensor = 1.0,
+            e_charge: float | torch.Tensor = 1.0,
+            m0: float | torch.Tensor = 1.0,
+            eps0: float | torch.Tensor = 1.0,
+            c: float | torch.Tensor = 1.0):
+        
+        self.frequencies = frequencies
+        self.W = W
+        self.p_xyz = p_xyz
+        self.rho_pol = rho_pol
+        self.S_vac = S_vac
+        self.k_hat = k_hat
+        self.hbar = hbar
+        self.e_charge = e_charge
+        self.m0 = m0
+        self.eps0 = eps0
+        self.c = c
+
+    def correlation_self_energy(
+            self,
+            g_lesser: torch.Tensor,
+            g_greater: torch.Tensor,
+            energies: torch.Tensor,
+            **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+        return optical_dipole_self_energy(
+            g_lesser=g_lesser,
+            g_greater=g_greater,
+            energies=energies,
+            frequencies=self.frequencies,
+            W=self.W,
+            p_xyz=self.p_xyz,
+            rho_pol=self.rho_pol,
+            S_vac=self.S_vac,
+            k_hat=self.k_hat,
+            hbar=self.hbar,
+            e_charge=self.e_charge,
+            m0=self.m0,
+            eps0=self.eps0,
+            c=self.c,
+        )
+
+
+def correlation_self_energies_from_scatterers(
+        scatterers: list[Scatterer],
+        g_lesser: torch.Tensor,
+        g_greater: torch.Tensor,
+        energies: torch.Tensor,
+        **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sums :math:`\\Sigma^{<,>}` contributions from a list of scatterers."""
+    sigL = torch.zeros_like(g_lesser)
+    sigG = torch.zeros_like(g_greater)
+    for sc in scatterers:
+        sL, sG = sc.correlation_self_energy(
+            g_lesser=g_lesser,
+            g_greater=g_greater,
+            energies=energies,
+            **kwargs,
+        )
+        sigL = sigL + sL
+        sigG = sigG + sG
+    return sigL, sigG
 
 
 def greens_function(
@@ -458,9 +651,8 @@ def optical_dipole_self_energy(
         S = S[sort_idx]
 
     # Coupling strength prefactor in the velocity gauge.
-    J = (e_charge / m0) ** 2 * S  # [F]
+    J = (e_charge / m0) ** 2 * S
 
-    # Integrate with a memory-friendly trapezoid rule.
     sigma_lesser = torch.zeros_like(g_lesser)
     sigma_greater = torch.zeros_like(g_greater)
 
@@ -481,9 +673,7 @@ def optical_dipole_self_energy(
         gG_minus = _shift_energy_linear_uniform(g_greater, energies, -dE)
         gG_plus = _shift_energy_linear_uniform(g_greater, energies, +dE)
 
-        # SCBA correlation self-energies.
-        # Sigma^<(E): absorption (N) from E-Δ, emission (N+1) from E+Δ
-        # Sigma^>(E): emission (N+1) from E-Δ, absorption (N) from E+Δ
+        # SCBA correlation self-energies:
         I_less = Jw * (
             Nw * _polarization_sandwich(gL_minus, p_xyz_op, rho) +
             (Nw + 1) * _polarization_sandwich(gL_plus, p_xyz_op, rho)
@@ -608,7 +798,7 @@ def sancho_rubio(
     return g_surf
 
 
-class TorchNEGF:
+class TorchNEGFDevice:
 
     def _validate_boundary_atomgraph(
             self,
@@ -1144,9 +1334,11 @@ class TorchNEGF:
 
         # compute occupation-weighted broadening matrices
 
-        sigma_in = 1.j*(
-            (self_energies - self_energies.mH) * occupations
-        ).sum(-4)
+        # self_energies: [B, K, E, N, N]
+        # occupations:   [B, E] -> [B, 1, E, 1, 1]
+        # sigma_in:      sum over boundaries -> [K, E, N, N]
+        occ = occupations.unsqueeze(-4)
+        sigma_in = 1.j * ((self_energies - self_energies.mH) * occ).sum(0)
 
         # compute retarded greens function
         g_ret = perturbed_greens_function(
@@ -1625,6 +1817,7 @@ class TorchNEGF:
             chemical_potentials: list[torch.Tensor] |
                 list[float] | None = None,
             kt: torch.Tensor | float = 0.0,
+            scatterers: list[Scatterer] | None = None,
             D: float | torch.Tensor | None = None,
             D_ionization: float | torch.Tensor = None,
             E_dipole: torch.Tensor = None,
@@ -1640,20 +1833,91 @@ class TorchNEGF:
             return_self_energies: bool = False,
             max_iter: int = 1024,
             tol: float = 1e-6) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        solver = TorchSCBASolver(
+            device=self,
+            mixing_alpha=mixing_alpha,
+            max_iter=max_iter,
+            tol=tol,
+        )
+        return solver.solve(
+            energies=energies,
+            k_pts=k_pts,
+            eta=eta,
+            chemical_potentials=chemical_potentials,
+            kt=kt,
+            scatterers=scatterers,
+            D=D,
+            D_ionization=D_ionization,
+            E_dipole=E_dipole,
+            omega0_phonon=omega0_phonon,
+            g2_phonon=g2_phonon,
+            kt_phonon=kt_phonon,
+            M_phonon=M_phonon,
+            ionization_valence_cutoff=ionization_valence_cutoff,
+            site_gf=site_gf,
+            site_p=site_p,
+            boundary_gfs=boundary_gfs,
+            return_self_energies=return_self_energies,
+        )
 
-        if torch.diff(energies).std() > 1e-5*(energies.max() - energies.min()):
-            raise ValueError('Energies must have size > 1 and be uniformly spaced to solve for scattering self-energy.')
+
+class TorchSCBASolver:
+    """Self-consistent Born approximation (SCBA) steady-state NEGF solver.
+
+    This solver iterates scattering self-energies :math:`\\Sigma^{</>}` to
+    self-consistency using a fixed-point iteration with linear mixing.
+    """
+
+    def __init__(
+            self,
+            device: TorchNEGFDevice,
+            mixing_alpha: float = 0.1,
+            max_iter: int = 1024,
+            tol: float = 1e-6):
+        self.device = device
+        self.mixing_alpha = mixing_alpha
+        self.max_iter = max_iter
+        self.tol = tol
+
+    def solve(
+            self,
+            energies: torch.Tensor,
+            k_pts: torch.Tensor | None = None,
+            eta: float = 1e-5,
+            chemical_potentials: list[torch.Tensor] | list[float] | None = None,
+            kt: torch.Tensor | float = 0.0,
+            scatterers: list[Scatterer] | None = None,
+            D: float | torch.Tensor | None = None,
+            D_ionization: float | torch.Tensor = None,
+            E_dipole: torch.Tensor = None,
+            omega0_phonon: float | torch.Tensor | None = None,
+            g2_phonon: float | torch.Tensor | None = None,
+            kt_phonon: float | torch.Tensor | None = None,
+            M_phonon: torch.Tensor | None = None,
+            ionization_valence_cutoff: float | torch.Tensor = 0.0,
+            site_gf: torch.Tensor | None = None,
+            site_p: torch.Tensor | None = None,
+            boundary_gfs: list[torch.Tensor] | None = None,
+            return_self_energies: bool = False,
+            **solver_kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+        if torch.diff(energies).std() > 1e-5 * (energies.max() - energies.min()):
+            raise ValueError(
+                'Energies must have size > 1 and be uniformly spaced to solve for scattering self-energy.'
+            )
 
         dE = torch.diff(energies).mean()
-        
+
         # compute self-energies
-        H_site, self_energies = self.site_self_energies(
+        H_site, self_energies = self.device.site_self_energies(
             energies=energies,
             k_pts=k_pts,
             eta=eta,
             boundary_gfs=boundary_gfs,
-            max_iter=max_iter,
-            tol=tol)
+            max_iter=self.max_iter,
+            tol=self.tol,
+            **solver_kwargs,
+        )
 
         # combine this function call with the inverse calculation
         site_gf = perturbed_greens_function(
@@ -1666,48 +1930,67 @@ class TorchNEGF:
 
         # resolve chemical potentials and occupation probabilities
         if chemical_potentials is None:
-            chemical_potentials = [0.0]*len(self.boundaries)
+            chemical_potentials = [0.0] * len(self.device.boundaries)
 
-        if len(chemical_potentials) != len(self.boundaries):
+        if len(chemical_potentials) != len(self.device.boundaries):
             raise ValueError(
                 'Expected len(chemical_potentials) == len(self.boundaries);'
-                f' got {len(chemical_potentials)} != {len(self.boundaries)}.'
+                f' got {len(chemical_potentials)} != {len(self.device.boundaries)}.'
             )
 
         occupation_probs = torch.stack([
-            1.0 / (1.0 + torch.exp((energies - mu)/kt))
+            1.0 / (1.0 + torch.exp((energies - mu) / kt))
             for mu in chemical_potentials
         ])
-        
-        f_in = occupation_probs.view(
-            occupation_probs.shape + (1, 1))
+
+        f_in = occupation_probs.view(occupation_probs.shape + (1, 1))
         f_out = 1 - f_in
 
         # compute occupation-weighted broadening matrices
-        sigma_in = 1.j*((self_energies - self_energies.mH) * f_in).sum(-4)
-        sigma_out = 1.j*((self_energies - self_energies.mH) * f_out).sum(-4)
+        # self_energies: [B, K, E, N, N]
+        # f_in/f_out:    [B, E] -> [B, 1, E, 1, 1]
+        # sigma_in/out:  sum over boundaries -> [K, E, N, N]
+        f_in_e = f_in.unsqueeze(-4)
+        f_out_e = f_out.unsqueeze(-4)
+        sigma_in = 1.j * ((self_energies - self_energies.mH) * f_in_e).sum(0)
+        sigma_out = 1.j * ((self_energies - self_energies.mH) * f_out_e).sum(0)
 
         sigma_in_scattering = torch.zeros_like(sigma_in)
         sigma_out_scattering = torch.zeros_like(sigma_in)
 
-        # compute conduction and valence band masks:
-        theta_c = (energies.view(-1, 1, 1) > ionization_valence_cutoff).to(energies.dtype)
-        theta_v = 1 - theta_c
-        
-        theta_c = theta_c.view(1, -1, 1, 1)
-        theta_v = theta_v.view(1, -1, 1, 1)
+        # Resolve scatterer list. We keep the existing scalar-kwarg interface by
+        # wrapping legacy options into Scatterer instances.
+        scatterers_resolved: list[Scatterer] = []
+        if scatterers is not None:
+            scatterers_resolved.extend(scatterers)
 
-        scattering_self_energy = torch.zeros_like(site_gf)
-            
+        if D is not None:
+            scatterers_resolved.append(ElasticDephasingScatterer(D))
+        if D_ionization is not None:
+            scatterers_resolved.append(ImpactIonizationScatterer(
+                D_ionization=D_ionization,
+                valence_cutoff=ionization_valence_cutoff,
+            ))
+        if omega0_phonon is not None or g2_phonon is not None:
+            if omega0_phonon is None or g2_phonon is None:
+                raise ValueError('Expected both `omega0_phonon` and `g2_phonon` to be set.')
+            scatterers_resolved.append(EinsteinPhononScatterer(
+                omega0=omega0_phonon,
+                g2=g2_phonon,
+                kT=kt_phonon,
+                M=M_phonon,
+                hbar=1.0,
+            ))
+
         with torch.no_grad():
-            for _ in range(max_iter):
+            for _ in range(self.max_iter):
 
                 # compute updated Greens function with scattering self-energy terms
                 gamma_scattering = sigma_in_scattering + sigma_out_scattering
-                scattering_self_energy = -0.5j*gamma_scattering + hilbert_transform(gamma_scattering)
+                scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
 
                 site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
-                
+
                 # compute updated lesser and greater greens function
                 g_lesser = (site_gf_new @ (sigma_in + sigma_in_scattering) @ site_gf_new.mH)
                 g_greater = (site_gf_new @ (sigma_out + sigma_out_scattering) @ site_gf_new.mH)
@@ -1715,61 +1998,41 @@ class TorchNEGF:
                 sigma_in_scattering_new = torch.zeros_like(sigma_in_scattering)
                 sigma_out_scattering_new = torch.zeros_like(sigma_out_scattering)
 
-                if D is not None:
-
-                    # add new incoherent scattering self-energy
-                    sigma_in_scattering_new += D * g_lesser
-                    sigma_out_scattering_new += D * g_greater
-
-                if D_ionization is not None:
-                    
-                    # add new ionization self-energy
-                    g_maj = theta_c * g_lesser
-                    g_min = theta_v * g_greater
-                    sigma_in_scattering_new += impact_ionization_self_energy(g_min, g_maj, D_ionization, dE)
-                    sigma_out_scattering_new += impact_ionization_self_energy(g_maj, g_min, D_ionization, dE)
+                if scatterers_resolved:
+                    sigL, sigG = correlation_self_energies_from_scatterers(
+                        scatterers=scatterers_resolved,
+                        g_lesser=g_lesser,
+                        g_greater=g_greater,
+                        energies=energies,
+                        dE=dE,
+                        kt=kt,
+                    )
+                    sigma_in_scattering_new += sigL
+                    sigma_out_scattering_new += sigG
 
                 if E_dipole is not None:
                     if site_p is None:
                         pass
 
-                if omega0_phonon is not None or g2_phonon is not None:
-                    if omega0_phonon is None or g2_phonon is None:
-                        raise ValueError('Expected both `omega0_phonon` and `g2_phonon` to be set.')
-                    if kt_phonon is None:
-                        # Default: use the device thermal energy `kt` as the lattice temperature.
-                        kt_phonon_eff = kt
-                    else:
-                        kt_phonon_eff = kt_phonon
-
-                    sigL_ph, sigG_ph = einstein_phonon_self_energy(
-                        g_lesser=g_lesser,
-                        g_greater=g_greater,
-                        energies=energies,
-                        omega0=omega0_phonon,
-                        g2=g2_phonon,
-                        kT=kt_phonon_eff,
-                        M=M_phonon,
-                        hbar=1.0,
-                    )
-                    sigma_in_scattering_new += sigL_ph
-                    sigma_out_scattering_new += sigG_ph
-
                 # update residue:
                 residue = torch.abs(sigma_in_scattering - sigma_in_scattering_new).max() + \
                           torch.abs(sigma_out_scattering - sigma_out_scattering_new).max()
 
-                if residue < tol:
+                if residue < self.tol:
                     break
 
                 # mix new self energy with old
-                sigma_in_scattering = sigma_in_scattering * (1-mixing_alpha) + sigma_in_scattering_new*mixing_alpha
-                sigma_out_scattering = sigma_out_scattering * (1-mixing_alpha) + sigma_out_scattering_new*mixing_alpha
+                sigma_in_scattering = sigma_in_scattering * (1 - self.mixing_alpha) + sigma_in_scattering_new * self.mixing_alpha
+                sigma_out_scattering = sigma_out_scattering * (1 - self.mixing_alpha) + sigma_out_scattering_new * self.mixing_alpha
 
         if return_self_energies:
             return site_gf_new, sigma_in_scattering, sigma_out_scattering
-        
+
         return site_gf_new, g_lesser, g_greater
+
+
+# Backwards-compatible alias.
+TorchNEGF = TorchNEGFDevice
 
 
 
