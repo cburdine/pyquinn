@@ -2,7 +2,11 @@ import unittest
 
 import torch
 
-from pyquinn.torch.analysis.negf import TorchNEGFDevice, TorchSCBASolver
+from pyquinn.torch.analysis.negf import (
+    TorchNEGFDevice,
+    NEGFSolver,
+    greens_function,
+)
 from pyquinn.torch.models.bandstructure_model import TorchBandStructureModel
 from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian
 from pyquinn.torch.types.atom_graph import TorchAtomGraph
@@ -65,9 +69,8 @@ class HydrogenChainIntegrationTest(unittest.TestCase):
         right = _hydrogen_chain_graph(n_atoms=1, a=a, x0=3 * a, periodic_x=True)
 
         dev = TorchNEGFDevice(
-            model=model,
-            site=site,
-            boundaries=[left, right],
+            device=site,
+            leads=[left, right],
             orientations=[torch.tensor([0, 0, 0]), torch.tensor([0, 0, 0])],
         )
 
@@ -78,32 +81,56 @@ class HydrogenChainIntegrationTest(unittest.TestCase):
         system = dev.system_graph()
         self.assertEqual(system.atomic_numbers.numel(), 3 + 1 + 1)
 
-        H_site, Sigma_leads = dev.site_self_energies(energies=energies, k_pts=k_pts, eta=1e-3)
+        solver = NEGFSolver(
+            negf_device=dev,
+            model=model,
+            mixing_alpha=0.2,
+            max_iter=10,
+            tol=1e-8,
+        )
+
+        H_site, Sigma_leads = solver.solve_hamiltonian_self_energies(
+            energies=energies,
+            k_pts=k_pts,
+            eta=1e-3,
+        )
+        self.assertIsNotNone(Sigma_leads)
         self.assertEqual(H_site.shape[0], 1)  # K
+        self.assertEqual(H_site.shape[-1], 3)
         self.assertEqual(Sigma_leads.shape[0], 2)  # two boundaries
-        self.assertEqual(Sigma_leads.shape[1], 1)  # K
+        self.assertEqual(Sigma_leads.shape[1], k_pts.shape[0])  # K
         self.assertEqual(Sigma_leads.shape[2], energies.numel())  # E
 
-        G_site = dev.site_greens_function(energies=energies, k_pts=k_pts, eta=1e-3)
+        if Sigma_leads is not None:
+            G_site = greens_function(
+                energies=energies,
+                hamiltonian_matrix=H_site,
+                self_energies=Sigma_leads,
+                eta=1e-3,
+            )
+        else:
+            G_site = greens_function(
+                energies=energies,
+                hamiltonian_matrix=H_site,
+                eta=1e-3,
+            )
         self.assertEqual(G_site.shape[0], 1)
         self.assertEqual(G_site.shape[1], energies.numel())
         self.assertTrue(torch.isfinite(G_site.real).all())
         self.assertTrue(torch.isfinite(G_site.imag).all())
 
         # Exercise solver path end-to-end (no scatterers => should converge immediately).
-        solver = TorchSCBASolver(device=dev, mixing_alpha=0.2, max_iter=10, tol=1e-8)
-        G_ret, G_less, G_great = solver.solve(
+        result = solver.solve(
             energies=energies,
             k_pts=k_pts,
             eta=1e-3,
             kt=0.05,
         )
 
-        self.assertEqual(G_ret.shape, (1, energies.numel(), 3, 3))
-        self.assertEqual(G_less.shape, (1, energies.numel(), 3, 3))
-        self.assertEqual(G_great.shape, (1, energies.numel(), 3, 3))
+        self.assertEqual(result.g_ret.shape, (1, energies.numel(), 3, 3))
+        self.assertEqual(result.g_lesser.shape, (1, energies.numel(), 3, 3))
+        self.assertEqual(result.g_greater.shape, (1, energies.numel(), 3, 3))
 
 
 if __name__ == "__main__":
     unittest.main()
-

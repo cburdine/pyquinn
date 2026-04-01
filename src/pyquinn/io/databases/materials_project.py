@@ -407,7 +407,7 @@ class MaterialsProject(Database):
 
         k_pts = np.array([
             k.frac_coords
-            for k in bandstructure.k_pts
+            for k in bandstructure.kpoints
         ])
     
         for k in bandstructure.bands:

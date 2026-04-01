@@ -39,18 +39,11 @@ class TorchNEGFDeviceTest(unittest.TestCase):
         g.unit_cell_images = torch.zeros((1, 1, 3), dtype=torch.int64)
         return g
 
-    def test_resolve_k_pts_default(self):
-        dev = TorchNEGFDevice(model=None, site=None, boundaries=[])  # type: ignore[arg-type]
-        energies = torch.linspace(-1.0, 1.0, 8)
-        k_pts = dev._resolve_k_pts(None, energies)
-        self.assertEqual(k_pts.shape, (1, 3))
-        self.assertTrue(torch.allclose(k_pts, torch.zeros_like(k_pts)))
-
     def test_boundary_orientation_validation(self):
         g = self._dummy_graph()
 
         # Orientation with more than one nonzero component should fail.
-        dev = TorchNEGFDevice(model=None, site=None, boundaries=[])  # type: ignore[arg-type]
+        dev = TorchNEGFDevice(device=None, leads=[], orientations=[])
         with self.assertRaises(ValueError):
             dev._validate_boundary_atomgraph(g, torch.tensor([1, 1, 0]))
 
@@ -59,7 +52,7 @@ class TorchNEGFDeviceTest(unittest.TestCase):
         # Put an image offset of 2 along x; orientation [1,0,0] should error.
         g.unit_cell_images = torch.tensor([[[2, 0, 0]]], dtype=torch.int64)
 
-        dev = TorchNEGFDevice(model=None, site=None, boundaries=[])  # type: ignore[arg-type]
+        dev = TorchNEGFDevice(device=None, leads=[], orientations=[])
         with self.assertRaises(ValueError):
             dev._validate_boundary_atomgraph(g, torch.tensor([1, 0, 0]))
 

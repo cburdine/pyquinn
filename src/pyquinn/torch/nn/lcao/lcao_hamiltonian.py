@@ -550,21 +550,6 @@ class LCAOHamiltonian(Hamiltonian):
 
         return H
 
-    # def _build_operator(
-    #         self,
-    #         diagonals: list[torch.Tensor],
-    #         components: list[torch.Tensor],
-    #         component_idxs: list[torch.IntTensor]):
-        
-    #     H_ij = torch.cat(component_idxs, dim=0)
-    #     H_values = torch.cat(components, dim=0)
-
-    #     onsite_values = torch.cat(diagonals, dim=0)
-    #     couplings = torch.cat((H_ij, torch.fliplr(H_ij)), dim=0)
-    #     coupling_values = torch.cat((H_values, H_values.conj()), dim=0)
-        
-    #     return onsite_values, couplings, coupling_values
-
     def _get_site_orbital_data(
             self,
             atomic_numbers: torch.IntTensor,
@@ -753,6 +738,7 @@ class LCAOHamiltonian(Hamiltonian):
                            atomic_numbers: torch.IntTensor, 
                            positions: torch.Tensor, 
                            neighbors: torch.IntTensor,
+                           kernel: str = 'hamiltonian',
                            **kwargs
                            ) -> torch.Tensor:
         """Computes the Hamiltonian matrix.
@@ -778,7 +764,9 @@ class LCAOHamiltonian(Hamiltonian):
             self.hamiltonian_operator_entries(
                 atomic_numbers=atomic_numbers,
                 positions=positions,
-                neighbors=neighbors
+                neighbors=neighbors,
+                kernel=kernel,
+                **kwargs
             )
 
         return build_nonperiodic_matrix(
@@ -1612,7 +1600,7 @@ class TBHamiltonian(LCAOHamiltonian):
             neighbors: torch.IntTensor,
             unit_cell: torch.Tensor,
             unit_cell_images: torch.IntTensor,
-            kernel: str = 'hamiltonian') -> tuple:
+            kernel: str = 'potential') -> tuple:
         
         _kernel = kernel.lower()
         if _kernel not in LCAOHamiltonian.HAMILTONIAN_OPERATOR_KERNELS:

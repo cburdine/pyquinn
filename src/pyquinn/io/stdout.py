@@ -1,5 +1,6 @@
 """Handles output to stdout."""
 from typing import Iterable
+import sys
 
 
 def progress_bar(
@@ -46,3 +47,14 @@ def progress_bar(
         print_progress(i + 1)
 
     print()
+
+
+def print_overwrite(message: str, *, flush: bool = True) -> None:
+    """
+    Prints `message` to stdout and keeps it on one line by returning
+    the cursor to the beginning. Useful for progress percentages, losses, etc.
+    """
+    print(f"\r{message}", end="")
+    if flush:
+        sys.stdout.flush()
+

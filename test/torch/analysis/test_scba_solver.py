@@ -3,79 +3,106 @@ import unittest
 import torch
 
 from pyquinn.torch.analysis.negf import (
-    TorchSCBASolver,
+    NEGFSolver,
     ElasticDephasingScatterer,
 )
 
 
+class _FakeGraph:
+
+    def __init__(self, size: int, device: torch.device | None = None, is_system: bool = False):
+        self.size = size
+        self.device = torch.device('cpu') if device is None else device
+        self.is_system = is_system
+
+
 class _FakeDevice:
-    # Minimal interface needed by TorchSCBASolver.
 
-    def __init__(self, N: int, gamma: float = 0.5):
-        self.boundaries = [object()]  # length defines # leads
-        self._N = N
-        self._gamma = gamma
+    def __init__(self, site_size: int, lead_sizes: list[int], gamma: float = 0.5):
+        self.device = _FakeGraph(site_size)
+        self.leads = [_FakeGraph(size) for size in lead_sizes]
+        self.orientations = [torch.zeros(3, dtype=torch.int64) for _ in lead_sizes]
+        self.gamma = gamma
 
-    def site_self_energies(
-            self,
-            energies: torch.Tensor,
-            k_pts: torch.Tensor | None = None,
-            eta: float = 1e-5,
-            boundary_gfs=None,
-            **kwargs):
-        # H_site: [K, N, N]
-        if k_pts is None:
-            K = 1
-        else:
-            K = k_pts.shape[0]
+    def system_graph(self) -> _FakeGraph:
+        total = self.device.size + sum(lead.size for lead in self.leads)
+        return _FakeGraph(size=total, is_system=True)
 
-        N = self._N
-        dev = energies.device
+
+class _FakeModel:
+
+    def __init__(self, site_size: int, lead_sizes: list[int], hop: float = 0.5):
+        self.site_size = site_size
+        self.lead_sizes = lead_sizes
+        self.hop = hop
+
+    def orbital_indices(self, graph: _FakeGraph) -> tuple[torch.IntTensor, torch.IntTensor]:
+        idx = torch.arange(graph.size, dtype=torch.int64, device=graph.device)
+        return idx, idx
+
+    def hamiltonian_matrix(self, graph: _FakeGraph, k_pts: torch.Tensor | None) -> torch.Tensor:
+        K = 1 if k_pts is None else k_pts.shape[0]
         dtype = torch.complex64
+        device = k_pts.device if k_pts is not None else graph.device
+        mat = torch.zeros((K, graph.size, graph.size), dtype=dtype, device=device)
+        if graph.is_system:
+            site = self.site_size
+            lead = self.lead_sizes[0]
+            mat[:, :site, site:site+lead] = self.hop
+            mat[:, site:site+lead, :site] = self.hop
+        return mat
 
-        H_site = torch.zeros((K, N, N), dtype=dtype, device=dev)
-        H_site[:, torch.arange(N), torch.arange(N)] = torch.linspace(-0.2, 0.2, N, device=dev).to(dtype)
 
-        # One lead self-energy, constant in energy: Σ^R = - i gamma/2 * I
-        Sigma_lead = (-0.5j * self._gamma) * torch.eye(N, dtype=dtype, device=dev)
-        Sigma_lead = Sigma_lead.view(1, 1, 1, N, N).expand(1, K, energies.numel(), N, N)
+def _build_solver(site_size: int = 2, lead_sizes: list[int] | None = None) -> NEGFSolver:
+    if lead_sizes is None:
+        lead_sizes = [2]
+    device = _FakeDevice(site_size=site_size, lead_sizes=lead_sizes)
+    model = _FakeModel(site_size=site_size, lead_sizes=lead_sizes)
+    return NEGFSolver(
+        negf_device=device,
+        model=model,
+        mixing_alpha=0.2,
+        max_iter=60,
+        tol=1e-8,
+    )
 
-        return H_site, Sigma_lead
 
-
-class TorchSCBASolverTest(unittest.TestCase):
+class TorchNEGFSolverTest(unittest.TestCase):
 
     def test_solver_runs_and_shapes(self):
-        device = _FakeDevice(N=2, gamma=0.7)
-        solver = TorchSCBASolver(device=device, mixing_alpha=0.2, max_iter=50, tol=1e-8)
-
+        solver = _build_solver()
         energies = torch.linspace(-1.0, 1.0, 128)
-
-        # Include one scatterer so Σ_scatt is nonzero.
+        k_pts = torch.zeros((1, 3))
         scatterers = [ElasticDephasingScatterer(D=0.1)]
 
-        G_ret, G_less, G_great = solver.solve(
+        result = solver.solve(
             energies=energies,
+            k_pts=k_pts,
             kt=0.2,
             scatterers=scatterers,
         )
 
-        self.assertEqual(G_ret.shape, (1, 128, 2, 2))
-        self.assertEqual(G_less.shape, (1, 128, 2, 2))
-        self.assertEqual(G_great.shape, (1, 128, 2, 2))
+        self.assertEqual(result.g_ret.shape, (1, 128, 2, 2))
+        self.assertEqual(result.g_lesser.shape, (1, 128, 2, 2))
+        self.assertEqual(result.g_greater.shape, (1, 128, 2, 2))
+        self.assertIsNotNone(result.lead_self_energies)
+        self.assertEqual(result.lead_self_energies.shape[0], 1)
 
-    def test_legacy_D_matches_scatterer(self):
-        device = _FakeDevice(N=2, gamma=0.7)
-        energies = torch.linspace(-1.0, 1.0, 96)
+    def test_scatterers_contribute_self_energy(self):
+        solver = _build_solver()
+        energies = torch.linspace(-1.0, 1.0, 64)
+        k_pts = torch.zeros((1, 3))
 
-        solver1 = TorchSCBASolver(device=device, mixing_alpha=0.2, max_iter=60, tol=1e-8)
-        solver2 = TorchSCBASolver(device=device, mixing_alpha=0.2, max_iter=60, tol=1e-8)
+        no_scatter = solver.solve(energies=energies, k_pts=k_pts, kt=0.2, scatterers=[])
+        self.assertTrue(torch.allclose(no_scatter.lesser_self_energies, torch.zeros_like(no_scatter.lesser_self_energies)))
 
-        out1 = solver1.solve(energies=energies, kt=0.2, D=0.1)
-        out2 = solver2.solve(energies=energies, kt=0.2, scatterers=[ElasticDephasingScatterer(0.1)])
-
-        for a, b in zip(out1, out2):
-            self.assertTrue(torch.allclose(a, b, atol=1e-5, rtol=1e-5))
+        scatter = solver.solve(
+            energies=energies,
+            k_pts=k_pts,
+            kt=0.2,
+            scatterers=[ElasticDephasingScatterer(D=0.2)],
+        )
+        self.assertFalse(torch.allclose(scatter.lesser_self_energies, torch.zeros_like(scatter.lesser_self_energies)))
 
 
 if __name__ == "__main__":
