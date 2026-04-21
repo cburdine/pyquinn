@@ -77,6 +77,41 @@ class ScattererSyntaxTest(unittest.TestCase):
         self.assertTrue(torch.isfinite(sigL.real).all())
         self.assertTrue(torch.isfinite(sigG.real).all())
 
+    def test_impact_ionization_band_masks_orbital_cutoff(self):
+        device = torch.device("cpu")
+        energies = torch.tensor([-1.0, 0.0, 1.0], device=device)
+
+        sc = ImpactIonizationScatterer(
+            D_ionization=0.05,
+            valence_cutoff=torch.tensor([-0.5, 0.5], device=device),
+        )
+
+        theta_c, theta_v = sc._band_masks(energies=energies, n_orbitals=2, lead_ndim=0)
+
+        # At E=0: orbital 0 is conduction, orbital 1 is valence.
+        # Inter-band matrix elements should be removed by cc/vv projections.
+        expected_theta_c_e1 = torch.tensor(
+            [[1.0, 0.0], [0.0, 0.0]],
+            device=device,
+        )
+        expected_theta_v_e1 = torch.tensor(
+            [[0.0, 0.0], [0.0, 1.0]],
+            device=device,
+        )
+        self.assertTrue(torch.equal(theta_c[1], expected_theta_c_e1))
+        self.assertTrue(torch.equal(theta_v[1], expected_theta_v_e1))
+
+    def test_impact_ionization_band_masks_invalid_cutoff_shape_raises(self):
+        device = torch.device("cpu")
+        energies = torch.tensor([-1.0, 0.0, 1.0], device=device)
+        sc = ImpactIonizationScatterer(
+            D_ionization=0.05,
+            valence_cutoff=torch.zeros((2, 2), device=device),
+        )
+
+        with self.assertRaises(ValueError):
+            sc._band_masks(energies=energies, n_orbitals=2, lead_ndim=0)
+
     def test_photon_dipole_scatterer_matches_function(self):
         dtype = torch.complex64
         device = torch.device("cpu")

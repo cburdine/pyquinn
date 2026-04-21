@@ -53,7 +53,7 @@ class _FakeModel:
         return mat
 
 
-def _build_solver(site_size: int = 2, lead_sizes: list[int] | None = None) -> NEGFSolver:
+def _build_solver(site_size: int = 2, lead_sizes: list[int] | None = None, tol: float = 1e-8) -> NEGFSolver:
     if lead_sizes is None:
         lead_sizes = [2]
     device = _FakeDevice(site_size=site_size, lead_sizes=lead_sizes)
@@ -63,14 +63,14 @@ def _build_solver(site_size: int = 2, lead_sizes: list[int] | None = None) -> NE
         model=model,
         mixing_alpha=0.2,
         max_iter=60,
-        tol=1e-8,
+        tol=tol,
     )
 
 
 class TorchNEGFSolverTest(unittest.TestCase):
 
     def test_solver_runs_and_shapes(self):
-        solver = _build_solver()
+        solver = _build_solver(tol=1.0)
         energies = torch.linspace(-1.0, 1.0, 128)
         k_pts = torch.zeros((1, 3))
         scatterers = [ElasticDephasingScatterer(D=0.1)]
@@ -89,12 +89,13 @@ class TorchNEGFSolverTest(unittest.TestCase):
         self.assertEqual(result.lead_self_energies.shape[0], 1)
 
     def test_scatterers_contribute_self_energy(self):
-        solver = _build_solver()
+        solver = _build_solver(tol=1.0)
         energies = torch.linspace(-1.0, 1.0, 64)
         k_pts = torch.zeros((1, 3))
 
         no_scatter = solver.solve(energies=energies, k_pts=k_pts, kt=0.2, scatterers=[])
-        self.assertTrue(torch.allclose(no_scatter.lesser_self_energies, torch.zeros_like(no_scatter.lesser_self_energies)))
+        lesser_se = no_scatter._tensor(no_scatter.lesser_self_energies)
+        self.assertTrue(torch.allclose(lesser_se, torch.zeros_like(lesser_se)))
 
         scatter = solver.solve(
             energies=energies,
@@ -102,7 +103,26 @@ class TorchNEGFSolverTest(unittest.TestCase):
             kt=0.2,
             scatterers=[ElasticDephasingScatterer(D=0.2)],
         )
-        self.assertFalse(torch.allclose(scatter.lesser_self_energies, torch.zeros_like(scatter.lesser_self_energies)))
+        lesser_se_scatter = scatter._tensor(scatter.lesser_self_energies)
+        self.assertFalse(torch.allclose(lesser_se_scatter, torch.zeros_like(lesser_se_scatter)))
+
+    def test_adaptive_mixing_decreases_on_oscillation(self):
+        solver = _build_solver(tol=1.0)
+        solver.adaptive_mixing = True
+        solver.mixing_alpha_min = 1e-3
+        solver.mixing_alpha_decay = 0.5
+
+        alpha0 = 0.2
+        # Residue decreases then increases -> oscillation trigger.
+        history = [1.0, 0.5, 0.7]
+        alpha1 = solver._adaptive_mixing_alpha(history, alpha0)
+        self.assertLess(alpha1, alpha0)
+        self.assertGreaterEqual(alpha1, solver.mixing_alpha_min)
+
+        # No oscillation: monotone decrease -> alpha unchanged.
+        history2 = [1.0, 0.8, 0.6]
+        alpha2 = solver._adaptive_mixing_alpha(history2, alpha0)
+        self.assertEqual(alpha2, alpha0)
 
 
 if __name__ == "__main__":

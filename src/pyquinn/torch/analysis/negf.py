@@ -5,6 +5,10 @@ from pyquinn.torch.models import TorchBandStructureModel
 
 from pyquinn.io.stdout import print_overwrite
 
+from math import ceil
+import os
+from glob import glob
+
 class DysonSolver(ABC):
     """Abstract solver that computes the Dyson equation retarded Green's function."""
 
@@ -90,6 +94,52 @@ class ImpactIonizationScatterer(Scatterer):
         self.D_ionization = D_ionization
         self.valence_cutoff = valence_cutoff
 
+    def _band_masks(
+            self,
+            energies: torch.Tensor,
+            n_orbitals: int,
+            lead_ndim: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build conduction/valence masks in orbital basis.
+
+        `valence_cutoff` may be a scalar or a 1D tensor with one cutoff per
+        orbital. Masks are built as outer products so intra-band couplings are
+        retained (`cc` and `vv`) while inter-band couplings (`cv`/`vc`) are
+        removed.
+        """
+        cutoff = torch.as_tensor(
+            self.valence_cutoff,
+            device=energies.device,
+            dtype=energies.dtype,
+        )
+
+        if cutoff.ndim == 0:
+            cutoff = cutoff.expand(n_orbitals)
+        elif cutoff.ndim == 1:
+            if cutoff.numel() != n_orbitals:
+                raise ValueError(
+                    'Expected 1D `valence_cutoff` length to match number of orbitals '
+                    f'({n_orbitals}); got {cutoff.numel()}.'
+                )
+        else:
+            raise ValueError(
+                'Expected `valence_cutoff` to be a scalar or 1D tensor with '
+                f'length {n_orbitals}; got shape {tuple(cutoff.shape)}.'
+            )
+
+        # Orbital-resolved conduction mask c_i(E), then project into matrix
+        # space as c_i(E) c_j(E) (same for valence).
+        c_orb = (energies.view(-1, 1) > cutoff.view(1, -1)).to(energies.dtype)
+        v_orb = 1 - c_orb
+
+        theta_c = c_orb.unsqueeze(-1) * c_orb.unsqueeze(-2)
+        theta_v = v_orb.unsqueeze(-1) * v_orb.unsqueeze(-2)
+
+        if lead_ndim > 0:
+            theta_c = theta_c.view((1,) * lead_ndim + theta_c.shape)
+            theta_v = theta_v.view((1,) * lead_ndim + theta_v.shape)
+
+        return theta_c, theta_v
+
     def correlation_self_energy(
             self,
             g_lesser: torch.Tensor,
@@ -103,13 +153,13 @@ class ImpactIonizationScatterer(Scatterer):
                 raise ValueError('Expected `energies` to have length >= 2.')
             dE = torch.diff(energies).mean()
 
-        # Conduction/valence masks along the energy axis.
-        theta_c = (energies.view(-1, 1, 1) > self.valence_cutoff).to(energies.dtype)
-        theta_v = 1 - theta_c
-
         lead_ndim = g_lesser.ndim - 3
-        theta_c = theta_c.view((1,) * lead_ndim + (-1, 1, 1))
-        theta_v = theta_v.view((1,) * lead_ndim + (-1, 1, 1))
+        n_orbitals = g_lesser.shape[-1]
+        theta_c, theta_v = self._band_masks(
+            energies=energies,
+            n_orbitals=n_orbitals,
+            lead_ndim=lead_ndim,
+        )
 
         g_maj = theta_c * g_lesser
         g_min = theta_v * g_greater
@@ -712,30 +762,28 @@ def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
     X = torch.fft.fft(x, dim=-3)
     n = x.shape[-3]
 
-    freqs = torch.fft.fftfreq(n)
+    freqs = torch.fft.fftfreq(n, device=X.device)
     sgn = torch.sign(freqs)
 
     H = torch.fft.ifft(-1j * sgn.view(-1,1,1) * X, dim=-3)
     return H.real
 
 
-def sancho_rubio(
+def surface_greens_function(
         energies: torch.Tensor,
         coupling_matrix: torch.Tensor,
         hamiltonian_matrix: torch.Tensor,
         overlap_matrix: torch.Tensor | None = None,
         eta: float = 1e-5,
-        max_iter: int = 10000,
-        dyson_solver: DysonSolver | None = None,
-        verbosity: int = 0,
-        tol: float = 1e-6,
-        eta_decay=0.1,
-        eta_start=1.0) -> torch.Tensor:
-    """Applies the Sancho-Rubio method that numerically solves 
-    for the surface Green's function of a semi-infinite boundary.
+        solver: 
+            SurfaceGreensFunctionSolver | None = None,        
+        ) -> torch.Tensor:
+    """Numerically solves for the surface Green's function of a semi-infinite 
+    boundary using a surface Green's function solver (defaults to the
+    Sancho-Rubio method.)
 
     .. warning::
-            This method does not currently support backward passes,
+            This function does not currently support backward passes,
             due to potential numerical instabilities. If the method
             does not converge, try increasing the `eta` parameter.
 
@@ -762,74 +810,142 @@ def sancho_rubio(
         torch.Tensor: The surface Green's function of the semi-infinite
             Hamiltonian (shape: [..., E, N, N])
     """
+    solver = SanchoRubioSolver() if solver is None else solver
+
+    return solver.solve(
+        energies=energies,
+        coupling_matrix=coupling_matrix,
+        hamiltonian_matrix=hamiltonian_matrix,
+        overlap_matrix=overlap_matrix,
+        eta=eta,
+    )
     
-    E = energies.view(-1, 1, 1)
-    H = hamiltonian_matrix.unsqueeze(-3)
-    I = torch.eye(hamiltonian_matrix.shape[-1])
-    S = I if overlap_matrix is None else overlap_matrix
-    V = coupling_matrix.unsqueeze(-3)
-    Z0 = E*S
-    eta_current = max(eta, eta_start)
+class SurfaceGreensFunctionSolver(ABC):
 
-    with torch.no_grad():
-        Z = Z0 + 1.j*eta_current*I
-        eps_surf = H
-        eps = H
-        alpha = V
-        beta = V.mH
+    @abstractmethod
+    def solve(
+        self,
+        energies: torch.Tensor,
+        coupling_matrix: torch.Tensor,
+        hamiltonian_matrix: torch.Tensor,
+        overlap_matrix: torch.Tensor | None = None,
+        eta: float = 1e-5):
+        
+        raise NotImplementedError
 
-        for i in range(max_iter):
+class SanchoRubioSolver(SurfaceGreensFunctionSolver):
 
-            g = torch.linalg.pinv(Z - eps)
-            alpha_new = alpha @ g @ alpha
-            beta_new = beta @ g @ beta
+    def __init__(
+        self,
+        max_iter: int = 10000,
+        tol: float = 1e-6,
+        eta_decay: float = 0.1,
+        eta_start: float = 1.0,
+        k_batch_size: int | None = None,
+        dyson_solver: DysonSolver | None = None):
 
-            a_g_b = (alpha @ g @ beta)
-            b_g_a = (beta @ g @ alpha)
-            eps_new = eps + (a_g_b + b_g_a)
-            eps_surf_new = eps_surf + (a_g_b)
-            
-            eps_err = (eps_new - eps).abs().square().mean(
-                axis=(-2, -1))
-            eps_surf_err = (eps_surf_new - eps_surf).abs().square().mean(
-                axis=(-2, -1))
-            
-            max_err = torch.maximum(eps_err, eps_surf_err).max().sqrt()
+        self.max_iter = max_iter
+        self.tol = tol
+        self.eta_decay = eta_decay
+        self.eta_start = eta_start
+        self.dyson_solver = dyson_solver
+        self.k_batch_size = k_batch_size
 
-            if torch.isnan(max_err):
-                raise RuntimeError(f'Invalid value encountered for "err": {max_err.detach().item()})')
-            
-            if max_err < tol:
-                if eta_current > eta:
-                    eta_current = max(eta, eta_current * eta_decay)
-                    Z = Z0 + 1.j*eta_current*I
-                    eps_surf_new = H
-                    eps_new = H
-                    alpha_new = V
-                    beta_new = V.mH
+
+    def solve(
+        self,
+        energies: torch.Tensor,
+        coupling_matrix: torch.Tensor,
+        hamiltonian_matrix: torch.Tensor,
+        overlap_matrix: torch.Tensor | None = None,
+        eta: float = 1e-5,
+        verbosity: int = 0):
+
+        E = energies.view(-1, 1, 1)
+        H = hamiltonian_matrix.unsqueeze(-3)
+        I = torch.eye(hamiltonian_matrix.shape[-1], device=hamiltonian_matrix.device)
+        S = I if overlap_matrix is None else overlap_matrix
+        V = coupling_matrix.unsqueeze(-3)
+        Z0 = E*S
+
+        if self.k_batch_size and H.ndim >= 4:
+            H_batches = torch.split(H, self.k_batch_size, dim=-4)
+            V_batches = torch.split(V, self.k_batch_size, dim=-4)
+        else:
+            H_batches = (H,)
+            V_batches = (V,)
+
+        with torch.no_grad():
+
+            eta_current = max(eta, self.eta_start)
+            Z = Z0 + 1.j*eta_current*I
+            g_surf_batches = []
+
+            for n, (H_batch, V_batch) in enumerate(zip(H_batches, V_batches)):
+                
+                eps_surf = H_batch
+                eps = H_batch
+                alpha = V_batch
+                beta = V_batch.mH
+
+
+
+                for i in range(self.max_iter):
+
+                    g = torch.linalg.pinv(Z - eps)
+                    alpha_new = alpha @ g @ alpha
+                    beta_new = beta @ g @ beta
+
+                    a_g_b = (alpha @ g @ beta)
+                    b_g_a = (beta @ g @ alpha)
+                    eps_new = eps + (a_g_b + b_g_a)
+                    eps_surf_new = eps_surf + (a_g_b)
+                    
+                    eps_err = (eps_new - eps).abs().square().mean(
+                        axis=(-2, -1))
+                    eps_surf_err = (eps_surf_new - eps_surf).abs().square().mean(
+                        axis=(-2, -1))
+                    
+                    max_err = torch.maximum(eps_err, eps_surf_err).max().sqrt()
+
+                    if torch.isnan(max_err):
+                        raise RuntimeError(f'Invalid value encountered for "err": {max_err.detach().item()})')
+                    
+                    if max_err < self.tol:
+                        if eta_current > eta:
+                            eta_current = max(eta, eta_current * self.eta_decay)
+                            Z = Z0 + 1.j*eta_current*I
+                            eps_surf_new = H_batch
+                            eps_new = H_batch
+                            alpha_new = V_batch
+                            beta_new = V_batch.mH
+                        else:
+                            break
+
+                    if verbosity >= 2:
+                        print_overwrite(f'Sancho Rubio (batch: {n}, iter: {i}, eta: {eta_current:5e}, err: {max_err:5e}) ')
+
+                    alpha = alpha_new
+                    beta = beta_new
+                    eps = eps_new
+                    eps_surf = eps_surf_new
+
+                if max_err > self.tol or eta_current > eta or torch.isnan(max_err):
+                    if verbosity >= 1:
+                        print('[Failed]')
+                        raise RuntimeError('Sancho-Rubio failed to Converge. (batch: {n}, iter: {i}, eta: {eta_current:5e}, err: {max_err:5e}).')
                 else:
-                    break
-
-            if verbosity >= 2:
-                print_overwrite(f'Sancho Rubio (iter: {i}, eta: {eta_current:5e}, err: {max_err:5e}) ')
-
-            alpha = alpha_new
-            beta = beta_new
-            eps = eps_new
-            eps_surf = eps_surf_new
-
-        g_surf = torch.linalg.pinv(Z - eps_surf)
-
-        if  max_err > tol or eta_current > eta or torch.isnan(max_err):
-            if verbosity >= 1:
-                print('[Failed]')
-
-            raise RuntimeError('Sancho-Rubio failed to Converge. (iter: {i}, eta: {eta_current:5e}, err: {max_err:5e}).')
-        elif verbosity >= 1:
+                    g_surf_batch = torch.linalg.pinv(Z - eps_surf)
+                    g_surf_batches.append(g_surf_batch)
+        
+        if verbosity >= 1:
             print('[Converged]')
-            
 
-    return g_surf
+        g_surf = torch.cat(g_surf_batches, dim=-4) \
+            if self.k_batch_size and H.ndim >= 4 else g_surf_batches[0]
+
+        return g_surf
+
 
 
 class TorchNEGFDevice:
@@ -862,11 +978,23 @@ class TorchNEGFDevice:
                     'boundary graph to a supercell along the orientation '
                     'direction or decreasing the cutoff radius.')
 
+    def _validate_potential(self, graph, potential, type='', idx=''):
+
+        if potential.ndim != 1:
+            raise ValueError(f'Expected {type} potential to have ndim = 1 (got ndim = {potential.ndim}')
+        if graph.atomic_numbers.shape[0] != potential.shape[0]:
+            raise ValueError(
+                f'Expected len({type} potential) == len({type} graph), '
+                f'(got {graph.atomic_numbers.shape[0]} != {potential.shape[0]}')
+
     def __init__(
             self,
             device: TorchAtomGraph | None,
             leads: list[TorchAtomGraph] | None,
-            orientations: list[torch.IntTensor] | None = None):
+            orientations: list[torch.IntTensor] | None = None,
+            device_potential: torch.Tensor | None = None,
+            lead_potentials: list[torch.Tensor] | None = None,
+        ):
         """Creates a Non-Equilibrium Green's Function (NEGF) system to model
         a device or site of interest. This calculation consists of a 
         system of interest (the `device`) connected to other boundary 
@@ -907,6 +1035,9 @@ class TorchNEGFDevice:
         self.device = device
         self.leads = leads
         self.orientations = orientations
+        self.device_potential = device_potential
+        self.lead_potentials = lead_potentials
+
 
         # validate boundary graphs and orientations
         for i, (boundary, orientation) in \
@@ -916,6 +1047,19 @@ class TorchNEGFDevice:
                 orientation,
                 index=i
             )
+        
+        # validate potentials
+        if self.device_potential is not None:
+            self._validate_potential(self.device, self.device_potential, type='device')
+
+        if self.lead_potentials is not None:
+            if len(self.lead_potentials) != len(self.leads):
+                raise ValueError(
+                    f'Expected len(leads) == len(lead_potentials) '
+                    f'(got: {len(self.leads)} != {len(self.lead_potentials)})')
+            for i, (lead, potential) in enumerate(zip(self.leads, self.lead_potentials)):
+                self._validate_potential(lead, potential, type=f'lead {i}')
+
 
     def system_graph(
             self, 
@@ -1078,6 +1222,10 @@ class TorchNEGFDevice:
 
     # def device_greens_function(
     #         self,
+                # eps_surf = H_batch
+                # eps = H_batch
+                # alpha = V_batch
+                # beta = V_batch.mH
     #         energies: torch.Tensor,
     #         k_pts: torch.Tensor | None = None,
     #         eta: float = 1e-5,
@@ -1464,6 +1612,12 @@ class NEGFSolver:
 
     This solver iterates scattering self-energies :math:`\\Sigma^{</>}` to
     self-consistency using a fixed-point iteration with linear mixing.
+
+    Optionally, the solver can use an adaptive mixing factor that only
+    *decreases* from the configured `mixing_alpha` if the SCBA residue
+    oscillates. This helps prevent limit cycles late in the iteration while
+    still allowing the user to choose an aggressive initial mixing factor for
+    early iterations.
     """
 
     def __init__(
@@ -1471,14 +1625,35 @@ class NEGFSolver:
             negf_device: TorchNEGFDevice,
             model: TorchBandStructureModel,
             mixing_alpha: float = 0.1,
+            adaptive_mixing: bool = False,
+            mixing_alpha_min: float = 1e-5,
+            mixing_alpha_decay: float = 0.5,
+            mixing_burn_in: int = 5,
+            mixing_decay_cooldown: int = 2,
             max_iter: int = 1024,
-            tol: float = 1e-6):
+            tol: float = 1e-6,
+            dyson_solver: DysonSolver | None = None,
+            surface_solver: SurfaceGreensFunctionSolver | None = None,
+            k_batch_size=None):
         
         self.model = model
         self.negf_device = negf_device
         self.mixing_alpha = mixing_alpha
+        self.adaptive_mixing = adaptive_mixing
+        self.mixing_alpha_min = mixing_alpha_min
+        self.mixing_alpha_decay = mixing_alpha_decay
+        self.mixing_burn_in = mixing_burn_in
+        self.mixing_decay_cooldown = mixing_decay_cooldown
         self.max_iter = max_iter
         self.tol = tol
+        self.k_batch_size = k_batch_size
+
+        # resolve gf solvers:
+        self.dyson_solver = DenseDysonSolver() if dyson_solver is None else dyson_solver
+        self.surface_solver = SanchoRubioSolver(
+            tol=self.tol,
+            k_batch_size=self.k_batch_size
+        ) if surface_solver is None else surface_solver
 
     def _resolve_k_pts(
                 self,
@@ -1494,13 +1669,75 @@ class NEGFSolver:
 
         return k_pts
 
+    def _adaptive_mixing_alpha(self, residue_history: list[float], current_alpha: float) -> float:
+        """Update mixing alpha based on residue oscillations.
+
+        The update is conservative: `current_alpha` is only reduced (never
+        increased) and is always bounded below by `mixing_alpha_min`.
+        """
+        if not self.adaptive_mixing:
+            return current_alpha
+
+        if current_alpha <= self.mixing_alpha_min:
+            return current_alpha
+
+        if len(residue_history) < 3:
+            return current_alpha
+
+        d1 = residue_history[-1] - residue_history[-2]
+        d2 = residue_history[-2] - residue_history[-3]
+
+        # Residue "oscillation" detection:
+        #   - sign change in successive deltas (down then up, or up then down),
+        #   - and at least one of those deltas is non-trivial (avoid noise).
+        oscillates = (d1 * d2) < 0.0
+        if not oscillates:
+            return current_alpha
+
+        if max(abs(d1), abs(d2)) <= 0.0:
+            return current_alpha
+
+        return max(self.mixing_alpha_min, current_alpha * self.mixing_alpha_decay)
+
+    def _check_model_graph_device_alignment(self, reference: torch.Tensor):
+        # Many unit tests use lightweight "fake" models that only implement the
+        # minimal NEGF interface (hamiltonian_matrix/orbital_indices) and are
+        # not torch.nn.Module instances. In that case there are no parameters/
+        # buffers to validate.
+        params_fn = getattr(self.model, 'parameters', None)
+        buffers_fn = getattr(self.model, 'buffers', None)
+        if not callable(params_fn) or not callable(buffers_fn):
+            return
+
+        model_tensors = list(params_fn()) + list(buffers_fn())
+        if not model_tensors:
+            return
+
+        model_device = model_tensors[0].device
+        reference_device = reference.device
+        if model_device != reference_device:
+            raise RuntimeError(
+                'NEGFSolver device mismatch: model parameters/buffers are on '
+                f'{model_device}, but the NEGF tensors are on {reference_device}. '
+                'Move the model to the same device as the graph/energies, e.g. '
+                '`model = model.to(energies.device)`.'
+            )
+
+        graphs = [g for g in [self.negf_device.device, *self.negf_device.leads] if g is not None]
+        for i, graph in enumerate(graphs):
+            if graph.positions.device != model_device:
+                raise RuntimeError(
+                    'NEGFSolver device mismatch: graph tensors are on '
+                    f'{graph.positions.device}, but model parameters/buffers are on {model_device}. '
+                    'Move the model and all TorchAtomGraph inputs to the same device.'
+                )
+
     def solve_lead_greens_functions(
         self,
         energies: torch.Tensor,
         k_pts: torch.Tensor | None = None,
         eta: float = 1e-5,
-        verbosity: int = 0,
-        **solver_kwargs) -> list[torch.Tensor]:
+        verbosity: int = 0) -> list[torch.Tensor]:
         """Evaluates the retarded Green's function of each lead.
         For the surface Green's functions of any semi-infinite leads,
         the numerical Sancho-Rubio method is used.
@@ -1524,12 +1761,16 @@ class NEGFSolver:
             boundary Hamiltonian.
         """
 
+        self._check_model_graph_device_alignment(energies)
         k_pts = self._resolve_k_pts(k_pts, energies)
 
         g_surfaces = []
 
         for i, (boundary, orientation) in \
                 enumerate(zip(self.negf_device.leads, self.negf_device.orientations)):
+
+            if verbosity >= 1:
+                    print(f'Solving surface Green\'s function (lead {i}).')
 
             if (orientation != 0).any():
 
@@ -1542,9 +1783,10 @@ class NEGFSolver:
                 N = sc_size.abs().prod().item()
                 
                 assert N == 3
-                
+
                 # extract coupling matrix elements from supercell
-                H_size = self.model.orbital_indices(boundary)[0].shape[0]
+                boundary_site_idxs, _ = self.model.orbital_indices(boundary)
+                H_size = boundary_site_idxs.shape[0]
                 H = self.model.hamiltonian_matrix(sc, k_pts=k_pts)
                 H_cell_idxs = torch.arange(
                     H_size, 2*H_size, device=orientation.device)
@@ -1553,26 +1795,32 @@ class NEGFSolver:
                 V = H[:, H_cell_idxs][:, :, H_outer_idxs]
                 H0 = H[:, H_cell_idxs][:, :, H_cell_idxs]
 
-                if verbosity >= 1:
-                    print(f'Solving surface Green\'s function (lead {i}).')
+                if self.negf_device.lead_potentials is not None:
+                    lead_potential = self.negf_device.lead_potentials[i]
+                    H0 += torch.diag(lead_potential[boundary_site_idxs]).unsqueeze(0)
                 
                 # compute surface Greens function with Sancho Rubio method
-                g_surface = sancho_rubio(
+                g_surface = self.surface_solver.solve(
                     energies=energies,
                     coupling_matrix=V,
                     hamiltonian_matrix=H0,
                     eta=eta,
                     verbosity=verbosity,
-                    **solver_kwargs
                 )
             
             else:
 
                 # if surface is not semi-infinite, use regular Greens function
-                if verbosity >= 1:
-                    print(f'Solving Green\'s function (lead {i}).')
+                
+                boundary_site_idxs, _ = self.model.orbital_indices(boundary)
                 H0 = self.model.hamiltonian_matrix(boundary, k_pts=k_pts)
-                g_surface = greens_function(
+
+                lead_potentials = getattr(self.negf_device, 'lead_potentials', None)
+                if lead_potentials is not None:
+                    lead_potential = lead_potentials[i]
+                    H0 += torch.diag(lead_potential[boundary_site_idxs]).unsqueeze(0)
+                
+                g_surface = self.dyson_solver.solve(
                     energies=energies,
                     hamiltonian_matrix=H0,
                     eta=eta
@@ -1588,6 +1836,7 @@ class NEGFSolver:
             k_pts: torch.Tensor | None = None,
             eta: float = 1e-5,
             lead_gfs: list[torch.Tensor] | None = None,
+            verbosity: int = 0,
             **solver_kwargs) -> tuple[torch.Tensor, torch.Tensor]:
         """Solves for the device Hamiltonian and a tensor of self-energy 
         correlations to the device Hamiltonian based on the computed 
@@ -1624,6 +1873,7 @@ class NEGFSolver:
 
         """
 
+        self._check_model_graph_device_alignment(energies)
         k_pts = self._resolve_k_pts(k_pts, energies)
 
         if self.negf_device.device is None:
@@ -1637,7 +1887,8 @@ class NEGFSolver:
         ]
 
         # determine indices of components of the system Hamiltonian
-        H_site_size = self.model.orbital_indices(self.negf_device.device)[0].shape[0]
+        device_site_idxs, _ = self.model.orbital_indices(self.negf_device.device)
+        H_site_size = device_site_idxs.shape[0]
         H_boundary_idxs = []
         offset = H_site_size
         for size in H_sizes:
@@ -1646,12 +1897,20 @@ class NEGFSolver:
                 device=energies.device))
             offset += size
 
+        if verbosity >= 1:
+            print('Computing device Hamiltonian.')
+
         # compute system graph and Hamiltonian matrix
         system = self.negf_device.system_graph()
         H_system = self.model.hamiltonian_matrix(system, k_pts=k_pts)
         H_site = H_system[:, :H_site_size, :H_site_size]
         
-        # compute boundary Greens functions (if not supplied):
+        # add device potential
+        device_potential = getattr(self.negf_device, 'device_potential', None)
+        if device_potential is not None:
+            H_site += torch.diag(device_potential[device_site_idxs]).unsqueeze(0)
+        
+        # compute boundary Greens functions (if not supplied)
         if lead_gfs is None:
             lead_gfs = self.solve_lead_greens_functions(
                 energies=energies,
@@ -1666,7 +1925,7 @@ class NEGFSolver:
                 f'boundary Greens functions. (got list of '
                 f'size: {len(lead_gfs)}')
 
-        # extract device coupling and compute self-energy:
+        # extract device coupling and compute self-energy
         self_energies_list = []
         for idxs, gf in \
                 zip(H_boundary_idxs, lead_gfs):
@@ -1678,7 +1937,6 @@ class NEGFSolver:
         
         self_energies = torch.stack(self_energies_list) if self_energies_list else None
 
-
         return H_site, self_energies
 
     def solve(
@@ -1689,9 +1947,11 @@ class NEGFSolver:
             chemical_potentials: list[torch.Tensor] | list[float] | None = None,
             kt: torch.Tensor | float = 0.0,
             scatterers: list[Scatterer] | None = None,
+            warm_start: 'TorchNEGFResult' | None = None,
+            reuse_warm_hamiltonian: bool = False,
             lead_gfs: list[torch.Tensor] | None = None,
-            dyson_solver: DysonSolver | None = None,
             verbosity: int = 0,
+            cache_dir: str | None = None,
             **solver_kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         if energies.numel() < 2:
@@ -1704,133 +1964,333 @@ class NEGFSolver:
                 'Energies must have size > 1 and be uniformly spaced to solve for scattering self-energy.'
             )
 
-        dE = torch.diff(energies).mean()
+        self._check_model_graph_device_alignment(energies)
+        with torch.no_grad():
 
-        H_site, lead_self_energies = self.solve_hamiltonian_self_energies(
-            energies=energies,
-            k_pts=k_pts,
-            eta=eta,
-            lead_gfs=lead_gfs,
-            verbosity=verbosity,
-            **solver_kwargs,
-        )
+            dE = torch.diff(energies).mean()
 
-        if verbosity >= 1:
-            print('Solving device Green\'s function.')
-        
-        site_gf = greens_function(
-            energies=energies,
-            hamiltonian_matrix=H_site,
-            self_energies=lead_self_energies,
-            eta=eta,
-            dyson_solver=dyson_solver,
-        )
-        site_gf_inv = torch.linalg.inv(site_gf)
+            if reuse_warm_hamiltonian:
 
-        num_leads = len(self.negf_device.leads)
+                if warm_start is None:
+                    raise ValueError(
+                        'reuse_warm_hamiltonian=True requires `warm_start` to be provided.'
+                    )
+                if warm_start.hamiltonian is None or warm_start.lead_self_energies is None:
+                    raise ValueError(
+                        'Warm start must include both `hamiltonian` and `lead_self_energies` '
+                        'to reuse them.'
+                    )
 
-        if chemical_potentials is None:
-            chemical_potentials = [0.0] * num_leads
-        if len(chemical_potentials) != num_leads:
-            raise ValueError(
-                'Expected len(chemical_potentials) == len(self.negf_device.leads);'
-                f' got {len(chemical_potentials)} != {num_leads}.'
-            )
+                warm_energies = warm_start._tensor(warm_start.energies).to(
+                    device=energies.device,
+                    dtype=energies.dtype,
+                )
+                if warm_energies.shape != energies.shape or not torch.allclose(warm_energies, energies):
+                    raise ValueError(
+                        'Warm-start energies must match `energies` when reusing hamiltonian/lead self-energies.'
+                    )
 
-        sigma_in = torch.zeros_like(site_gf)
-        sigma_out = torch.zeros_like(site_gf)
-        occupation_probs = None
+                if isinstance(warm_start.hamiltonian, list):
+                    H_site = torch.cat([warm_start._tensor(hb) for hb in warm_start.hamiltonian], dim=-3)
+                else:
+                    H_site = warm_start._tensor(warm_start.hamiltonian)
 
-        if chemical_potentials:
-            occupation_probs = torch.stack([
-                1.0 / (1.0 + torch.exp((energies - mu) / kt))
-                for mu in chemical_potentials
-            ]) 
+                if isinstance(warm_start.lead_self_energies, list):
+                    lead_self_energies = torch.cat(
+                        [warm_start._tensor(sb) for sb in warm_start.lead_self_energies],
+                        dim=-4,
+                    )
+                else:
+                    lead_self_energies = warm_start._tensor(warm_start.lead_self_energies)
 
-            f_in = occupation_probs.view(occupation_probs.shape + (1, 1))
-            f_out = 1 - f_in
-            f_in_e = f_in.unsqueeze(1)
-            f_out_e = f_out.unsqueeze(1)
+                H_site = H_site.to(device=energies.device)
+                lead_self_energies = lead_self_energies.to(device=energies.device)
+            else:
+                H_site, lead_self_energies = self.solve_hamiltonian_self_energies(
+                    energies=energies,
+                    k_pts=k_pts,
+                    eta=eta,
+                    lead_gfs=lead_gfs,
+                    verbosity=verbosity,
+                    **solver_kwargs,
+                )
 
-            sigma_in = 1.j * ((lead_self_energies - lead_self_energies.mH) * f_in_e).sum(0)
-            sigma_out = 1.j * ((lead_self_energies - lead_self_energies.mH) * f_out_e).sum(0)
-
-        sigma_in_scattering = torch.zeros_like(sigma_in)
-        sigma_out_scattering = torch.zeros_like(sigma_in)
-
-        scatterers_resolved = list(scatterers) if scatterers else []
-
-        site_gf_new = site_gf
-        g_lesser = site_gf @ sigma_in @ site_gf.mH
-        g_greater = site_gf @ sigma_out @ site_gf.mH
-
-        if scatterers_resolved:
             if verbosity >= 1:
+                print('Solving device Green\'s function.')
+            
+
+            #site_gf_inv = torch.linalg.inv(site_gf)
+            num_leads = len(self.negf_device.leads)
+
+            if chemical_potentials is None:
+                chemical_potentials = [0.0] * num_leads
+            if len(chemical_potentials) != num_leads:
+                raise ValueError(
+                    'Expected len(chemical_potentials) == len(self.negf_device.leads);'
+                    f' got {len(chemical_potentials)} != {num_leads}.'
+                )
+
+            if self.k_batch_size:
+                H_batches = torch.split(H_site, self.k_batch_size, dim=-3)
+                lead_se_batches = torch.split(lead_self_energies, self.k_batch_size, dim=-4)
+            else:
+                H_batches = (H_site,)
+                lead_se_batches = (lead_self_energies,)
+
+            warm_lesser_batches = None
+            warm_greater_batches = None
+            if warm_start is not None:
+                if warm_start.lesser_self_energies is None or warm_start.greater_self_energies is None:
+                    raise ValueError(
+                        'Warm start requires both lesser_self_energies and greater_self_energies.'
+                    )
+
+                def _warm_to_batches(x):
+                    if isinstance(x, list):
+                        return x
+                    if self.k_batch_size:
+                        return list(torch.split(x.to_dense(), self.k_batch_size, dim=-4))
+                    return [x]
+
+                warm_lesser_batches = _warm_to_batches(warm_start.lesser_self_energies)
+                warm_greater_batches = _warm_to_batches(warm_start.greater_self_energies)
+
+                if not (len(warm_lesser_batches) == len(warm_greater_batches) == len(H_batches)):
+                    raise ValueError(
+                        'Warm-start self-energy batches must match solver k-batching.'
+                    )
+
+            scatterers_resolved = list(scatterers) if scatterers else []
+
+            # initialize batches:
+            g_lesser_batches = []
+            g_greater_batches = []
+            lesser_se_batches = []
+            greater_se_batches = []
+            site_gf_batches = []
+
+            # initialize additional file batch lists:
+            hamiltonian_file_batches = []
+            lead_se_file_batches = []
+
+            # Initialize lead occupation probabilities f_l(E) used to build
+            # lead correlation self-energies Sigma_l^{</>}.
+            occupation_probs = None
+            if chemical_potentials:
+                occupation_probs = torch.stack([
+                    1.0 / (1.0 + torch.exp((energies - mu) / kt))
+                    for mu in chemical_potentials
+                ]) 
+
+                f_lesser = occupation_probs.view(occupation_probs.shape + (1, 1))
+                f_greater = 1 - f_lesser
+                f_lesser_e = f_lesser.unsqueeze(1)
+                f_greater_e = f_greater.unsqueeze(1)
+
+            if scatterers_resolved and verbosity >= 1:
                 print('Solving self-consistent scattering contributions.')
 
-            with torch.no_grad():
-                for i in range(self.max_iter):
+            for n, (H_batch, lead_se_batch) in enumerate(zip(H_batches, lead_se_batches)):                    
 
-                    gamma_scattering = sigma_in_scattering + sigma_out_scattering
-                    scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
+                site_gf = self.dyson_solver.solve(
+                    energies=energies,
+                    hamiltonian_matrix=H_batch,
+                    self_energies=lead_se_batch,
+                    eta=eta,
+                )
 
-                    site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
+                # Total lead-induced correlation self-energies:
+                #   Sigma_leads^< = i * sum_l[Gamma_l f_l]
+                #   Sigma_leads^> = i * sum_l[Gamma_l (1-f_l)]
+                sigma_lesser_leads = torch.zeros_like(site_gf)
+                sigma_greater_leads = torch.zeros_like(site_gf)
 
-                    g_lesser = site_gf_new @ (sigma_in + sigma_in_scattering) @ site_gf_new.mH
-                    g_greater = site_gf_new @ (sigma_out + sigma_out_scattering) @ site_gf_new.mH
+                if chemical_potentials:
+                    gamma_leads = 1.j * (lead_se_batch - lead_se_batch.mH)
+                    sigma_lesser_leads = 1.j * (gamma_leads * f_lesser_e).sum(0)
+                    sigma_greater_leads = -1.j * (gamma_leads * f_greater_e).sum(0)
 
-                    sigma_in_scattering_new = torch.zeros_like(sigma_in_scattering)
-                    sigma_out_scattering_new = torch.zeros_like(sigma_out_scattering)
-
-                    if scatterers_resolved:
-                        sigL, sigG = correlation_self_energies_from_scatterers(
-                            scatterers=scatterers_resolved,
-                            g_lesser=g_lesser,
-                            g_greater=g_greater,
-                            energies=energies,
-                            dE=dE,
-                            kt=kt,
-                            **solver_kwargs,
+                sigma_lesser_scattering = torch.zeros_like(sigma_lesser_leads)
+                sigma_greater_scattering = torch.zeros_like(sigma_lesser_leads)
+                if warm_lesser_batches is not None and warm_greater_batches is not None:
+                    sigma_lesser_scattering = warm_start._tensor(warm_lesser_batches[n]).to(
+                        device=sigma_lesser_leads.device,
+                        dtype=sigma_lesser_leads.dtype,
+                    )
+                    sigma_greater_scattering = warm_start._tensor(warm_greater_batches[n]).to(
+                        device=sigma_greater_leads.device,
+                        dtype=sigma_greater_leads.dtype,
+                    )
+                    if sigma_lesser_scattering.shape != sigma_lesser_leads.shape:
+                        raise ValueError(
+                            'Warm-start lesser self-energy shape mismatch for batch '
+                            f'{n}: expected {tuple(sigma_lesser_leads.shape)}, '
+                            f'got {tuple(sigma_lesser_scattering.shape)}.'
                         )
-                        sigma_in_scattering_new = sigL
-                        sigma_out_scattering_new = sigG
+                    if sigma_greater_scattering.shape != sigma_greater_leads.shape:
+                        raise ValueError(
+                            'Warm-start greater self-energy shape mismatch for batch '
+                            f'{n}: expected {tuple(sigma_greater_leads.shape)}, '
+                            f'got {tuple(sigma_greater_scattering.shape)}.'
+                        )
 
-                    residue = torch.abs(sigma_in_scattering - sigma_in_scattering_new).max() + \
-                            torch.abs(sigma_out_scattering - sigma_out_scattering_new).max()
+                site_gf_new = site_gf
+                site_gf_inv = torch.linalg.inv(site_gf)
+                g_lesser = site_gf @ sigma_lesser_leads @ site_gf.mH
+                g_greater = site_gf @ sigma_greater_leads @ site_gf.mH
 
+                residue = 0
+
+                if scatterers_resolved:
+                    mixing_alpha = float(self.mixing_alpha)
+                    residue_history: list[float] = []
+                    last_alpha_decay_iter = -10**9
+                    for i in range(self.max_iter):
+
+                        gamma_scattering = sigma_lesser_scattering + sigma_greater_scattering
+                        scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
+
+                        site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
+
+                        g_lesser = site_gf_new @ (sigma_lesser_leads + sigma_lesser_scattering) @ site_gf_new.mH
+                        g_greater = site_gf_new @ (sigma_greater_leads + sigma_greater_scattering) @ site_gf_new.mH
+
+                        sigma_lesser_scattering_new = torch.zeros_like(sigma_lesser_scattering)
+                        sigma_greater_scattering_new = torch.zeros_like(sigma_greater_scattering)
+
+                        if scatterers_resolved:
+                            sigL, sigG = correlation_self_energies_from_scatterers(
+                                scatterers=scatterers_resolved,
+                                g_lesser=g_lesser,
+                                g_greater=g_greater,
+                                energies=energies,
+                                dE=dE,
+                                kt=kt,
+                                **solver_kwargs,
+                            )
+                            sigma_lesser_scattering_new = sigL
+                            sigma_greater_scattering_new = sigG
+
+                        # Use a relative convergence metric so the same `tol`
+                        # scale works across devices/unit systems.
+                        abs_err = torch.abs(sigma_lesser_scattering - sigma_lesser_scattering_new).max() + \
+                                  torch.abs(sigma_greater_scattering - sigma_greater_scattering_new).max()
+                        scale = torch.abs(sigma_lesser_scattering_new).max() + \
+                                torch.abs(sigma_greater_scattering_new).max()
+                        residue = abs_err / torch.clamp(scale, min=1e-30)
+                        residue_history.append(float(residue.item()))
+                        if (
+                            self.adaptive_mixing
+                            and i >= self.mixing_burn_in
+                            and (i - last_alpha_decay_iter) >= self.mixing_decay_cooldown
+                        ):
+                            mixing_alpha_new = self._adaptive_mixing_alpha(residue_history, mixing_alpha)
+                            if mixing_alpha_new < mixing_alpha:
+                                last_alpha_decay_iter = i
+                            mixing_alpha = mixing_alpha_new
+
+                        if verbosity >= 1:
+                            if verbosity >= 2 and self.adaptive_mixing:
+                                print_overwrite(
+                                    f'SCBA (batch: {n}, iter: {i}, err: {residue:5e}, alpha: {mixing_alpha:0.3g}) '
+                                )
+                            else:
+                                print_overwrite(f'SCBA (batch: {n}, iter: {i}, err: {residue:5e}) ')
+
+                        if residue < self.tol:
+                            sigma_lesser_scattering = sigma_lesser_scattering_new
+                            sigma_greater_scattering = sigma_greater_scattering_new
+                            break
+
+                        sigma_lesser_scattering = sigma_lesser_scattering * (1 - mixing_alpha) + \
+                                                sigma_lesser_scattering_new * mixing_alpha
+                        sigma_greater_scattering = sigma_greater_scattering * (1 - mixing_alpha) + \
+                                                sigma_greater_scattering_new * mixing_alpha
+
+                if residue > self.tol:
                     if verbosity >= 1:
-                        print_overwrite(f'SCBA (iter: {i}, err: {residue}) ')
+                        print('[Failed]')
+                    raise RuntimeError(f'SCBA failed to Converge. (batch: {n}, iter: {i}, err: {residue:5e}).')
 
-                    if residue < self.tol:
-                        sigma_in_scattering = sigma_in_scattering_new
-                        sigma_out_scattering = sigma_out_scattering_new
-                        break
+                if cache_dir:
 
-                    sigma_in_scattering = sigma_in_scattering * (1 - self.mixing_alpha) + \
-                                        sigma_in_scattering_new * self.mixing_alpha
-                    sigma_out_scattering = sigma_out_scattering * (1 - self.mixing_alpha) + \
-                                        sigma_out_scattering_new * self.mixing_alpha
+                    # write batch fragments to disk to conserve RAM:
+                    hamiltonian_file = os.path.join(cache_dir, f'hamiltonian.k{n}.pt')
+                    lead_se_file = os.path.join(cache_dir, f'lead_self_energies.k{n}.pt')
+                    site_gf_file = os.path.join(cache_dir, f'site_gf.k{n}.pt')
+                    lesser_se_file = os.path.join(cache_dir, f'lesser_self_energies.k{n}.pt')
+                    greater_se_file = os.path.join(cache_dir, f'greater_self_energies.k{n}.pt')
+                    g_lesser_file = os.path.join(cache_dir, f'g_lesser.k{n}.pt')
+                    g_greater_file = os.path.join(cache_dir, f'g_greater.k{n}.pt')
 
-            if residue > self.tol:
-                if verbosity >= 1:
-                    print('[Failed]')
-                raise RuntimeError(f'SCBA failed to Converge. (iter: {i}, err: {residue:5e}).')
-            else:
-                if verbosity >= 1:
-                    print('[Converged]')
+                    torch.save(H_batch.to_sparse(), hamiltonian_file)
+                    torch.save(lead_se_batch.to_sparse(), lead_se_file)
+                    torch.save(site_gf.to_sparse(), site_gf_file)
+                    torch.save(sigma_lesser_scattering.to_sparse(), lesser_se_file)
+                    torch.save(sigma_greater_scattering.to_sparse(), greater_se_file)
+                    torch.save(g_lesser.to_sparse(), g_lesser_file)
+                    torch.save(g_greater.to_sparse(), g_greater_file)
 
-        return TorchNEGFResult(
-            energies=energies,
-            hamiltonian=H_site,
-            g_ret=site_gf,
-            lead_self_energies=lead_self_energies,
-            lead_occupation_probs=occupation_probs,
-            lesser_self_energies=sigma_in_scattering,
-            greater_self_energies=sigma_out_scattering,
-            g_lesser=g_lesser,
-            g_greater=g_greater,
-            k_pts=k_pts,
-        )
+                    site_gf_batches.append(site_gf_file)
+                    lesser_se_batches.append(lesser_se_file)
+                    greater_se_batches.append(greater_se_file)
+                    g_lesser_batches.append(g_lesser_file)
+                    g_greater_batches.append(g_greater_file)
+
+                    hamiltonian_file_batches.append(hamiltonian_file)
+                    lead_se_file_batches.append(lead_se_file)
+
+                else:
+                    site_gf_batches.append(site_gf.to_sparse())
+                    lesser_se_batches.append(sigma_lesser_scattering.to_sparse())
+                    greater_se_batches.append(sigma_greater_scattering.to_sparse())
+                    g_lesser_batches.append(g_lesser.to_sparse())
+                    g_greater_batches.append(g_greater.to_sparse())
+
+
+        if verbosity >= 1:
+            print('[Converged]')
+
+        if cache_dir:
+
+            # serialize energies and occupations:
+            energies_file = os.path.join(cache_dir, 'energies.pt')
+            occupations_file = os.path.join(cache_dir, 'lead_occupation_probs.pt')
+            k_pts_file = os.path.join(cache_dir, 'k_pts.pt')
+
+            torch.save(energies, energies_file)
+            torch.save(occupation_probs, occupations_file)
+            torch.save(k_pts, k_pts_file)
+
+            result = TorchNEGFResult(
+                energies=energies_file,
+                hamiltonian=hamiltonian_file_batches,
+                g_ret=site_gf_batches,
+                lead_self_energies=lead_se_file_batches,
+                lead_occupation_probs=occupations_file,
+                lesser_self_energies=lesser_se_batches,
+                greater_self_energies=greater_se_batches,
+                g_lesser=g_lesser_batches,
+                g_greater=g_greater_batches,
+                k_pts=k_pts_file,
+            )
+
+        else:
+
+            result = TorchNEGFResult(
+                energies=energies,
+                hamiltonian=H_site,
+                g_ret=torch.cat(site_gf_batches, dim=-4),
+                lead_self_energies=lead_self_energies,
+                lead_occupation_probs=occupation_probs,
+                lesser_self_energies=torch.cat(lesser_se_batches, dim=-4),
+                greater_self_energies=torch.cat(greater_se_batches, dim=-4),
+                g_lesser=torch.cat(g_lesser_batches, dim=-4),
+                g_greater=torch.cat(g_greater_batches, dim=-4),
+                k_pts=k_pts,
+            )
+
+        return result
 
 
 class TorchNEGFResult:
@@ -1838,16 +2298,16 @@ class TorchNEGFResult:
 
     def __init__(
         self,
-        energies: torch.Tensor,
-        hamiltonian: torch.Tensor,
-        g_ret: torch.Tensor,
-        lead_self_energies: torch.Tensor | None = None,
-        lead_occupation_probs: torch.Tensor | None = None,
-        lesser_self_energies: torch.Tensor | None = None,
-        greater_self_energies: torch.Tensor | None = None,
-        g_lesser: torch.Tensor | None = None,
-        g_greater: torch.Tensor | None = None,
-        k_pts: torch.Tensor | None = None):
+        energies: torch.Tensor | str,
+        hamiltonian: torch.Tensor | list[str],
+        g_ret: torch.Tensor | list[str],
+        lead_self_energies: torch.Tensor | list[str] | None = None,
+        lead_occupation_probs: torch.Tensor | list[str] | None = None,
+        lesser_self_energies: torch.Tensor | list[str] | None = None,
+        greater_self_energies: torch.Tensor | list[str] | None = None,
+        g_lesser: torch.Tensor | list[str] | None = None,
+        g_greater: torch.Tensor | list[str] | None = None,
+        k_pts: torch.Tensor | str | None = None):
     
 
         self.energies = energies
@@ -1862,61 +2322,166 @@ class TorchNEGFResult:
         self.g_greater = g_greater
         self.k_pts = k_pts
 
-    def _resolve_in_out_idxs(in_idx, out_idx):
+    @staticmethod
+    def load(cache_dir) -> TorchNEGFResult:
 
-        N = len(self.lead_self_energies)
+        energies_file = os.path.join(cache_dir, 'energies.pt')
+        
+        def _k_sort_key(path: str) -> int:
+            base = os.path.basename(path)
+            try:
+                return int(base.split('k')[-1].split('.')[0])
+            except ValueError:
+                return 0
+
+        hamiltonian_files = sorted(
+            glob(os.path.join(cache_dir, 'hamiltonian.k*.pt')),
+            key=_k_sort_key,
+        )
+
+        lead_se_files = sorted(
+            glob(os.path.join(cache_dir, 'lead_self_energies.k*.pt')),
+            key=_k_sort_key,
+        )
+        site_gf_files = sorted(
+            glob(os.path.join(cache_dir, 'site_gf.k*.pt')),
+            key=_k_sort_key,
+        )
+        lesser_se_files = sorted(
+            glob(os.path.join(cache_dir, 'lesser_self_energies.k*.pt')),
+            key=_k_sort_key,
+        )
+        greater_se_files = sorted(
+            glob(os.path.join(cache_dir, 'greater_self_energies.k*.pt')),
+            key=_k_sort_key,
+        )
+        g_lesser_files = sorted(
+            glob(os.path.join(cache_dir, 'g_lesser.k*.pt')),
+            key=_k_sort_key,
+        )
+        g_greater_files = sorted(
+            glob(os.path.join(cache_dir, 'g_greater.k*.pt')),
+            key=_k_sort_key,
+        )
+
+        occupations_file = os.path.join(cache_dir, 'lead_occupation_probs.pt')
+        k_pts_file = os.path.join(cache_dir, 'k_pts.pt')
+
+        return TorchNEGFResult(
+            energies=energies_file,
+            hamiltonian=hamiltonian_files,
+            g_ret=site_gf_files,
+            lead_self_energies=lead_se_files or None,
+            lead_occupation_probs=occupations_file if os.path.exists(occupations_file) else None,
+            lesser_self_energies=lesser_se_files or None,
+            greater_self_energies=greater_se_files or None,
+            g_lesser=g_lesser_files or None,
+            g_greater=g_greater_files or None,
+            k_pts=k_pts_file if os.path.exists(k_pts_file) else None,
+        )
+
+    def as_dense(self, t, **to_kwargs):
+        return torch.cat([
+            self._tensor(b).to(**to_kwargs)
+            for b in self._as_batches(t)], dim=0)
+    def as_sparse(self, t, **to_kwargs):
+        return torch.cat([
+            self._tensor(b).to(**to_kwargs).to_sparse() 
+            for b in self._as_batches(t)
+        ], dim=0)
+
+    def _tensor(self, t):
+        return torch.load(t).to_dense() if isinstance(t, str) else t.to_dense()
+
+    def _device(self):
+        g0 = self.g_ret[0] if isinstance(self.g_ret, list) else self.g_ret
+        return self._tensor(g0).device
+
+    def _lead_count(self) -> int:
+        if self.lead_self_energies is None:
+            return 0
+        se0 = self.lead_self_energies[0] if isinstance(self.lead_self_energies, list) else self.lead_self_energies
+        return self._tensor(se0).shape[0]
+
+    def _as_batches(self, obj):
+        return obj if isinstance(obj, list) else [obj]
+
+    def _fermi_dirac(self, energies, mu, kt=1e-10):
+        return 1.0 / (1.0 + torch.exp((energies - mu) / kt))
+
+    def _resolve_in_out_idxs(self, in_idx, out_idx):
+
+        N = self._lead_count()
 
         if N <= 0:
-            return in_idx, out_idx, False
+            raise ValueError('Cannot resolve lead indices without lead self energies.')
         
-        in_unresolved = isinstance(in_idx, None)
-        out_unresolved = isinstance(out_idx, None)
+        in_unresolved = in_idx is None
+        out_unresolved = out_idx is None
         in_const = isinstance(in_idx, int)
         out_const = isinstance(out_idx, int)
+        device = self._device()
         
         if in_unresolved and out_unresolved:
-            raise ValueError('Either an input or output lead index must be specified (both are None)')
+            raise ValueError('Either an input or output lead index must be specified (both are None).')
+
+        def _to_tensor(idx, name):
+            if isinstance(idx, int):
+                return torch.tensor([idx], device=device, dtype=torch.int64)
+            if isinstance(idx, torch.Tensor):
+                if idx.ndim != 1:
+                    raise ValueError(f'Expected {name} to have ndim == 1; (got ndim == {idx.ndim}).')
+                return idx.to(device=device, dtype=torch.int64)
+            if idx is None:
+                return None
+            raise ValueError(f'Unsupported type for {name}: {type(idx)}')
+
+        in_idx_t = _to_tensor(in_idx, 'in_idx')
+        out_idx_t = _to_tensor(out_idx, 'out_idx')
 
         # return if in/out indices are both integers
         if in_const and out_const:
-            return in_idx, out_idx, False
+            return in_idx_t, out_idx_t, False
         
         # broadcast function to fit in_idx onto out_idx, or vice versa:
         def _broadcast(const_idx, tgt_idx, sum_over_tgt):
             if sum_over_tgt:
-                tgt_idx = torch.arange(N, device=self.g_ret.device)
-                tgt_idx = tgt_idx[tgt_idx != const_idx]
-            elif not isinstance(tgt_idx, torch.IntTensor):
-                raise ValueError(f'Index type {type(tgt_idx)} incompatible with index type int.')
+                tgt_idx = torch.arange(N, device=device, dtype=torch.int64)
+                tgt_idx = tgt_idx[tgt_idx != const_idx.item()]
+            elif tgt_idx is None:
+                raise ValueError('Unresolved target indices.')
+            elif tgt_idx.ndim != 1:
+                raise ValueError(f'Expected broadcast target to have ndim == 1; got {tgt_idx.ndim}.')
 
-            src_idx = torch.full_like(tgt_idx, const_idx)
+            src_idx = torch.full_like(tgt_idx, const_idx.item())
             
             return src_idx, tgt_idx
 
         # apply broadcasting
         if in_const:
-            in_idx, out_idx = _broadcast(in_idx, out_idx, out_unresolved)
+            in_idx_t, out_idx_t = _broadcast(in_idx_t, out_idx_t, out_unresolved)
         elif out_const:
-            out_idx, in_idx = _broadcast(out_idx, in_idx, in_unresolved)
+            out_idx_t, in_idx_t = _broadcast(out_idx_t, in_idx_t, in_unresolved)
             
         # validate shapes of indices
-        if in_idx.ndim != 1:
+        if in_idx_t.ndim != 1:
             raise ValueError(
                 'Expected in_idx to have ndim == 1; '
-                f'(got ndim == {in_idx.ndim})')
-        if out_idx.ndim != 1:
+                f'(got ndim == {in_idx_t.ndim})')
+        if out_idx_t.ndim != 1:
             raise ValueError(
-                'Expected in_idx to have ndim == 1; '
-                f'(got ndim == {out_idx.ndim})')
-        if in_idx.shape != out_idx.shape:
+                'Expected out_idx to have ndim == 1; '
+                f'(got ndim == {out_idx_t.ndim})')
+        if in_idx_t.shape != out_idx_t.shape:
             raise ValueError('Expected in_idx and out_idx to have same shape '
-                            f'(got {in_idx.shape} and {out_idx.shape})')
+                            f'(got {in_idx_t.shape} and {out_idx_t.shape})')
 
         sum_result = (in_unresolved or out_unresolved)
 
-        return in_idx, out_idx, sum_result
+        return in_idx_t, out_idx_t, sum_result
 
     def ldos(
+            self,
             band_mult: float = 1.0,
             k_resolved: bool = False,
             **solver_kwargs) -> torch.Tensor:
@@ -1932,12 +2497,27 @@ class TorchNEGFResult:
                 (shape: [E, N], or [M, E, N] if `k_resolved`).
         """
 
-        ldos = (-1/torch.pi) * torch.diagonal(
-            self.g_ret.imag, dim1=-2, dim2=-1)
+        g_ret_batches = [self.g_ret] if not isinstance(self.g_ret, list) else self.g_ret
 
-        if not k_resolved:
-            ldos = ldos.mean(0)
-        ldos *= band_mult
+
+        if k_resolved:
+            return torch.cat([
+                (-1/torch.pi) * torch.diagonal(self._tensor(g_ret_batch).imag, dim1=-2, dim2=-1) * band_mult
+                for g_ret_batch in g_ret_batches
+            ], dim=-2)
+
+        else:
+            Nk = 0
+            ldos = 0
+            
+            for g_ret_batch in g_ret_batches:
+                g_ret = self._tensor(g_ret_batch)
+                ldos += (-1/torch.pi) * (
+                    torch.diagonal(g_ret.imag, dim1=-2, dim2=-1).sum(-3)
+                )
+                Nk += g_ret.shape[-4]
+            
+            ldos *= band_mult / Nk
 
         return ldos
 
@@ -1957,15 +2537,388 @@ class TorchNEGFResult:
             torch.Tensor: The evaluated DOS 
                 (shape: [E], or [M, E] if `k_resolved`).
         """
-        
-        dos = (-1/torch.pi) * torch.diagonal(
-            self.g_ret.imag, dim1=-2, dim2=-1).sum(-1)
 
-        if not k_resolved:
-            dos = dos.mean(0)
-        dos *= band_mult
+        g_ret_batches = [self.g_ret] if not isinstance(self.g_ret, list) else self.g_ret
+
+
+        if k_resolved:
+            per_batch = []
+            for g_ret_batch in g_ret_batches:
+                g_ret = self._tensor(g_ret_batch)
+                # sum over orbital dimension, keep k dimension
+                per_batch.append(
+                    (-1/torch.pi) * torch.diagonal(g_ret.imag, dim1=-2, dim2=-1).sum(dim=-1) * band_mult
+                )  # shape: [K, E]
+            return torch.cat(per_batch, dim=0)  # concat along k batches
+
+        else:
+            Nk = 0
+            dos = 0
+            
+            for g_ret_batch in g_ret_batches:
+                g_ret = self._tensor(g_ret_batch)
+                dos += (-1/torch.pi) * (
+                    torch.diagonal(g_ret.imag, dim1=-2, dim2=-1).sum(dim=(-3, -1))
+                )
+                Nk += g_ret.shape[-4]
+            
+            dos *= band_mult / Nk
 
         return dos
+
+    def occupied_ldos(
+            self,
+            band_mult: float = 1.0,
+            k_resolved: bool = False,
+            **solver_kwargs) -> torch.Tensor:
+        """Evaluates the occupied local density of states from G^<.
+
+        Args:
+            k_resolved (bool, optional): if True, returns the occupied LDOS
+                without integrating over the :math:`\\mathbf{k}` degrees of
+                freedom. Defaults to False.
+
+        Returns:
+            torch.Tensor: The evaluated occupied LDOS
+                (shape: [E, N], or [M, E, N] if `k_resolved`).
+        """
+
+        if self.g_lesser is None:
+            raise ValueError('Cannot calculate occupied LDOS without g_lesser.')
+
+        g_lesser_batches = self._as_batches(self.g_lesser)
+
+        if k_resolved:
+            return torch.cat([
+                (1 / (2 * torch.pi)) *
+                torch.diagonal(self._tensor(g_lesser_batch).imag, dim1=-2, dim2=-1) *
+                band_mult
+                for g_lesser_batch in g_lesser_batches
+            ], dim=-2)
+
+        Nk = 0
+        occ_ldos = 0
+
+        for g_lesser_batch in g_lesser_batches:
+            g_lesser = self._tensor(g_lesser_batch)
+            occ_ldos += (1 / (2 * torch.pi)) * (
+                torch.diagonal(g_lesser.imag, dim1=-2, dim2=-1).sum(-3)
+            )
+            Nk += g_lesser.shape[-4]
+
+        occ_ldos *= band_mult / Nk
+
+        return occ_ldos
+
+    def occupied_dos(
+            self,
+            band_mult: float = 1.0,
+            k_resolved: bool = False):
+        """Evaluates the occupied density of states from G^<.
+
+        Args:
+            band_mult (float, optional): Band multiplicity. Defaults to 1.0.
+            k_resolved (bool, optional): if True, returns occupied DOS without
+                integrating over the :math:`\\mathbf{k}` degrees of freedom.
+                Defaults to False.
+
+        Returns:
+            torch.Tensor: The evaluated occupied DOS
+                (shape: [E], or [M, E] if `k_resolved`).
+        """
+
+        if self.g_lesser is None:
+            raise ValueError('Cannot calculate occupied DOS without g_lesser.')
+
+        g_lesser_batches = self._as_batches(self.g_lesser)
+
+        if k_resolved:
+            per_batch = []
+            for g_lesser_batch in g_lesser_batches:
+                g_lesser = self._tensor(g_lesser_batch)
+                per_batch.append(
+                    (1 / (2 * torch.pi)) *
+                    torch.diagonal(g_lesser.imag, dim1=-2, dim2=-1).sum(dim=-1) *
+                    band_mult
+                )
+            return torch.cat(per_batch, dim=0)
+
+        Nk = 0
+        occ_dos = 0
+
+        for g_lesser_batch in g_lesser_batches:
+            g_lesser = self._tensor(g_lesser_batch)
+            occ_dos += (1 / (2 * torch.pi)) * (
+                torch.diagonal(g_lesser.imag, dim1=-2, dim2=-1).sum(dim=(-3, -1))
+            )
+            Nk += g_lesser.shape[-4]
+
+        occ_dos *= band_mult / Nk
+
+        return occ_dos
+
+    def bond_current_density(
+            self,
+            band_mult: float = 1.0,
+            greens_function: str = 'lesser',
+            filter: torch.Tensor | list[torch.Tensor] | None = None,
+            k_resolved: bool = False) -> torch.Tensor:
+        """Evaluates the energy-resolved bond current density matrix from ``G^<``.
+
+        The returned tensor corresponds to an antisymmetrized localized-basis
+        bond-current expression in an orbital tight-binding basis.
+
+        .. math::
+
+            J_{i\\to j}(E) \\propto \\mathrm{Im}\\left[
+                H_{ij} G^{</>}_{ji}(E) - H_{ji} G^{</>}_{ij}(E)
+            \\right]
+
+        using the Hamiltonian stored in this result object. 
+        
+        With the internal
+        convention ``q = \\hbar = 1``, this normalization reports the spectral
+        bond current in units of the charge-conductance quantum ``e^2 / h``.
+        Any spin degeneracy should be folded into ``band_mult``.
+
+        Args:
+            band_mult (float, optional): Band multiplicity factor. Defaults to
+                1.0.
+            greens_function (str, optional): Which correlation Green's
+                function to use in the bond-current expression. Supported
+                values are ``'lesser'`` and ``'greater'``. Defaults to
+                ``'lesser'``.
+            filter (torch.Tensor | list[torch.Tensor] | None, optional):
+                Element-wise weighting applied to ``G^<`` before evaluating the
+                bond current. The filter must match the full ``g_lesser`` shape
+                ``[K, E, N, N]`` or be provided as a list of k-batched tensors
+                matching the stored batching layout. Defaults to None.
+            k_resolved (bool, optional): If True, return one bond-current matrix
+                per sampled ``k`` point. Otherwise average over the sampled
+                ``k`` points. Defaults to False.
+
+        Returns:
+            torch.Tensor: Energy-resolved bond-current matrix with shape
+                ``[K, E, N, N]`` if ``k_resolved`` is True, otherwise
+                ``[E, N, N]``. Values are normalized to ``e^2 / h`` units.
+        """
+
+        if self.hamiltonian is None:
+            raise ValueError('Cannot calculate bond current without hamiltonian.')
+
+        hamiltonian_batches = self._as_batches(self.hamiltonian)
+        if greens_function == 'lesser':
+            if self.g_lesser is None:
+                raise ValueError('Cannot calculate bond current without g_lesser.')
+            g_batches = self._as_batches(self.g_lesser)
+        elif greens_function == 'greater':
+            if self.g_greater is None:
+                raise ValueError('Cannot calculate bond current without g_greater.')
+            g_batches = self._as_batches(self.g_greater)
+        else:
+            raise ValueError(
+                "Unsupported greens_function. Expected 'lesser' or 'greater'; "
+                f"got {greens_function!r}."
+            )
+
+        if len(hamiltonian_batches) != len(g_batches):
+            raise ValueError(
+                'Hamiltonian batches and Green\'s-function batches must have the same length.'
+            )
+
+        filter_batches = [None] * len(g_batches)
+        if filter is not None:
+            if isinstance(filter, list):
+                if len(filter) != len(g_batches):
+                    raise ValueError(
+                        'Filter batches and Green\'s-function batches must have the same length.'
+                    )
+                filter_batches = []
+                for filt_batch, g_batch in zip(filter, g_batches):
+                    filt_t = self._tensor(filt_batch)
+                    g_t = self._tensor(g_batch)
+                    if filt_t.shape != g_t.shape:
+                        raise ValueError(
+                            'Filter batch shape mismatch: '
+                            f'expected {tuple(g_t.shape)}, got {tuple(filt_t.shape)}.'
+                        )
+                    filter_batches.append(filt_t.to(device=g_t.device, dtype=g_t.dtype))
+            else:
+                filter_t = self._tensor(filter)
+                if filter_t.ndim != 4:
+                    raise ValueError(
+                        'Expected filter tensor to have shape [K, E, N, N]; '
+                        f'got shape {tuple(filter_t.shape)}.'
+                    )
+
+                k_sizes = [self._tensor(g_batch).shape[0] for g_batch in g_batches]
+                if filter_t.shape[0] != sum(k_sizes):
+                    raise ValueError(
+                        'Unbatched filter k-dimension must match the total number of sampled k points: '
+                        f'expected {sum(k_sizes)}, got {filter_t.shape[0]}.'
+                    )
+
+                split_filters = list(torch.split(filter_t, k_sizes, dim=0))
+                filter_batches = []
+                for filt_t, g_batch in zip(split_filters, g_batches):
+                    g_t = self._tensor(g_batch)
+                    if filt_t.shape != g_t.shape:
+                        raise ValueError(
+                            'Filter batch shape mismatch after k-splitting: '
+                            f'expected {tuple(g_t.shape)}, got {tuple(filt_t.shape)}.'
+                        )
+                    filter_batches.append(filt_t.to(device=g_t.device, dtype=g_t.dtype))
+
+        J_batches = []
+        J_sum = 0
+        Nk = 0
+
+        for hamiltonian_batch, g_batch, filter_batch in zip(hamiltonian_batches, g_batches, filter_batches):
+            H = self._tensor(hamiltonian_batch)      # [K, N, N]
+            g_corr = self._tensor(g_batch)  # [K, E, N, N]
+
+            if H.ndim != 3:
+                raise ValueError(
+                    'Expected hamiltonian batch to have shape [K, N, N]; '
+                    f'got shape {tuple(H.shape)}.'
+                )
+            if g_corr.ndim != 4:
+                raise ValueError(
+                    'Expected Green\'s-function batch to have shape [K, E, N, N]; '
+                    f'got shape {tuple(g_corr.shape)}.'
+                )
+            if H.shape[0] != g_corr.shape[0] or H.shape[-2:] != g_corr.shape[-2:]:
+                raise ValueError(
+                    'Hamiltonian and Green\'s-function shapes are incompatible: '
+                    f'{tuple(H.shape)} vs {tuple(g_corr.shape)}.'
+                )
+
+            # Scale so that integrating J(E) over energy yields a dimensionless
+            # current in the internal convention q = ħ = 1 (i.e. e^2 / h
+            # units). In this convention energy integrals are taken with the
+            # factor 1/(2π) that matches other routines in this module.
+            prefactor = torch.as_tensor(
+                1.0 / (2.0 * torch.pi),
+                device=g_corr.device,
+                dtype=g_corr.real.dtype,
+            )
+
+            if filter_batch is not None:
+                g_corr = g_corr * filter_batch
+
+            # Use an explicitly antisymmetrized bond-current expression:
+            #   J_ij(E) ~ Im[ H_ij G_ji(E) - H_ji G_ij(E) ]
+            # This yields J_ij = -J_ji and J_ii = 0 (up to numerical error).
+            HGt = H.unsqueeze(-3) * g_corr.transpose(-2, -1)             # H_ij G_ji
+            HtG = H.transpose(-2, -1).unsqueeze(-3) * g_corr             # H_ji G_ij
+            J_batch = prefactor * (HGt - HtG).imag
+            J_batch = J_batch * band_mult
+
+            if k_resolved:
+                J_batches.append(J_batch)
+            else:
+                J_sum = J_sum + J_batch.sum(dim=0)
+                Nk += J_batch.shape[0]
+
+        return torch.cat(J_batches, dim=0) if k_resolved else (J_sum / Nk)
+
+    def cut_current_density(
+            self,
+            in_orbitals: torch.Tensor | list[int],
+            out_orbitals: torch.Tensor | list[int],
+            band_mult: float = 1.0,
+            greens_function: str = 'lesser',
+            filter: torch.Tensor | list[torch.Tensor] | None = None,
+            return_matrix: bool = False,
+            k_resolved: bool = False) -> torch.Tensor:
+        """Evaluates the bond current density across a user-defined orbital cut.
+
+        The cut is defined by two orbital index sets. The method extracts the
+        submatrix of :meth:`bond_current_density` spanning all pairs
+        ``(i in in_orbitals, j in out_orbitals)`` and either:
+
+        - returns that submatrix directly when ``return_matrix`` is True, or
+        - sums over the submatrix entries to give the spectral cut current
+          :math:`J_{cut}(E)`.
+
+        Args:
+            in_orbitals (torch.Tensor | list[int]): Orbital indices on the
+                "input" side of the cut.
+            out_orbitals (torch.Tensor | list[int]): Orbital indices on the
+                "output" side of the cut.
+            band_mult (float, optional): Band multiplicity factor. Defaults to
+                1.0.
+            greens_function (str, optional): Which correlation Green's
+                function to use in the bond-current expression. Supported
+                values are ``'lesser'`` and ``'greater'``. Defaults to
+                ``'lesser'``.
+            filter (torch.Tensor | list[torch.Tensor] | None, optional):
+                Element-wise weighting applied to ``G^<`` before evaluating the
+                cut current. The filter must match the full ``g_lesser`` shape
+                ``[K, E, N, N]`` or be provided as a list of tensors matching
+                the stored k-batching. Defaults to None.
+            return_matrix (bool, optional): If True, return the selected
+                cut-current submatrix rather than summing over its entries.
+                Defaults to False.
+            k_resolved (bool, optional): If True, return one result per sampled
+                ``k`` point. Otherwise average over sampled ``k`` points.
+                Defaults to False.
+
+        Returns:
+            torch.Tensor: If ``return_matrix`` is False, returns the spectral
+                cut current with shape ``[K, E]`` when ``k_resolved`` is True,
+                otherwise ``[E]``. If ``return_matrix`` is True, returns the
+                selected bond-current submatrix with shape
+                ``[K, E, N_in, N_out]`` or ``[E, N_in, N_out]``.
+        """
+
+        if isinstance(in_orbitals, list):
+            in_orbitals = torch.tensor(in_orbitals, device=self._device(), dtype=torch.int64)
+        elif isinstance(in_orbitals, torch.Tensor):
+            in_orbitals = in_orbitals.to(device=self._device(), dtype=torch.int64)
+        else:
+            raise ValueError(
+                'Expected in_orbitals to be a list[int] or 1D torch.Tensor; '
+                f'got {type(in_orbitals)}.'
+            )
+
+        if isinstance(out_orbitals, list):
+            out_orbitals = torch.tensor(out_orbitals, device=self._device(), dtype=torch.int64)
+        elif isinstance(out_orbitals, torch.Tensor):
+            out_orbitals = out_orbitals.to(device=self._device(), dtype=torch.int64)
+        else:
+            raise ValueError(
+                'Expected out_orbitals to be a list[int] or 1D torch.Tensor; '
+                f'got {type(out_orbitals)}.'
+            )
+
+        if in_orbitals.ndim != 1:
+            raise ValueError(
+                'Expected in_orbitals to have ndim == 1; '
+                f'got ndim == {in_orbitals.ndim}.'
+            )
+        if out_orbitals.ndim != 1:
+            raise ValueError(
+                'Expected out_orbitals to have ndim == 1; '
+                f'got ndim == {out_orbitals.ndim}.'
+            )
+        if in_orbitals.numel() == 0 or out_orbitals.numel() == 0:
+            raise ValueError('Expected in_orbitals and out_orbitals to be non-empty.')
+
+        J = self.bond_current_density(
+            band_mult=band_mult,
+            greens_function=greens_function,
+            filter=filter,
+            k_resolved=k_resolved,
+        )
+
+        J_cut = J.index_select(dim=-2, index=in_orbitals)
+        J_cut = J_cut.index_select(dim=-1, index=out_orbitals)
+
+        if return_matrix:
+            return J_cut
+
+        return J_cut.sum(dim=(-2, -1))
 
     def coherent_transmission(
             self,
@@ -1996,24 +2949,45 @@ class TorchNEGFResult:
                 (shape: [B, E], or [B, M, E] if `k_resolved` is `True`)
         """
 
-        if self.lead_self_energies is None or not self.lead_self_energies.numel():
+        if self.lead_self_energies is None:
             raise ValueError('Cannot calculate coherent transmission without lead self energies.')
 
-        gammas = 1.j*(self.lead_self_energies - self.lead_self_energies.mH)
-        gammas_in = gammas[in_idx]
-        gammas_out = gammas[out_idx]
+        in_idx, out_idx, _ = self._resolve_in_out_idxs(in_idx, out_idx)
 
-        # compute T = Tr(gamma_a @ g_ret @ gamma_b @ g_adv)
-        T = torch.einsum(
-            '...ij, ...jk, ...kl, ...li -> ...',
-            gammas_in,
-            self.g_ret,
-            gammas_out,
-            self.g_ret.mH
-        ).real
+        lead_se_batches = self._as_batches(self.lead_self_energies)
+        g_ret_batches = self._as_batches(self.g_ret)
 
-        if not k_resolved:
-            T = T.mean(-2)
+        if len(lead_se_batches) != len(g_ret_batches):
+            raise ValueError('Lead self-energy batches and Green\'s function batches must have the same length.')
+
+        T_batches = []
+        T_sum = 0
+        Nk = 0
+
+        for lead_se_batch, g_ret_batch in zip(lead_se_batches, g_ret_batches):
+            lead_se = self._tensor(lead_se_batch)
+            g_ret = self._tensor(g_ret_batch)
+
+            gammas = 1.j*(lead_se - lead_se.mH)
+            gammas_in = gammas[in_idx]
+            gammas_out = gammas[out_idx]
+
+            # compute T = Tr(gamma_a @ g_ret @ gamma_b @ g_adv)
+            T_batch = torch.einsum(
+                '...ij, ...jk, ...kl, ...li -> ...',
+                gammas_in,
+                g_ret,
+                gammas_out,
+                g_ret.mH
+            ).real
+
+            if k_resolved:
+                T_batches.append(T_batch)
+            else:
+                T_sum = T_sum + T_batch.sum(-2)
+                Nk += T_batch.shape[-2]
+
+        T = torch.cat(T_batches, dim=-2) if k_resolved else (T_sum / Nk)
 
         # apply band multiplicity
         T *= band_mult
@@ -2034,13 +3008,17 @@ class TorchNEGFResult:
             in_idx: torch.IntTensor | int,
             out_idx: torch.IntTensor | int,
             band_mult: torch.Tensor | float = 1.0,
-            in_occupations: torch.Tensor | None = None,
-            out_occupations: torch.Tensor | None = None,
             k_resolved: bool = False) -> torch.Tensor:
         """Computes the coherent current between two leads in the
         the device. The coherent current describes the 
         contribution to the total current associated with 
-        quantum ballistic conduction directly between leads.
+        quantum ballistic conduction directly between leads and is
+        independent of any scattering mechanisms.
+
+        With the internal
+        convention ``q = \\hbar = 1``, the current is returned
+        in units of the charge-conductance quantum ``e^2 / h``.
+        Any spin degeneracy should be folded into ``band_mult``.
 
         Args:
             in_idx (torch.IntTensor | int): The input lead(s)
@@ -2059,20 +3037,35 @@ class TorchNEGFResult:
                 (shape: [B, E], or [B, M, E] if `k_resolved` is `True`)
         """
 
-        if not self.lead_self_energies:
+        if self.lead_self_energies is None:
             raise ValueError('Cannot calculate current without lead self energies.')
 
-        in_idx, out_idx, sum_result = _resolve_in_out_idxs(in_idx, out_idx)
+        lead_occ = None
+        energies = self._tensor(self.energies)
+        
+        in_idx, out_idx, sum_result = self._resolve_in_out_idxs(in_idx, out_idx)
 
-        in_f = self.lead_occupation_probs[in_idx]
-        out_f = self.lead_occupation_probs[out_idx]
-        T = coherent_transmission(
+        if self.lead_occupation_probs is not None:
+            if isinstance(self.lead_occupation_probs, list):
+                lead_occ = torch.stack([self._tensor(o) for o in self.lead_occupation_probs], dim=0)
+            else:
+                lead_occ = self._tensor(self.lead_occupation_probs)
+        
+
+            
+        in_f = lead_occ[in_idx]
+        out_f = lead_occ[out_idx]
+        if in_f is None or out_f is None:
+            raise ValueError('Occupation probabilities must be provided to compute coherent current.')
+
+        T = self.coherent_transmission(
             in_idx=in_idx,
             out_idx=out_idx,
             band_mult=band_mult,
             k_resolved=k_resolved)
 
-        I = torch.trapz((T*(in_f - out_f)).sum(0), self.energies, dim=-1)
+
+        I = torch.trapz((T*(in_f - out_f)), energies, dim=-1) / (2*torch.pi)
 
         return I.sum(0) if sum_result else I
         
@@ -2081,12 +3074,16 @@ class TorchNEGFResult:
             self,
             in_idx: torch.IntTensor | int,
             out_idx: torch.IntTensor | int,
-            k_pts: torch.Tensor | None = None,
-            band_mult: torch.Tensor | float = 2.0,
+            band_mult: torch.Tensor | float = 1.0,
             k_resolved: bool = False,
             **solver_kwargs) -> torch.Tensor:
         """Computes the current flowing out of a lead into the device by
         integrating over sampled energy values.
+
+        With the internal
+        convention ``q = \\hbar = 1``, the current is returned
+        in units of the charge-conductance quantum ``e^2 / h``.
+        Any spin degeneracy should be folded into ``band_mult``.
 
         For best results, energies should be sampled uniformly from a few
         multiples of `kt` below the lowest `chemical_potential` value to
@@ -2101,6 +3098,98 @@ class TorchNEGFResult:
                 (shape: [], or [M] if `k_resolved` is `True`)
         """
 
-        if not self.lead_self_energies:
-            raise ValueError('Cannot calculate coherent current without lead self energies.')
+        if self.lead_self_energies is None:
+            raise ValueError('Cannot calculate current without lead self energies.')
+        if self.g_lesser is None or self.g_greater is None:
+            raise ValueError('Cannot calculate current without g_lesser and g_greater.')
+        if self.lead_occupation_probs is None:
+            raise ValueError('Occupation probabilities must be provided to compute current.')
+
+        energies = self._tensor(self.energies)
+        in_idx, out_idx, sum_result = self._resolve_in_out_idxs(in_idx, out_idx)
+
+        lead_occ = self._tensor(self.lead_occupation_probs)
+        if lead_occ.ndim not in (2, 3):
+            raise ValueError(
+                'Expected lead occupation probabilities to have shape [L, E] or [L, K, E]; '
+                f'got shape {tuple(lead_occ.shape)}.'
+            )
+
+        lead_se_batches = self._as_batches(self.lead_self_energies)
+        g_lesser_batches = self._as_batches(self.g_lesser)
+        g_greater_batches = self._as_batches(self.g_greater)
+
+        if not (len(lead_se_batches) == len(g_lesser_batches) == len(g_greater_batches)):
+            raise ValueError(
+                'Lead self-energies, g_lesser, and g_greater batches must have the same length.'
+            )
+
+        I_batches = []
+        I_sum = 0
+        Nk = 0
+        k0 = 0
+
+        for lead_se_batch, g_lesser_batch, g_greater_batch in zip(
+                lead_se_batches, g_lesser_batches, g_greater_batches):
+
+            lead_se = self._tensor(lead_se_batch)      # [L, Kb, E, N, N]
+            g_lesser = self._tensor(g_lesser_batch)    # [Kb, E, N, N]
+            g_greater = self._tensor(g_greater_batch)  # [Kb, E, N, N]
+
+            if g_lesser.shape != g_greater.shape:
+                raise ValueError('Expected g_lesser and g_greater to have matching shapes per batch.')
+            if lead_se.shape[-4] != g_lesser.shape[-4]:
+                raise ValueError('Batch k-dim mismatch between lead self-energy and correlation GFs.')
+
+            k_batch = g_lesser.shape[-4]
+
+            if lead_occ.ndim == 2:
+                f_batch = lead_occ
+            else:
+                f_batch = lead_occ[:, k0:k0 + k_batch, :]
+                if f_batch.shape[1] != k_batch:
+                    raise ValueError(
+                        'Lead occupation probabilities [L, K, E] do not match the current k-batching.'
+                    )
+            k0 += k_batch
+
+            gamma = 1.j * (lead_se - lead_se.mH)
+
+            gamma_in = gamma[in_idx]
+            gamma_out = gamma[out_idx]
+
+            if f_batch.ndim == 2:
+                f_in = f_batch[in_idx].unsqueeze(-3).unsqueeze(-1).unsqueeze(-1)
+                f_out = f_batch[out_idx].unsqueeze(-3).unsqueeze(-1).unsqueeze(-1)
+            else:
+                f_in = f_batch[in_idx].unsqueeze(-1).unsqueeze(-1)
+                f_out = f_batch[out_idx].unsqueeze(-1).unsqueeze(-1)
+
+            sigma_in_lesser = 1.j * gamma_in * f_in
+            sigma_in_greater = 1.j * gamma_in * (1 - f_in)
+            sigma_out_lesser = 1.j * gamma_out * f_out
+            sigma_out_greater = 1.j * gamma_out * (1 - f_out)
+
+            g_l = g_lesser.unsqueeze(0)
+            g_g = g_greater.unsqueeze(0)
+
+            # Symmetric two-terminal Meir-Wingreen current spectral density.
+            # Use explicit batched matrix products for clarity/performance.
+            j_in = (sigma_in_lesser @ g_g).diagonal(dim1=-2, dim2=-1).sum(-1) - \
+                   (sigma_in_greater @ g_l).diagonal(dim1=-2, dim2=-1).sum(-1)
+            j_out = (sigma_out_lesser @ g_g).diagonal(dim1=-2, dim2=-1).sum(-1) - \
+                    (sigma_out_greater @ g_l).diagonal(dim1=-2, dim2=-1).sum(-1)
+            jE = 0.5 * (j_in - j_out).real
+
+            I_batch = torch.trapz(jE, energies, dim=-1) * (band_mult / (2 * torch.pi))
+
+            if k_resolved:
+                I_batches.append(I_batch)
+            else:
+                I_sum = I_sum + I_batch.sum(-1)
+                Nk += k_batch
+
+        I = torch.cat(I_batches, dim=-1) if k_resolved else (I_sum / Nk)
+
+        return I.sum(0) if sum_result else I
         

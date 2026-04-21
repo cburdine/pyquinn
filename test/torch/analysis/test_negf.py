@@ -6,8 +6,10 @@ import torch
 from pyquinn.torch.analysis.negf import (
     EinsteinPhononScatterer,
     PhotonDipoleScatterer,
-    sancho_rubio,
+    surface_greens_function,
+    SanchoRubioSolver,
     greens_function,
+    TorchNEGFResult,
 )
 
 
@@ -168,12 +170,13 @@ class TorchNEGFTest(unittest.TestCase):
 
         for eta in etas:
 
-            g_numerical = sancho_rubio(
+            g_numerical = surface_greens_function(
                 energies=energies,
                 hamiltonian_matrix=h,
                 coupling_matrix=v,
                 eta=eta,
-                tol=1e-8).squeeze().detach().cpu().numpy()
+                solver=SanchoRubioSolver(tol=1e-8),
+            ).squeeze().detach().cpu().numpy()
 
             g_analytical = h_chain_g_surface(
                 energies, eta=eta, e0=e_onsite, t0=t_hop).detach().cpu().numpy()
@@ -195,3 +198,107 @@ class TorchNEGFTest(unittest.TestCase):
         gf = greens_function(energies, H, eta=1e-5)
     
         self.assertTupleEqual(tuple(gf.shape), (100, 10, 2, 2))
+
+    def test_occupied_ldos_and_dos(self):
+        energies = torch.tensor([-1.0, 0.0, 1.0], dtype=torch.float32)
+        K, E, N = 2, 3, 2
+
+        g_ret = torch.zeros((K, E, N, N), dtype=torch.complex64)
+        hamiltonian = torch.zeros((K, N, N), dtype=torch.complex64)
+
+        g_lesser = torch.zeros((K, E, N, N), dtype=torch.complex64)
+        # diagonal imaginary occupancy pattern
+        # k=0
+        g_lesser[0, :, 0, 0] = 1j * torch.tensor([1.0, 2.0, 3.0])
+        g_lesser[0, :, 1, 1] = 1j * torch.tensor([2.0, 3.0, 4.0])
+        # k=1
+        g_lesser[1, :, 0, 0] = 1j * torch.tensor([2.0, 3.0, 4.0])
+        g_lesser[1, :, 1, 1] = 1j * torch.tensor([3.0, 4.0, 5.0])
+
+        result = TorchNEGFResult(
+            energies=energies,
+            hamiltonian=hamiltonian,
+            g_ret=g_ret,
+            g_lesser=g_lesser,
+        )
+
+        band_mult = 2.0
+        pref = band_mult / (2 * torch.pi)
+
+        diag_imag = torch.diagonal(g_lesser.imag, dim1=-2, dim2=-1)  # [K, E, N]
+        expected_occ_ldos = pref * diag_imag.sum(dim=0) / K
+        expected_occ_ldos_k = pref * diag_imag
+
+        expected_occ_dos = pref * diag_imag.sum(dim=(-1, 0)) / K  # [E]
+        expected_occ_dos_k = pref * diag_imag.sum(dim=-1)  # [K, E]
+
+        occ_ldos = result.occupied_ldos(band_mult=band_mult, k_resolved=False)
+        occ_ldos_k = result.occupied_ldos(band_mult=band_mult, k_resolved=True)
+        occ_dos = result.occupied_dos(band_mult=band_mult, k_resolved=False)
+        occ_dos_k = result.occupied_dos(band_mult=band_mult, k_resolved=True)
+
+        self.assertTrue(torch.allclose(occ_ldos, expected_occ_ldos, atol=1e-6, rtol=1e-6))
+        self.assertTrue(torch.allclose(occ_ldos_k, expected_occ_ldos_k, atol=1e-6, rtol=1e-6))
+        self.assertTrue(torch.allclose(occ_dos, expected_occ_dos, atol=1e-6, rtol=1e-6))
+        self.assertTrue(torch.allclose(occ_dos_k, expected_occ_dos_k, atol=1e-6, rtol=1e-6))
+
+    def test_current(self):
+        energies = torch.tensor([0.0, 1.0, 2.0, 3.0], dtype=torch.float32)
+        L, K, E, N = 2, 2, 4, 1
+
+        hamiltonian = torch.zeros((K, N, N), dtype=torch.complex64)
+        g_ret = torch.zeros((K, E, N, N), dtype=torch.complex64)
+
+        gamma0 = 1.0
+        gamma1 = 2.0
+        lead_self_energies = torch.zeros((L, K, E, N, N), dtype=torch.complex64)
+        lead_self_energies[0, ...] = -0.5j * gamma0
+        lead_self_energies[1, ...] = -0.5j * gamma1
+
+        f0 = torch.tensor([0.9, 0.7, 0.3, 0.1], dtype=torch.float32)
+        f1 = torch.tensor([0.1, 0.3, 0.7, 0.9], dtype=torch.float32)
+        lead_occ = torch.stack([f0, f1], dim=0)  # [L, E]
+
+        a = torch.tensor(
+            [[0.5, 0.7, 0.9, 1.1],
+             [0.6, 0.8, 1.0, 1.2]],
+            dtype=torch.float32,
+        )  # [K, E]
+        b = torch.tensor(
+            [[1.1, 0.9, 0.7, 0.5],
+             [1.2, 1.0, 0.8, 0.6]],
+            dtype=torch.float32,
+        )  # [K, E]
+
+        g_lesser = torch.zeros((K, E, N, N), dtype=torch.complex64)
+        g_greater = torch.zeros((K, E, N, N), dtype=torch.complex64)
+        g_lesser[..., 0, 0] = 1j * a
+        g_greater[..., 0, 0] = -1j * b
+
+        result = TorchNEGFResult(
+            energies=energies,
+            hamiltonian=hamiltonian,
+            g_ret=g_ret,
+            lead_self_energies=lead_self_energies,
+            lead_occupation_probs=lead_occ,
+            g_lesser=g_lesser,
+            g_greater=g_greater,
+        )
+
+        band_mult = 2.0
+        pref = band_mult / (2 * torch.pi)
+
+        # Mirror the current() convention for the in=0, out=1 pair:
+        # jE = 0.5 * [(Gamma0*f0*b + Gamma0*(1-f0)*a) - (Gamma1*f1*b + Gamma1*(1-f1)*a)]
+        j_in = gamma0 * (f0.view(1, E) * b + (1 - f0).view(1, E) * a)
+        j_out = gamma1 * (f1.view(1, E) * b + (1 - f1).view(1, E) * a)
+        jE = 0.5 * (j_in - j_out)
+
+        expected_k = torch.trapz(jE, energies, dim=-1) * pref
+        expected = expected_k.mean()
+
+        I = result.current(in_idx=0, out_idx=1, band_mult=band_mult, k_resolved=False)
+        I_k = result.current(in_idx=0, out_idx=1, band_mult=band_mult, k_resolved=True)
+
+        self.assertTrue(torch.allclose(I, expected, atol=1e-6, rtol=1e-6))
+        self.assertTrue(torch.allclose(I_k.squeeze(0), expected_k, atol=1e-6, rtol=1e-6))

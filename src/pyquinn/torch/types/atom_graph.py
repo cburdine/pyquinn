@@ -97,9 +97,13 @@ class TorchAtomGraph(BackendAtomGraph):
             )
 
         self.neighbors = torch.tensor(
-            neighbors, dtype=torch.int64)
+            neighbors,
+            device=self.positions.device,
+            dtype=torch.int64)
         self.unit_cell_images = torch.tensor(
-            unit_cell_images, dtype=torch.int64)
+            unit_cell_images,
+            device=self.positions.device,
+            dtype=torch.int64)
 
     def wrap(self):
         images = torch.floor(self.positions @ self.unit_rcell().T)

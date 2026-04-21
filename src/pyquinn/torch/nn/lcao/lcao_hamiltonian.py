@@ -155,6 +155,11 @@ class LCAOHamiltonian(Hamiltonian):
 
         return logscale_alphas, logscale_betas, logscale_cs
 
+
+    @staticmethod
+    def _fit_basis_params(atomic_numbers, alphas, betas, cs):
+        pass
+
     @staticmethod
     def _make_logscale_energy_parameters(shells: dict):
         """Constructs a set of trainable log-scale orbital 
