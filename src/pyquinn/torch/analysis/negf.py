@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 import torch
 from abc import ABC, abstractmethod
 from pyquinn.torch.types import TorchAtomGraph
 from pyquinn.torch.models import TorchBandStructureModel
 
 from pyquinn.io.stdout import print_overwrite
-from __future__ import annotations
 
 from math import ceil
 import os
