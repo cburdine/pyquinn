@@ -2137,7 +2137,7 @@ class NEGFSolver:
                         )
 
                 site_gf_new = site_gf
-                site_gf_inv = torch.linalg.inv(site_gf)
+                site_gf_inv = torch.linalg.inv(site_gf.to(torch.complex128)).to(site_gf.dtype)
                 g_lesser = site_gf @ sigma_lesser_leads @ site_gf.mH
                 g_greater = site_gf @ sigma_greater_leads @ site_gf.mH
 
@@ -2152,7 +2152,7 @@ class NEGFSolver:
                         gamma_scattering = sigma_lesser_scattering + sigma_greater_scattering
                         scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
 
-                        site_gf_new = torch.linalg.inv(site_gf_inv - scattering_self_energy)
+                        site_gf_new = torch.linalg.inv((site_gf_inv - scattering_self_energy).to(torch.complex128)).to(site_gf_inv.dtype)
 
                         g_lesser = site_gf_new @ (sigma_lesser_leads + sigma_lesser_scattering) @ site_gf_new.mH
                         g_greater = site_gf_new @ (sigma_greater_leads + sigma_greater_scattering) @ site_gf_new.mH
