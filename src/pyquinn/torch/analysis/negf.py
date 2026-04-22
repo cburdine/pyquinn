@@ -4,6 +4,7 @@ from pyquinn.torch.types import TorchAtomGraph
 from pyquinn.torch.models import TorchBandStructureModel
 
 from pyquinn.io.stdout import print_overwrite
+from __future__ import annotations
 
 from math import ceil
 import os
@@ -673,12 +674,12 @@ def optical_dipole_self_energy(
         if k_hat is not None:
             if k_hat.shape != (3,):
                 raise ValueError('Expected `k_hat` to have shape [3].')
-            k = k_hat.to(device=device, dtype=torch.float64)
+            k = k_hat.to(device=device, dtype=torch.float32)
             k = k / (k.norm() + 1e-30)
-            I3 = torch.eye(3, device=device, dtype=torch.float64)
+            I3 = torch.eye(3, device=device, dtype=torch.float32)
             rho = (I3 - torch.outer(k, k)) / 2.0
         else:
-            rho = torch.eye(3, device=device, dtype=torch.float64) / 3.0
+            rho = torch.eye(3, device=device, dtype=torch.float32) / 3.0
         rho = rho.to(device=device, dtype=dtype)
     else:
         if rho_pol.shape != (3, 3):
@@ -1625,7 +1626,7 @@ class NEGFSolver:
             negf_device: TorchNEGFDevice,
             model: TorchBandStructureModel,
             mixing_alpha: float = 0.1,
-            adaptive_mixing: bool = False,
+            adaptive_mixing: bool = True,
             mixing_alpha_min: float = 1e-5,
             mixing_alpha_decay: float = 0.5,
             mixing_burn_in: int = 5,
@@ -2173,10 +2174,24 @@ class NEGFSolver:
 
                         # Use a relative convergence metric so the same `tol`
                         # scale works across devices/unit systems.
-                        abs_err = torch.abs(sigma_lesser_scattering - sigma_lesser_scattering_new).max() + \
-                                  torch.abs(sigma_greater_scattering - sigma_greater_scattering_new).max()
-                        scale = torch.abs(sigma_lesser_scattering_new).max() + \
-                                torch.abs(sigma_greater_scattering_new).max()
+                        #
+                        # Normalize by both old and new scales; otherwise, if
+                        # the fixed-point solution is ~0, dividing by only the
+                        # new scale can artificially inflate the residue and
+                        # prevent convergence.
+                        abs_err = (
+                            torch.abs(sigma_lesser_scattering - sigma_lesser_scattering_new).amax()
+                            + torch.abs(sigma_greater_scattering - sigma_greater_scattering_new).amax()
+                        )
+                        scale_old = (
+                            torch.abs(sigma_lesser_scattering).amax()
+                            + torch.abs(sigma_greater_scattering).amax()
+                        )
+                        scale_new = (
+                            torch.abs(sigma_lesser_scattering_new).amax()
+                            + torch.abs(sigma_greater_scattering_new).amax()
+                        )
+                        scale = torch.maximum(scale_old, scale_new)
                         residue = abs_err / torch.clamp(scale, min=1e-30)
                         residue_history.append(float(residue.item()))
                         if (
@@ -2197,7 +2212,7 @@ class NEGFSolver:
                             else:
                                 print_overwrite(f'SCBA (batch: {n}, iter: {i}, err: {residue:5e}) ')
 
-                        if residue < self.tol:
+                        if residue <= self.tol:
                             sigma_lesser_scattering = sigma_lesser_scattering_new
                             sigma_greater_scattering = sigma_greater_scattering_new
                             break
