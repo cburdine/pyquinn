@@ -3182,9 +3182,9 @@ class TorchNEGFResult:
                 f_out = f_batch[out_idx].unsqueeze(-1).unsqueeze(-1)
 
             sigma_in_lesser = 1.j * gamma_in * f_in
-            sigma_in_greater = 1.j * gamma_in * (1 - f_in)
+            sigma_in_greater = -1.j * gamma_in * (1 - f_in)
             sigma_out_lesser = 1.j * gamma_out * f_out
-            sigma_out_greater = 1.j * gamma_out * (1 - f_out)
+            sigma_out_greater = -1.j * gamma_out * (1 - f_out)
 
             g_l = g_lesser.unsqueeze(0)
             g_g = g_greater.unsqueeze(0)

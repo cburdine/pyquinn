@@ -15,6 +15,65 @@ from pyquinn.torch.analysis.negf import (
 
 class TorchNEGFTest(unittest.TestCase):
 
+    def test_current_matches_coherent_current_without_scatterers(self):
+        # In the absence of scattering, Meir-Wingreen current should reduce
+        # to the coherent (Landauer) current between two leads.
+
+        dtype = torch.complex64
+        device = torch.device("cpu")
+
+        E = 2001
+        energies = torch.linspace(-5.0, 5.0, E, device=device)
+
+        # Single-level device with wide-band leads.
+        e0 = 0.3
+        gamma_L = 0.8
+        gamma_R = 0.4
+
+        # Lead self-energies: Sigma = -i * gamma / 2.
+        se_L = (-0.5j * gamma_L) * torch.ones((E, 1, 1), dtype=dtype, device=device)
+        se_R = (-0.5j * gamma_R) * torch.ones((E, 1, 1), dtype=dtype, device=device)
+
+        lead_self_energies = torch.stack([se_L, se_R], dim=0).unsqueeze(1)  # [L=2, K=1, E, N=1, N=1]
+
+        # Retarded GF: G^r = [E - e0 - sum Sigma]^-1
+        sigma_tot = (se_L + se_R).view(1, E, 1, 1)  # [K=1, E, 1, 1]
+        g_ret = 1.0 / ((energies - e0).to(dtype).view(1, E, 1, 1) - sigma_tot)
+
+        # Fermi occupations for each lead.
+        mu_L = 0.2
+        mu_R = -0.2
+        kT = 0.05
+        f_L = 1.0 / (1.0 + torch.exp((energies - mu_L) / kT))
+        f_R = 1.0 / (1.0 + torch.exp((energies - mu_R) / kT))
+        lead_occ = torch.stack([f_L, f_R], dim=0)  # [L, E]
+
+        # Correlation self-energies from leads:
+        #   Sigma^< = i * sum_l [Gamma_l f_l]
+        #   Sigma^> = -i * sum_l [Gamma_l (1 - f_l)]
+        Gamma_L = gamma_L
+        Gamma_R = gamma_R
+        sigma_lesser = (1.0j * (Gamma_L * f_L + Gamma_R * f_R)).to(dtype).view(1, E, 1, 1)
+        sigma_greater = (-1.0j * (Gamma_L * (1 - f_L) + Gamma_R * (1 - f_R))).to(dtype).view(1, E, 1, 1)
+
+        g_lesser = g_ret @ sigma_lesser @ g_ret.mH
+        g_greater = g_ret @ sigma_greater @ g_ret.mH
+
+        result = TorchNEGFResult(
+            energies=energies,
+            hamiltonian=torch.tensor([[e0]], dtype=dtype, device=device),
+            g_ret=g_ret,
+            lead_self_energies=lead_self_energies,
+            lead_occupation_probs=lead_occ,
+            g_lesser=g_lesser,
+            g_greater=g_greater,
+        )
+
+        I_coh = result.coherent_current(in_idx=0, out_idx=1, k_resolved=False)
+        I_mw = result.current(in_idx=0, out_idx=1, k_resolved=False)
+
+        self.assertTrue(torch.allclose(I_mw, I_coh, atol=1e-4, rtol=1e-4))
+
     def test_photon_dipole_scatterer_vacuum_limit(self):
         # If G(E) is constant over energy, the ±ħω shifts should not matter
         # (except for edge-handling, avoided here by choosing small ħω).
@@ -289,9 +348,9 @@ class TorchNEGFTest(unittest.TestCase):
         pref = band_mult / (2 * torch.pi)
 
         # Mirror the current() convention for the in=0, out=1 pair:
-        # jE = 0.5 * [(Gamma0*f0*b + Gamma0*(1-f0)*a) - (Gamma1*f1*b + Gamma1*(1-f1)*a)]
-        j_in = gamma0 * (f0.view(1, E) * b + (1 - f0).view(1, E) * a)
-        j_out = gamma1 * (f1.view(1, E) * b + (1 - f1).view(1, E) * a)
+        # jE = 0.5 * [(Gamma0*(f0*b - (1-f0)*a)) - (Gamma1*(f1*b - (1-f1)*a))]
+        j_in = gamma0 * (f0.view(1, E) * b - (1 - f0).view(1, E) * a)
+        j_out = gamma1 * (f1.view(1, E) * b - (1 - f1).view(1, E) * a)
         jE = 0.5 * (j_in - j_out)
 
         expected_k = torch.trapz(jE, energies, dim=-1) * pref
