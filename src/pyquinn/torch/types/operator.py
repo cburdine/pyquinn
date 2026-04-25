@@ -81,7 +81,7 @@ def build_matrix(
         coupling_values: torch.Tensor,
         site_indices: torch.IntTensor,
         images: torch.IntTensor,
-        k_pts: torch.IntTensor,
+        k_pts: torch.Tensor,
         frac_positions: torch.IntTensor,
         sparse: bool = False):
 

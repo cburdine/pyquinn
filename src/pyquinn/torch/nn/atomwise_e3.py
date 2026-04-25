@@ -60,7 +60,7 @@ class AtomwiseE3Conv(AtomwiseConv):
             activation: str = 'leakyrelu',
             o3_basis: str = 'xyz',
             l_max: int = 2,
-            r_max: float = 5.0,
+            r_max: float = 10.0,
             r_points: int = 32,
             z_max: int = 118):
 

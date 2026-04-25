@@ -1037,8 +1037,8 @@ class TorchNEGFDevice:
         self.device = device
         self.leads = leads
         self.orientations = orientations
-        self.device_potential = device_potential
-        self.lead_potentials = lead_potentials
+        self.device_potential = None
+        self.lead_potentials = None
 
 
         # validate boundary graphs and orientations
@@ -1050,18 +1050,24 @@ class TorchNEGFDevice:
                 index=i
             )
         
-        # validate potentials
-        if self.device_potential is not None:
-            self._validate_potential(self.device, self.device_potential, type='device')
+        self.set_device_potential(device_potential)
+        self.set_lead_potentials(lead_potentials)
 
-        if self.lead_potentials is not None:
-            if len(self.lead_potentials) != len(self.leads):
+    def set_device_potential(self, device_potential: torch.Tensor | None):
+        if device_potential is not None:
+            self._validate_potential(self.device, device_potential, type='device')
+        self.device_potential = device_potential
+
+    def set_lead_potentials(self, lead_potentials: list[torch.Tensor] | None):
+        if lead_potentials is not None:
+            if len(lead_potentials) != len(self.leads):
                 raise ValueError(
                     f'Expected len(leads) == len(lead_potentials) '
-                    f'(got: {len(self.leads)} != {len(self.lead_potentials)})')
-            for i, (lead, potential) in enumerate(zip(self.leads, self.lead_potentials)):
+                    f'(got: {len(self.leads)} != {len(lead_potentials)})')
+            for i, (lead, potential) in enumerate(zip(self.leads, lead_potentials)):
                 self._validate_potential(lead, potential, type=f'lead {i}')
-
+        
+        self.lead_potentials = lead_potentials
 
     def system_graph(
             self, 
@@ -1628,7 +1634,7 @@ class NEGFSolver:
             model: TorchBandStructureModel,
             mixing_alpha: float = 0.1,
             adaptive_mixing: bool = True,
-            mixing_alpha_min: float = 1e-5,
+            mixing_alpha_min: float = 1e-10,
             mixing_alpha_decay: float = 0.5,
             mixing_burn_in: int = 5,
             mixing_decay_cooldown: int = 2,
