@@ -27,14 +27,20 @@ class DysonSolver(ABC):
 class DenseDysonSolver(DysonSolver):
     """Dense Dyson solver that inverts the perturbed Hamiltonian directly."""
 
-    def solve(
+    def build_matrix(
             self,
             energies: torch.Tensor,
             hamiltonian_matrix: torch.Tensor,
             self_energies: torch.Tensor | None = None,
             overlap_matrix: torch.Tensor | None = None,
             eta: float = 1e-5) -> torch.Tensor:
-        
+        """Builds the Dyson matrix ``A(E) = (E S + iηI) - (H + Σ)``.
+
+        This is the matrix whose inverse is the retarded Green's function.
+        Exposed so higher-level solvers (e.g. SCBA) can avoid forming
+        ``G^{-1}`` by explicitly inverting an already-inverted matrix.
+        """
+
         E = energies.view(-1, 1, 1)
         H_site = hamiltonian_matrix.unsqueeze(-3)
         dtype = hamiltonian_matrix.dtype
@@ -44,10 +50,23 @@ class DenseDysonSolver(DysonSolver):
 
         H_se = 0 if self_energies is None else self_energies.sum(0)
 
-        A_ret = (E*S + 1.j*eta*I) - (H_site + H_se)
-        G_ret = torch.linalg.inv(A_ret)
+        return (E * S + 1.j * eta * I) - (H_site + H_se)
 
-        return G_ret
+    def solve(
+            self,
+            energies: torch.Tensor,
+            hamiltonian_matrix: torch.Tensor,
+            self_energies: torch.Tensor | None = None,
+            overlap_matrix: torch.Tensor | None = None,
+            eta: float = 1e-5) -> torch.Tensor:
+        A_ret = self.build_matrix(
+            energies=energies,
+            hamiltonian_matrix=hamiltonian_matrix,
+            self_energies=self_energies,
+            overlap_matrix=overlap_matrix,
+            eta=eta,
+        )
+        return torch.linalg.inv(A_ret)
 
 
 class Scatterer(ABC):
@@ -282,8 +301,8 @@ def correlation_self_energies_from_scatterers(
             energies=energies,
             **kwargs,
         )
-        sigL = sigL + sL
-        sigG = sigG + sG
+        sigL.add_(sL)
+        sigG.add_(sG)
     return sigL, sigG
 
 def greens_function(
@@ -2143,13 +2162,20 @@ class NEGFSolver:
                         )
 
                 site_gf_new = site_gf
-                site_gf_inv = torch.linalg.inv(site_gf.to(torch.complex128)).to(site_gf.dtype)
-                g_lesser = site_gf @ sigma_lesser_leads @ site_gf.mH
-                g_greater = site_gf @ sigma_greater_leads @ site_gf.mH
+                g_lesser = site_gf_new @ sigma_lesser_leads @ site_gf_new.mH
+                g_greater = site_gf_new @ sigma_greater_leads @ site_gf_new.mH
 
                 residue = 0
 
                 if scatterers_resolved:
+                    build_matrix = getattr(self.dyson_solver, 'build_matrix', None)
+                    can_build_matrix = callable(build_matrix)
+                    g0_inv = None
+                    if not can_build_matrix:
+                        # Fallback: recover G0^{-1} by explicitly inverting G0.
+                        # Avoid casting to complex128 to limit peak memory use.
+                        g0_inv = torch.linalg.inv(site_gf_new)
+
                     mixing_alpha = float(self.mixing_alpha)
                     residue_history: list[float] = []
                     last_alpha_decay_iter = -10**9
@@ -2158,26 +2184,30 @@ class NEGFSolver:
                         gamma_scattering = sigma_lesser_scattering + sigma_greater_scattering
                         scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
 
-                        site_gf_new = torch.linalg.inv((site_gf_inv - scattering_self_energy).to(torch.complex128)).to(site_gf_inv.dtype)
+                        if can_build_matrix:
+                            A_ret = build_matrix(
+                                energies=energies,
+                                hamiltonian_matrix=H_batch,
+                                self_energies=lead_se_batch,
+                                eta=eta,
+                            )
+                            A_ret.sub_(scattering_self_energy)
+                            site_gf_new = torch.linalg.inv(A_ret)
+                        else:
+                            site_gf_new = torch.linalg.inv(g0_inv - scattering_self_energy)
 
                         g_lesser = site_gf_new @ (sigma_lesser_leads + sigma_lesser_scattering) @ site_gf_new.mH
                         g_greater = site_gf_new @ (sigma_greater_leads + sigma_greater_scattering) @ site_gf_new.mH
 
-                        sigma_lesser_scattering_new = torch.zeros_like(sigma_lesser_scattering)
-                        sigma_greater_scattering_new = torch.zeros_like(sigma_greater_scattering)
-
-                        if scatterers_resolved:
-                            sigL, sigG = correlation_self_energies_from_scatterers(
-                                scatterers=scatterers_resolved,
-                                g_lesser=g_lesser,
-                                g_greater=g_greater,
-                                energies=energies,
-                                dE=dE,
-                                kt=kt,
-                                **solver_kwargs,
-                            )
-                            sigma_lesser_scattering_new = sigL
-                            sigma_greater_scattering_new = sigG
+                        sigma_lesser_scattering_new, sigma_greater_scattering_new = correlation_self_energies_from_scatterers(
+                            scatterers=scatterers_resolved,
+                            g_lesser=g_lesser,
+                            g_greater=g_greater,
+                            energies=energies,
+                            dE=dE,
+                            kt=kt,
+                            **solver_kwargs,
+                        )
 
                         # Use a relative convergence metric so the same `tol`
                         # scale works across devices/unit systems.
@@ -2224,10 +2254,14 @@ class NEGFSolver:
                             sigma_greater_scattering = sigma_greater_scattering_new
                             break
 
-                        sigma_lesser_scattering = sigma_lesser_scattering * (1 - mixing_alpha) + \
-                                                sigma_lesser_scattering_new * mixing_alpha
-                        sigma_greater_scattering = sigma_greater_scattering * (1 - mixing_alpha) + \
-                                                sigma_greater_scattering_new * mixing_alpha
+                        sigma_lesser_scattering.mul_(1 - mixing_alpha).add_(
+                            sigma_lesser_scattering_new,
+                            alpha=mixing_alpha,
+                        )
+                        sigma_greater_scattering.mul_(1 - mixing_alpha).add_(
+                            sigma_greater_scattering_new,
+                            alpha=mixing_alpha,
+                        )
 
                 if residue > self.tol:
                     if verbosity >= 1:
@@ -2247,7 +2281,7 @@ class NEGFSolver:
 
                     torch.save(H_batch.to_sparse(), hamiltonian_file)
                     torch.save(lead_se_batch.to_sparse(), lead_se_file)
-                    torch.save(site_gf.to_sparse(), site_gf_file)
+                    torch.save(site_gf_new.to_sparse(), site_gf_file)
                     torch.save(sigma_lesser_scattering.to_sparse(), lesser_se_file)
                     torch.save(sigma_greater_scattering.to_sparse(), greater_se_file)
                     torch.save(g_lesser.to_sparse(), g_lesser_file)
@@ -2263,7 +2297,7 @@ class NEGFSolver:
                     lead_se_file_batches.append(lead_se_file)
 
                 else:
-                    site_gf_batches.append(site_gf.to_sparse())
+                    site_gf_batches.append(site_gf_new.to_sparse())
                     lesser_se_batches.append(sigma_lesser_scattering.to_sparse())
                     greater_se_batches.append(sigma_greater_scattering.to_sparse())
                     g_lesser_batches.append(g_lesser.to_sparse())
