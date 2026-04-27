@@ -777,7 +777,17 @@ def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
         x (torch.Tensor): Broadening matrix operator (shape: [..., E, N, N]).
 
     Returns:
-        torch.Tensor: Real transformed broadening matrix operator (shape: [..., E, N, N]).
+        torch.Tensor: Transformed operator (shape: [..., E, N, N]).
+
+    Notes:
+        This uses the standard FFT-based discrete Hilbert transform
+
+            H[x] = IFFT( -i * sign(f) * FFT(x) )
+
+        along the energy axis. This corresponds to a *periodic* discrete
+        Hilbert transform on the sampled grid. If you need a non-periodic
+        principal-value transform on a truncated energy interval, consider
+        padding/windowing the input before applying this routine.
     """
     
     X = torch.fft.fft(x, dim=-3)
@@ -786,8 +796,8 @@ def hilbert_transform(x: torch.Tensor) -> torch.Tensor:
     freqs = torch.fft.fftfreq(n, device=X.device)
     sgn = torch.sign(freqs)
 
-    H = torch.fft.ifft(-1j * sgn.view(-1,1,1) * X, dim=-3)
-    return H.real
+    H = torch.fft.ifft(-1j * sgn.view(-1, 1, 1) * X, dim=-3)
+    return H
 
 
 def surface_greens_function(
@@ -2181,8 +2191,24 @@ class NEGFSolver:
                     last_alpha_decay_iter = -10**9
                     for i in range(self.max_iter):
 
-                        gamma_scattering = sigma_lesser_scattering + sigma_greater_scattering
-                        scattering_self_energy = -0.5j * gamma_scattering + hilbert_transform(gamma_scattering)
+                        # Build the retarded scattering self-energy Σ^r from the
+                        # correlation self-energies Σ^{</>}.
+                        #
+                        # Physical broadening:
+                        #   Γ(E) = i(Σ^>(E) - Σ^<(E)) = i(Σ^r - Σ^a) = -2 Im Σ^r
+                        #
+                        # Kramers-Kronig relation:
+                        #   Re Σ^r(E) = (1/2) H[Γ](E)
+                        #
+                        # so:
+                        #   Σ^r(E) = (1/2) H[Γ](E) - i Γ(E)/2
+                        gamma_scattering = 1j * (sigma_greater_scattering - sigma_lesser_scattering)
+                        gamma_scattering = 0.5 * (gamma_scattering + gamma_scattering.mH)
+
+                        lambda_scattering = 0.5 * hilbert_transform(gamma_scattering)
+                        lambda_scattering = 0.5 * (lambda_scattering + lambda_scattering.mH)
+
+                        scattering_self_energy = lambda_scattering - 0.5j * gamma_scattering
 
                         if can_build_matrix:
                             A_ret = build_matrix(
