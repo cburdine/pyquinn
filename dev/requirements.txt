@@ -1,6 +1,7 @@
 sphinx
 piccolo_theme
 flake8
+black
 jupyter
 sphinx-copybutton
 matplotlib

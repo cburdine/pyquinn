@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyquinn"
+version = "0.1"
+description = "A package for building Quantum-Informed Neural Networks."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "scipy",
+  "ase",
+  "torch",
+  "torch_geometric",
+  "e3nn",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build",
+  "sphinx",
+  "piccolo_theme",
+  "flake8",
+  "black",
+  "jupyter",
+  "sphinx-copybutton",
+  "matplotlib",
+  "plotly",
+  "twine",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pyquinn*"]
+exclude = ["test*", "benchmark*"]

@@ -19,9 +19,9 @@ pip install -e .
 (For now, an editable install with the `-e` flag is sufficient for development. As the package grows larger, we may recommend something different.)
 
 ### (Optional) Installing Development Tools
-In order to run the full set of development tools, you will need to install the dependencies in `dev/requirements.txt`:
+Development tools are now provided via an optional dependency group in `pyproject.toml`. To install them, run:
 ```
-pip install -r dev/requirements.txt
+pip install -e ".[dev]"
 ```
 
 ### Running Tests
