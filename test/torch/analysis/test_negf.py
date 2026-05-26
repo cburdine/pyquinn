@@ -16,8 +16,7 @@ from pyquinn.torch.analysis.negf import (
 class TorchNEGFTest(unittest.TestCase):
 
     def test_current_matches_coherent_current_without_scatterers(self):
-        # In the absence of scattering, Meir-Wingreen current should reduce
-        # to the coherent (Landauer) current between two leads.
+
 
         dtype = torch.complex64
         device = torch.device("cpu")
@@ -25,22 +24,18 @@ class TorchNEGFTest(unittest.TestCase):
         E = 2001
         energies = torch.linspace(-5.0, 5.0, E, device=device)
 
-        # Single-level device with wide-band leads.
         e0 = 0.3
         gamma_L = 0.8
         gamma_R = 0.4
 
-        # Lead self-energies: Sigma = -i * gamma / 2.
         se_L = (-0.5j * gamma_L) * torch.ones((E, 1, 1), dtype=dtype, device=device)
         se_R = (-0.5j * gamma_R) * torch.ones((E, 1, 1), dtype=dtype, device=device)
 
         lead_self_energies = torch.stack([se_L, se_R], dim=0).unsqueeze(1)  # [L=2, K=1, E, N=1, N=1]
 
-        # Retarded GF: G^r = [E - e0 - sum Sigma]^-1
         sigma_tot = (se_L + se_R).view(1, E, 1, 1)  # [K=1, E, 1, 1]
         g_ret = 1.0 / ((energies - e0).to(dtype).view(1, E, 1, 1) - sigma_tot)
 
-        # Fermi occupations for each lead.
         mu_L = 0.2
         mu_R = -0.2
         kT = 0.05
@@ -75,11 +70,6 @@ class TorchNEGFTest(unittest.TestCase):
         self.assertTrue(torch.allclose(I_mw, I_coh, atol=1e-4, rtol=1e-4))
 
     def test_photon_dipole_scatterer_vacuum_limit(self):
-        # If G(E) is constant over energy, the ±ħω shifts should not matter
-        # (except for edge-handling, avoided here by choosing small ħω).
-        #
-        # Then Sigma^<(E) ~ (∫ dω J(ω) (2N(ω)+1)) * P G^<(E) P^†
-        # where the "+1" is the vacuum fluctuation / spontaneous contribution.
 
         dtype = torch.complex64
         device = torch.device("cpu")
@@ -88,7 +78,6 @@ class TorchNEGFTest(unittest.TestCase):
         N = 2
         energies = torch.linspace(-1.0, 1.0, E, device=device)
 
-        # use a small frequency window
         frequencies = torch.tensor([0.05, 0.10, 0.15], device=device)
         W = torch.zeros_like(frequencies, dtype=torch.float32)
 
@@ -98,11 +87,11 @@ class TorchNEGFTest(unittest.TestCase):
         p_xyz = torch.zeros((3, N, N), dtype=dtype, device=device)
         p_xyz[0] = torch.eye(N, dtype=dtype, device=device)
 
-        # pure x polarization (rho = |x><x|).
+        # assume pure x polarization (rho = |x><x|).
         rho = torch.zeros((3, 3), dtype=dtype, device=device)
         rho[0, 0] = 1.0 + 0j
 
-        # Use constant S_vac and set e/m=1 for a clean check.
+        # Use constant S_vac
         S_vac = torch.ones_like(frequencies, dtype=torch.float32)
 
         scatterer = PhotonDipoleScatterer(
