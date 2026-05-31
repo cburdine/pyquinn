@@ -34,11 +34,30 @@ python3 -m unittest discover
 
 ### Linting
 
-We are currently using [flake8](https://flake8.pycqa.org/en/latest/) for linting. (You can install flake8 using `python -m pip install flake8`).
+We use:
+- [black](https://github.com/psf/black) for formatting
+- [ruff](https://github.com/astral-sh/ruff) for linting
 
-To lint all files, run the command:
+Both tools are configured in `pyproject.toml`, including a fixed target Python version (`py310`) and line length (80 chars) so results are consistent even if contributors have newer Python versions installed.
+
+To format all files, run:
 ```
-flake8 src/pyquinn/
+black .
+```
+
+To lint all files, run:
+```
+ruff check .
+```
+
+To auto-fix what Ruff can fix safely, run:
+```
+ruff check . --fix
+```
+
+To lint a specific directory, for example:
+```
+ruff check src/pyquinn/
 ```
 Many IDEs (such as VS Code also support extensions for linters)
 
