@@ -1,27 +1,26 @@
+from collections.abc import Callable
+
 import torch
 from torch.nn.modules import activation
-from torch.optim import optimizer
-
-from typing import Callable
 
 Activation = Callable[..., torch.nn.Module]
 Optimizer = Callable[..., torch.optim.Optimizer]
 
 SUPPORTED_TORCH_OPTIMIZERS = {
-    'adadelta': torch.optim.Adadelta,
-    'adafactor': torch.optim.Adafactor,
-    'adagrad': torch.optim.Adagrad,
-    'adam': torch.optim.Adam,
-    'adamax': torch.optim.Adamax,
-    'adamw': torch.optim.AdamW,
-    'asgd': torch.optim.ASGD,
-    'lbfgs': torch.optim.LBFGS,
-    'nadam': torch.optim.NAdam,
-    'radam': torch.optim.RAdam,
-    'rmsprop': torch.optim.RMSprop,
-    'rprop': torch.optim.Rprop,
-    'sgd': torch.optim.SGD,
-    'sparseadam': torch.optim.SparseAdam,
+    "adadelta": torch.optim.Adadelta,
+    "adafactor": torch.optim.Adafactor,
+    "adagrad": torch.optim.Adagrad,
+    "adam": torch.optim.Adam,
+    "adamax": torch.optim.Adamax,
+    "adamw": torch.optim.AdamW,
+    "asgd": torch.optim.ASGD,
+    "lbfgs": torch.optim.LBFGS,
+    "nadam": torch.optim.NAdam,
+    "radam": torch.optim.RAdam,
+    "rmsprop": torch.optim.RMSprop,
+    "rprop": torch.optim.Rprop,
+    "sgd": torch.optim.SGD,
+    "sparseadam": torch.optim.SparseAdam,
 }
 """ Dictionary of supported torch optimizers """
 
@@ -42,7 +41,7 @@ def get_activation_fn(act: str) -> Activation:
     # get list from activation submodule as lower-case
     activations_lc = [str(a).lower() for a in activation.__all__]
 
-    if (act := str(act).replace('_', '').lower()) in activations_lc:
+    if (act := str(act).replace("_", "").lower()) in activations_lc:
 
         # match actual name from lower-case list, return function/factory
         idx = activations_lc.index(act)
@@ -50,8 +49,7 @@ def get_activation_fn(act: str) -> Activation:
         act_func = getattr(activation, act_name)
         return act_func
     else:
-        raise ValueError(
-            f"Cannot load activation function for string <{act}>.")
+        raise ValueError(f"Cannot load activation function for string <{act}>.")
 
 
 def get_optimizer(opt: str) -> Optimizer:
@@ -68,9 +66,11 @@ def get_optimizer(opt: str) -> Optimizer:
     """
 
     if opt not in SUPPORTED_TORCH_OPTIMIZERS:
-        raise ValueError(f'Torch optimizer {opt} not supported; '
-                         f'expected one of {list(SUPPORTED_TORCH_OPTIMIZERS)}')
-    
+        raise ValueError(
+            f"Torch optimizer {opt} not supported; "
+            f"expected one of {list(SUPPORTED_TORCH_OPTIMIZERS)}"
+        )
+
     return SUPPORTED_TORCH_OPTIMIZERS[opt]
 
 
@@ -82,7 +82,7 @@ def sparse_csr_block_diag(*tensors):
     # Validate input tensors
     for t in tensors:
         if t.ndim != 2:
-            raise ValueError('All input tensors must have ndim == 2.')
+            raise ValueError("All input tensors must have ndim == 2.")
 
     # Initialize indices and values for the block diagonal tensor
     crow_indices = []
@@ -114,9 +114,11 @@ def sparse_csr_block_diag(*tensors):
     col_indices = torch.cat(col_indices)
 
     return torch.sparse_csr_tensor(
-        crow_indices=crow_indices, 
-        col_indices=col_indices, 
-        values=values, size=(block_row_idx, block_col_idx))
+        crow_indices=crow_indices,
+        col_indices=col_indices,
+        values=values,
+        size=(block_row_idx, block_col_idx),
+    )
 
 
 def sparse_coo_block_diag(*tensors):
@@ -124,17 +126,16 @@ def sparse_coo_block_diag(*tensors):
     # Validate input tensors
     for t in tensors:
         if t.ndim != 2:
-            raise ValueError('All input tensors must have ndim == 2.')
+            raise ValueError("All input tensors must have ndim == 2.")
 
     # Initialize indices and values for the block diagonal tensor
     indices = []
     values = []
 
     block_idx = torch.zeros(
-        (2, 1), 
-        dtype=torch.int64,
-        device=next(iter(tensors)).device)
-    
+        (2, 1), dtype=torch.int64, device=next(iter(tensors)).device
+    )
+
     # combine nonzero elements of block tensors:
     for tensor in tensors:
 
@@ -150,10 +151,10 @@ def sparse_coo_block_diag(*tensors):
     indices = torch.cat(indices, dim=-1)
 
     return torch.sparse_coo_tensor(
-        indices=indices, 
-        values=values, 
-        size=(block_idx[0].item(), 
-              block_idx[1].item()))
+        indices=indices,
+        values=values,
+        size=(block_idx[0].item(), block_idx[1].item()),
+    )
 
 
 def cuda_stream_map(fn: Callable, inputs, streams):

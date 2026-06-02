@@ -1,25 +1,21 @@
+import os
 from abc import ABC, abstractmethod
+from glob import glob
 
-from pyquinn.types import (
-    AtomGraph, AtomGraphDataset, BandStructure
-)
+from pyquinn.io.stdout import progress_bar
+from pyquinn.types import AtomGraph, AtomGraphDataset, BandStructure
 from pyquinn.types.atom_graph import BackendAtomGraph
+from pyquinn.types.backend import _load_backend_object
 from pyquinn.types.bandstructure import BackendBandStructure
 
-from pyquinn.types.backend import _load_backend_object
-from pyquinn.io.stdout import progress_bar
-
-from glob import glob
-import os
-
 SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = {
-    'torch': 'pyquinn.torch.types.TorchBandStructureDataset'
+    "torch": "pyquinn.torch.types.TorchBandStructureDataset"
 }
 """ The supported backend BandStructureDataset objects"""
 
 
 class BandStructureDatasetBase:
-    """ Base class for BandStructureDataset instances"""
+    """Base class for BandStructureDataset instances"""
 
 
 class BandStructureDataset(BandStructureDatasetBase):
@@ -32,14 +28,16 @@ class BandStructureDataset(BandStructureDatasetBase):
         def decorator(subclass):
             BandStructureDataset._backends[name] = subclass
             return subclass
+
         return decorator
 
     def __init__(
-            self,
-            graphs: list[AtomGraph] | list[str] | None = None,
-            band_structures: list[BandStructure] | list[str] | None = None,
-            names: list[str] | None = None):
-        
+        self,
+        graphs: list[AtomGraph] | list[str] | None = None,
+        band_structures: list[BandStructure] | list[str] | None = None,
+        names: list[str] | None = None,
+    ):
+
         if graphs is None:
             graphs = []
 
@@ -50,16 +48,14 @@ class BandStructureDataset(BandStructureDatasetBase):
         self.names = []
         self.band_structures = []
 
-        self.extend(
-            graphs=graphs, 
-            band_structures=band_structures, 
-            names=names)
+        self.extend(graphs=graphs, band_structures=band_structures, names=names)
 
     def append(
-            self,
-            graph: AtomGraph | str,
-            band_structure: BandStructure | str,
-            name: str | None = None):
+        self,
+        graph: AtomGraph | str,
+        band_structure: BandStructure | str,
+        name: str | None = None,
+    ):
 
         n_graphs = len(self.graphs)
         name = AtomGraphDataset._resolve_graph_name(n_graphs, graph, name)
@@ -69,25 +65,30 @@ class BandStructureDataset(BandStructureDatasetBase):
         self.names.append(name)
 
     def extend(
-            self,
-            graphs: list[AtomGraph] | list[str],
-            band_structures: list[BandStructure] | list[str],
-            names: list[str] | None = None):
+        self,
+        graphs: list[AtomGraph] | list[str],
+        band_structures: list[BandStructure] | list[str],
+        names: list[str] | None = None,
+    ):
 
         if names is None:
-            names = [None]*len(graphs)
+            names = [None] * len(graphs)
 
         if len(graphs) != len(names):
-            raise ValueError(f'Expected len(graphs) == len(names); '
-                             f'got: {len(graphs)} != {len(names)}.')
+            raise ValueError(
+                f"Expected len(graphs) == len(names); "
+                f"got: {len(graphs)} != {len(names)}."
+            )
         if len(graphs) != len(band_structures):
-            raise ValueError(f'Expected len(graphs) == len(band_structures); '
-                             f'got: {len(graphs)} != {len(band_structures)}.')
+            raise ValueError(
+                f"Expected len(graphs) == len(band_structures); "
+                f"got: {len(graphs)} != {len(band_structures)}."
+            )
 
         # resolve the name of each graph:
         n_graphs = len(self.graphs)
         names = [
-            AtomGraphDataset._resolve_graph_name(n_graphs+i, g, gn)
+            AtomGraphDataset._resolve_graph_name(n_graphs + i, g, gn)
             for i, (g, gn) in enumerate(zip(graphs, names))
         ]
 
@@ -101,8 +102,9 @@ class BandStructureDataset(BandStructureDatasetBase):
         for i, name in enumerate(self.names):
             if name in names_dict:
                 raise ValueError(
-                    f'Found more than one occurence of graph with name '
-                    f'"{name}" at indices {names_dict[name]} and {i}')
+                    f"Found more than one occurence of graph with name "
+                    f'"{name}" at indices {names_dict[name]} and {i}'
+                )
             else:
                 names_dict[name] = i
 
@@ -125,34 +127,39 @@ class BandStructureDataset(BandStructureDatasetBase):
 
     def items(self):
         for name, graph, bands in zip(
-                self.names, self.graphs, self.band_structures):
+            self.names, self.graphs, self.band_structures
+        ):
 
-            resolved_graph = AtomGraph.load(graph) \
-                if isinstance(graph, str) else graph
-            resolved_bands = BandStructure.load(bands) \
-                if isinstance(bands, str) else bands
+            resolved_graph = (
+                AtomGraph.load(graph) if isinstance(graph, str) else graph
+            )
+            resolved_bands = (
+                BandStructure.load(bands) if isinstance(bands, str) else bands
+            )
 
             yield name, (resolved_graph, resolved_bands)
 
     def compile(
-            self,
-            backend: str = 'torch',
-            cutoffs: dict | list[float] | None = None,
-            masses: dict | list[float] | None = None,
-            symbols: dict | list[str] | None = None,
-            max_k_pts: int | None = None,
-            max_bands: int | None = None,
-            cache_dir: str | None = None,
-            verbosity: int = 1,
-            **backend_kwargs):
+        self,
+        backend: str = "torch",
+        cutoffs: dict | list[float] | None = None,
+        masses: dict | list[float] | None = None,
+        symbols: dict | list[str] | None = None,
+        max_k_pts: int | None = None,
+        max_bands: int | None = None,
+        cache_dir: str | None = None,
+        verbosity: int = 1,
+        **backend_kwargs,
+    ):
 
         if backend not in BandStructureDataset._backends:
             if backend in SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS:
                 path = SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS[backend]
-                BandStructureDataset._backends[backend] = \
-                    _load_backend_object(backend, path)
+                BandStructureDataset._backends[backend] = _load_backend_object(
+                    backend, path
+                )
             else:
-                raise ValueError(f'Unknown Backend Type: {backend}')
+                raise ValueError(f"Unknown Backend Type: {backend}")
 
         # verify all names are unique:
         self._validate_names()
@@ -170,17 +177,13 @@ class BandStructureDataset(BandStructureDatasetBase):
         )
 
     @staticmethod
-    def _save_bands(
-            bands: str | BandStructure,
-            name: str,
-            dir: str):
+    def _save_bands(bands: str | BandStructure, name: str, dir: str):
 
         # load bands (if necessary)
-        bands = BandStructure.load(bands) \
-            if isinstance(bands, str) else bands
+        bands = BandStructure.load(bands) if isinstance(bands, str) else bands
 
         # save graph to cache dir:
-        bands_path = os.path.join(dir, f'{name}.pkl.bands')
+        bands_path = os.path.join(dir, f"{name}.pkl.bands")
         bands.save(bands_path)
 
     def save(self, dir: str):
@@ -192,40 +195,41 @@ class BandStructureDataset(BandStructureDatasetBase):
     @staticmethod
     def load(dir: str, in_memory=False):
 
-        graph_files = glob(os.path.join(dir, '*.pkl'))
-        
+        graph_files = glob(os.path.join(dir, "*.pkl"))
+
         names = sorted(
-            AtomGraphDataset._parse_graph_name(file)
-            for file in graph_files
+            AtomGraphDataset._parse_graph_name(file) for file in graph_files
         )
 
         # parse all matching files:
         graphs = []
         band_structures = []
         for name in names:
-            graph_file = os.path.join(dir, f'{name}.pkl')
-            band_file = os.path.join(dir, f'{name}.pkl.bands')
+            graph_file = os.path.join(dir, f"{name}.pkl")
+            band_file = os.path.join(dir, f"{name}.pkl.bands")
 
             if os.path.exists(graph_file) and os.path.exists(band_file):
                 graphs.append(
-                    AtomGraph.load(graph_file) if in_memory else graph_file)
+                    AtomGraph.load(graph_file) if in_memory else graph_file
+                )
                 band_structures.append(
-                    BandStructure.load(band_file) if in_memory else band_file)
+                    BandStructure.load(band_file) if in_memory else band_file
+                )
 
         return BandStructureDataset(
-            graphs=graphs,
-            band_structures=band_structures,
-            names=names)
+            graphs=graphs, band_structures=band_structures, names=names
+        )
 
 
 class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
 
     def __init__(
-            self,
-            graphs: list[str] | list[BackendAtomGraph],
-            band_structures: list[str] | list[BackendBandStructure],
-            names: list[str],
-            cache_dir: str | None = None):
+        self,
+        graphs: list[str] | list[BackendAtomGraph],
+        band_structures: list[str] | list[BackendBandStructure],
+        names: list[str],
+        cache_dir: str | None = None,
+    ):
 
         self.graphs = graphs
         self.band_structures = band_structures
@@ -235,16 +239,17 @@ class BackendBandStructureDataset(ABC, BandStructureDatasetBase):
     @staticmethod
     @abstractmethod
     def compile(
-            dataset: BandStructureDataset,
-            graphs: list[str],
-            cutoffs: dict | list[float] | None = None,
-            masses: dict | list[float] | None = None,
-            symbols: dict | list[str] | None = None,
-            max_k_pts: int | None = None,
-            max_bands: int | None = None,
-            bands_backend_kwargs: dict | None = None,
-            verbosity: int = 1,
-            **backend_kwargs):
+        dataset: BandStructureDataset,
+        graphs: list[str],
+        cutoffs: dict | list[float] | None = None,
+        masses: dict | list[float] | None = None,
+        symbols: dict | list[str] | None = None,
+        max_k_pts: int | None = None,
+        max_bands: int | None = None,
+        bands_backend_kwargs: dict | None = None,
+        verbosity: int = 1,
+        **backend_kwargs,
+    ):
         pass
 
     @abstractmethod

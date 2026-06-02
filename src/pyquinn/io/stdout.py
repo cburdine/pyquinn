@@ -1,17 +1,19 @@
 """Handles output to stdout."""
-from typing import Iterable
+
 import sys
+from collections.abc import Iterable
 
 
 def progress_bar(
-        iterable: Iterable,
-        total: int | None = None,
-        prefix: str = '', 
-        suffix: str = '', 
-        decimals: int = 0, 
-        length: int = 80, 
-        fill: str = '█',
-        print_end: str = "\r"):
+    iterable: Iterable,
+    total: int | None = None,
+    prefix: str = "",
+    suffix: str = "",
+    decimals: int = 0,
+    length: int = 80,
+    fill: str = "█",
+    print_end: str = "\r",
+):
     """Prints a progress bar to stdout while iterating over an iterable object.
 
     Args:
@@ -23,7 +25,7 @@ def progress_bar(
         decimals (int, optional): Number of decimal places. Defaults to 1.
         length (int, optional): Character length of bar. Defaults to 100.
         fill (str, optional): Bar fill character. Defaults to '█'.
-        print_end (str, optional): End character (e.g. "\r", "\r\n"). Defaults 
+        print_end (str, optional): End character (e.g. "\r", "\r\n"). Defaults
             to "\r".
 
     Yields:
@@ -32,16 +34,20 @@ def progress_bar(
 
     if total is None:
         total = len(iterable)
-    
+
     def print_progress(iteration):
-        percent = ("{0:." + str(decimals) + "f}")\
-            .format(100 * (iteration / float(total)))
+        percent = ("{0:." + str(decimals) + "f}").format(
+            100 * (iteration / float(total))
+        )
         filled_length = int(length * iteration // total)
-        bar = fill * filled_length + '-' * (length - filled_length)
-        print(f'\r{prefix} {percent}%|{bar}| {iteration}/{total} {suffix}', end=print_end)
+        bar = fill * filled_length + "-" * (length - filled_length)
+        print(
+            f"\r{prefix} {percent}%|{bar}| {iteration}/{total} {suffix}",
+            end=print_end,
+        )
 
     print_progress(0)
- 
+
     for i, item in enumerate(iterable):
         yield item
         print_progress(i + 1)
@@ -57,4 +63,3 @@ def print_overwrite(message: str, *, flush: bool = True) -> None:
     print(f"\r{message}", end="")
     if flush:
         sys.stdout.flush()
-

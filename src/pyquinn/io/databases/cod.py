@@ -3,18 +3,19 @@ Connects to the Crystallography Open Database (COD) API.
 
 .. seealso::
 
-    For more information on the Crystallography Open Database API, see the 
+    For more information on the Crystallography Open Database API, see the
     `Crystallography Open Database API page`_.
-    
-.. _Crystallography Open Database API page: 
+
+.. _Crystallography Open Database API page:
     https://wiki.crystallography.net/RESTful_API/
 
 """
 
 import os
-from requests import get, HTTPError
-from contextlib import ExitStack
 import tempfile
+from contextlib import ExitStack
+
+from requests import HTTPError, get
 
 from pyquinn.io.data_source import Database
 from pyquinn.types import AtomGraph
@@ -38,7 +39,7 @@ class COD(Database):
 
         .. code-block:: console
             pip install mp-api
-        
+
 
     Below is an example of basic usage:
 
@@ -55,8 +56,8 @@ class COD(Database):
             print(graph.unit_cell)
     """
 
-    _COD_SEARCH_ENDPOINT: str = 'http://www.crystallography.net/cod/result'
-    _COD_DATA_ENDPOINT: str = 'http://www.crystallography.net/cod/'
+    _COD_SEARCH_ENDPOINT: str = "http://www.crystallography.net/cod/result"
+    _COD_DATA_ENDPOINT: str = "http://www.crystallography.net/cod/"
 
     def __init__(self):
         """Constructs a connector to the Crystallography Open Database."""
@@ -85,35 +86,35 @@ class COD(Database):
             AtomGraph | None: The AtomGraph associated with the ID, if found.
         """
         # check if file is cached, if not, fetch data from database:
-        id_file = os.path.join(self._cache_dir.name, f'{id}.cif')
+        id_file = os.path.join(self._cache_dir.name, f"{id}.cif")
         if not os.path.isfile(id_file):
-            
             # make HTTP request:
-            response = get(COD._COD_DATA_ENDPOINT+f'{id}.cif')
+            response = get(COD._COD_DATA_ENDPOINT + f"{id}.cif")
             if response.status_code == 404:
                 return None
             elif response.status_code != 200:
                 raise HTTPError(
-                    f'HTTP Request failed with status code '
-                    f'{response.status_code}.',
-                    response=response)
+                    f"HTTP Request failed with status code "
+                    f"{response.status_code}.",
+                    response=response,
+                )
             else:
                 self._write_file(id_file, response.text)
-        
+
         # return structure as atoms:
         graph = AtomGraph.from_file(id_file)
         return graph
 
     def get_atomgraphs(self, formula: str) -> dict[str, AtomGraph]:
-        """Retrieves a list of all AtomGraphs associated with the 
+        """Retrieves a list of all AtomGraphs associated with the
            given chemical formula string.
 
         Args:
             formula (str): A chemical formula string.
 
         Returns:
-            dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph) pairs
-                matching the given formula.
+            dict[str, AtomGraph]: A dictionary consisting of
+                (ID, AtomGraph) pairs matching the given formula.
         """
 
         # retrieve structure ids:
@@ -136,25 +137,24 @@ class COD(Database):
 
         Args:
             formula (str): A chemical formula string.
-        
+
         Returns:
             list[str]: A list of COD IDs.
         """
 
-        cod_query_params = {'formula': formula}
+        cod_query_params = {"formula": formula}
         results = self.search(cod_query_params).keys()
         return [str(result) for result in results]
-               
 
     def get_atomgraphs_with_elements(
-            self, 
-            elements: list[str] | str) -> dict[str, AtomGraph]:
+        self, elements: list[str] | str
+    ) -> dict[str, AtomGraph]:
         """Retrieves a list of all AtomGraphs containing either some or
         all of the supplied list of elements.
 
         .. warning::
             Results returned from this query can be quite large;
-            it is recommended to instead use 
+            it is recommended to instead use
             `get_atomgraph_ids_with_elements()`
             to retrieve a list of IDs first.
 
@@ -163,10 +163,10 @@ class COD(Database):
                 (either in list form or in a string separated by commas)
 
         Returns:
-            dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph) 
+            dict[str, AtomGraph]: A dictionary consisting of (ID, AtomGraph)
                 pairs containing the given elements.
         """
-        
+
         # retrieve structure ids
         cod_ids = self.get_atomgraph_ids_with_elements(elements)
 
@@ -178,13 +178,13 @@ class COD(Database):
                 atomgraphs[cod_id] = graph
             except HTTPError:
                 continue
-        
+
         return atomgraphs
 
     def get_atomgraph_ids_with_elements(
-            self, 
-            elements: list[str] | str) -> list[str]:
-        """Retrieves the IDs associated with all AtomGraphs containing 
+        self, elements: list[str] | str
+    ) -> list[str]:
+        """Retrieves the IDs associated with all AtomGraphs containing
         either some or all of the supplied list of elements.
 
         Args:
@@ -201,13 +201,15 @@ class COD(Database):
 
         # validate and trim element list (COD only supports 8 elements):
         if not elements:
-            raise Exception('Elements list cannot be empty')
+            raise Exception("Elements list cannot be empty")
         elif len(elements) > 8:
-            raise Exception('COD only supports queries with up to 8 elements '
-                            f'(got: {len(elements)}).')
-        
-        params = {f'el{i+1}': sym for i, sym in enumerate(elements)}
-        params['strictmax'] = str(len(elements))
+            raise Exception(
+                "COD only supports queries with up to 8 elements "
+                f"(got: {len(elements)})."
+            )
+
+        params = {f"el{i + 1}": sym for i, sym in enumerate(elements)}
+        params["strictmax"] = str(len(elements))
 
         # perform search
         results = self.search(params)
@@ -216,7 +218,7 @@ class COD(Database):
         return [str(cod_id) for cod_id in results.keys()]
 
     def search_by_id(self, id: str) -> dict | None:
-        """Retrieves a COD data entry associated 
+        """Retrieves a COD data entry associatedRuff
         with a given database ID. The database entry is in a Python
         dictionary format, consisting of key-value pairs.
 
@@ -227,42 +229,42 @@ class COD(Database):
             dict | None: A COD data entry associated with the
                 given ID, if found.
         """
-        id_params = {'id': id}
+        id_params = {"id": id}
         results = self.search(id_params).values()
         return results[0] if results else None
 
     def search(self, params: dict[str, str]) -> dict[str, dict]:
         """Performs a general COD query with the given
-        parameters. The format of the database query parameters corresponds 
+        parameters. The format of the database query parameters corresponds
         with the keyword arguments of the :meth:`MPRester.summary,search()`
         function.
 
         .. seealso::
 
-            For more information on the COD API, see the 
+            For more information on the COD API, see the
             `Crystallography Open Database API page`_.
-    
-        .. _Crystallography Open Database API page: 
+
+        .. _Crystallography Open Database API page:
             https://wiki.crystallography.net/RESTful_API/
-        
+
         Args:
             params (dict[str, str]): A dictionary of query parameters.
 
         Returns:
             dict[str, dict]: A dictionary of (ID, data entry) pairs, where
-                each data entry is formatted as a dictionary. 
+                each data entry is formatted as a dictionary.
         """
         if not params:
-            raise Exception('Parameter dict cannot be empty.')
+            raise Exception("Parameter dict cannot be empty.")
 
-        fmt_params = {'format': 'json'}
+        fmt_params = {"format": "json"}
         response = get(COD._COD_SEARCH_ENDPOINT, params=(params | fmt_params))
         if response.status_code == 404:
             return dict()
         elif response.status_code != 200:
             raise Exception(
-                f'HTTP Request failed with status code '
-                f'{response.status_code}.')
+                f"HTTP Request failed with status code {response.status_code}."
+            )
         else:
             results = response.json()
-            return {res['file']: res for res in results}
+            return {res["file"]: res for res in results}

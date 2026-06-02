@@ -2,9 +2,6 @@ from pyquinn.torch.nn.lcao.lcao_hamiltonian import (
     LCAOHamiltonian,
     TBHamiltonian,
     VariationalLCAOHamiltonian,
-    VariationalTBHamiltonian
+    VariationalTBHamiltonian,
 )
-
-from pyquinn.torch.nn.lcao.lcao_hamiltonian_e3 import (
-    VariationalE3TBHamiltonian
-)
+from pyquinn.torch.nn.lcao.lcao_hamiltonian_e3 import VariationalE3TBHamiltonian

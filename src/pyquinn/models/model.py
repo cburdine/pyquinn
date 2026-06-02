@@ -2,11 +2,11 @@ from abc import ABC, abstractmethod
 
 
 class ModelBase:
-    """ Base class for Model instances"""
+    """Base class for Model instances"""
 
 
 class Model(ABC, ModelBase):
-    """ Abstract class for the basic PyQuinn Model API"""
+    """Abstract class for the basic PyQuinn Model API"""
 
     @abstractmethod
     def predict(self, **kwargs):

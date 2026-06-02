@@ -1,4 +1,4 @@
-""" Contains helper functions for dynamically loading PyQuinn backends."""
+"""Contains helper functions for dynamically loading PyQuinn backends."""
 
 
 def _load_backend_object(backend: str, import_path: str):
@@ -12,4 +12,5 @@ def _load_backend_object(backend: str, import_path: str):
         raise ImportError(f"Backend '{backend}' is not available: {e}")
     except AttributeError:
         raise ImportError(
-            f"Object '{attr}' not found in module '{module_path}'.")
+            f"Object '{attr}' not found in module '{module_path}'."
+        )

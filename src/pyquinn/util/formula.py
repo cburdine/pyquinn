@@ -1,10 +1,9 @@
 from collections import Counter
-from .data import ATOMIC_NUMBERS
 
 _FORMULA_FORMATTERS: dict
 
 
-def get_formula(atoms: list[str], format: str = 'hill') -> str:
+def get_formula(atoms: list[str], format: str = "hill") -> str:
     """Returns a chemical formula from a list of atoms using the given formula
 
     Args:
@@ -21,8 +20,8 @@ def get_formula(atoms: list[str], format: str = 'hill') -> str:
 
     if format not in FORMULA_FORMATS:
         raise ValueError(
-            'Invalid format "{format}" ; '
-            f'expected one of: {FORMULA_FORMATS}')
+            'Invalid format "{format}" ; ' f"expected one of: {FORMULA_FORMATS}"
+        )
 
     return _FORMULA_FORMATTERS[format](atoms)
 
@@ -38,18 +37,18 @@ def get_hill_formula(atoms: list[str]) -> str:
     """
 
     counts = Counter(atoms)
-    
+
     # Determine ordering
     elements = []
-    if 'C' in counts:
-        elements.append('C')
-        if 'H' in counts:
-            elements.append('H')
-        others = sorted(e for e in counts if e not in ('C', 'H'))
+    if "C" in counts:
+        elements.append("C")
+        if "H" in counts:
+            elements.append("H")
+        others = sorted(e for e in counts if e not in ("C", "H"))
         elements.extend(others)
     else:
         elements = sorted(counts.keys())
-    
+
     # Construct formula
     formula = ""
     for elem in elements:
@@ -58,9 +57,7 @@ def get_hill_formula(atoms: list[str]) -> str:
     return formula
 
 
-_FORMULA_FORMATTERS = {
-    'hill': get_hill_formula
-}
+_FORMULA_FORMATTERS = {"hill": get_hill_formula}
 
 FORMULA_FORMATS = list(_FORMULA_FORMATTERS.keys())
 """Supported chemical formula formats"""

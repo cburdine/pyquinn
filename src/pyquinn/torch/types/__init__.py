@@ -1,12 +1,11 @@
-""" This package contains PyTorch Backend types."""
+"""This package contains PyTorch Backend types."""
 
 from pyquinn.torch.types.atom_graph import TorchAtomGraph
 from pyquinn.torch.types.bandstructure import TorchBandStructure
-from pyquinn.torch.types.operator import TorchOperator
-from pyquinn.torch.types.dataset import TorchAtomGraphDataset
 from pyquinn.torch.types.bandstructure_dataset import TorchBandStructureDataset
+from pyquinn.torch.types.dataset import TorchAtomGraphDataset
+from pyquinn.torch.types.operator import TorchOperator
 from pyquinn.torch.types.operator_dataset import TorchOperatorDataset
-
 
 _module = "pyquinn.torch.types"
 _module_symbols = (
@@ -15,7 +14,7 @@ _module_symbols = (
     TorchOperator,
     TorchAtomGraphDataset,
     TorchBandStructureDataset,
-    TorchOperatorDataset
+    TorchOperatorDataset,
 )
 
 for _symbol in _module_symbols:

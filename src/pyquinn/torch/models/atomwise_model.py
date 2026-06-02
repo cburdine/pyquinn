@@ -1,56 +1,64 @@
-from pyquinn.torch.types import TorchAtomGraph
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+
+from pyquinn.io.stdout import progress_bar
+from pyquinn.torch.nn import ArithmeticPool, AtomwiseNNConv
 from pyquinn.torch.nn.atomwise import AtomwiseConv
 from pyquinn.torch.nn.atomwise_pool import AtomwisePool
+from pyquinn.torch.types import TorchAtomGraph
 from pyquinn.torch.types.dataset import AtomGraphDataset
 from pyquinn.torch.util import get_optimizer
-from pyquinn.io.stdout import progress_bar
-from pyquinn.torch.nn import AtomwiseNNConv, ArithmeticPool
-
-import torch.nn as nn
-import torch
-from torch.utils.data import DataLoader
-import numpy as np
 
 
 class TorchAtomwiseModel(nn.Module):
 
     def __init__(
-            self,
-            atomwise_model: AtomwiseConv | None = None,
-            atomwise_pool: AtomwisePool | str | None = None,
-            **model_kwargs):
+        self,
+        atomwise_model: AtomwiseConv | None = None,
+        atomwise_pool: AtomwisePool | str | None = None,
+        **model_kwargs,
+    ):
 
         super().__init__()
 
-        self.atomwise_model = AtomwiseNNConv(**model_kwargs) \
-            if atomwise_model is None else atomwise_model
+        self.atomwise_model = (
+            AtomwiseNNConv(**model_kwargs)
+            if atomwise_model is None
+            else atomwise_model
+        )
 
-        self.atomwise_pool = ArithmeticPool(atomwise_pool) \
-            if isinstance(atomwise_pool, str) else atomwise_pool
+        self.atomwise_pool = (
+            ArithmeticPool(atomwise_pool)
+            if isinstance(atomwise_pool, str)
+            else atomwise_pool
+        )
 
     def forward(self, graph: TorchAtomGraph) -> TorchAtomGraph:
         return self.predict(graph=graph)
 
     def predict(self, graph: TorchAtomGraph) -> TorchAtomGraph:
-        
+
         positions = graph.positions
-        neighbor_distances = positions[graph.neighbors] + \
-            (graph.unit_cell_images.to(torch.float32) @ graph.unit_cell) - \
-            positions.unsqueeze(-2)
+        neighbor_distances = (
+            positions[graph.neighbors]
+            + (graph.unit_cell_images.to(torch.float32) @ graph.unit_cell)
+            - positions.unsqueeze(-2)
+        )
 
         features_out = self.atomwise_model(
             atomic_numbers=graph.atomic_numbers,
             neighbors=graph.neighbors,
             neighbor_distances=neighbor_distances,
-            features=graph.features
+            features=graph.features,
         )
 
         if self.atomwise_pool is None:
             pooled_features_out = torch.zeros_like(graph.graph_outputs)
         else:
             pooled_features_out = self.atomwise_pool(
-                atomic_numbers=graph.atomic_numbers,
-                features=features_out
+                atomic_numbers=graph.atomic_numbers, features=features_out
             )
 
         return TorchAtomGraph(
@@ -63,88 +71,104 @@ class TorchAtomwiseModel(nn.Module):
             outputs=features_out,
             graph_outputs=pooled_features_out,
             cutoffs=graph.cutoffs,
-            compute_neighbors=False)
+            compute_neighbors=False,
+        )
 
     def _outputs_loss_fn(
-            self,
-            pred_outputs: torch.Tensor, 
-            target_outputs: torch.Tensor):
+        self, pred_outputs: torch.Tensor, target_outputs: torch.Tensor
+    ):
 
-        loss = torch.square(pred_outputs - target_outputs).mean() \
-            if target_outputs.numel() else 0.0
+        loss = (
+            torch.square(pred_outputs - target_outputs).mean()
+            if target_outputs.numel()
+            else 0.0
+        )
 
         return loss
 
     def _graph_outputs_loss_fn(
-            self,
-            pred_graph_outputs: torch.Tensor, 
-            target_graph_outputs: torch.Tensor):
-        
-        loss = torch.square(
-            pred_graph_outputs - target_graph_outputs).mean() \
-            if target_graph_outputs.numel() else 0.0
+        self,
+        pred_graph_outputs: torch.Tensor,
+        target_graph_outputs: torch.Tensor,
+    ):
+
+        loss = (
+            torch.square(pred_graph_outputs - target_graph_outputs).mean()
+            if target_graph_outputs.numel()
+            else 0.0
+        )
 
         return loss
 
     def _compute_loss(
-            self,
-            graph: TorchAtomGraph,
-            outputs_weight: float = 1.0,
-            graph_outputs_weight: float = 1.0):
+        self,
+        graph: TorchAtomGraph,
+        outputs_weight: float = 1.0,
+        graph_outputs_weight: float = 1.0,
+    ):
 
         pred_graph = self.predict(graph)
 
         loss = graph_outputs_weight * self._graph_outputs_loss_fn(
-            pred_graph.graph_outputs, graph.graph_outputs) + \
-            outputs_weight * self._outputs_loss_fn(
-            pred_graph.outputs, graph.outputs)
+            pred_graph.graph_outputs, graph.graph_outputs
+        ) + outputs_weight * self._outputs_loss_fn(
+            pred_graph.outputs, graph.outputs
+        )
 
         return loss
-    
+
     @staticmethod
     def _collate_fn(batch):
         return batch
 
-    def fit(self,
-            train_dataset: AtomGraphDataset | None = None,
-            val_dataset: AtomGraphDataset | None = None,
-            epochs: int = 100,
-            batch_size: int = 1,
-            lr: float = 1e-3,
-            optimizer: str = 'adam',
-            optimizer_kwargs: dict | None = None,
-            verbosity: int = 2,
-            use_outputs: bool = True,
-            use_graph_outputs: bool = True,
-            outputs_weight: float = 1.0,
-            graph_outputs_weight: float = 1.0,
-            device: torch.device | None = None,
-            data_workers: int = 0) -> dict:
-        
+    def fit(
+        self,
+        train_dataset: AtomGraphDataset | None = None,
+        val_dataset: AtomGraphDataset | None = None,
+        epochs: int = 100,
+        batch_size: int = 1,
+        lr: float = 1e-3,
+        optimizer: str = "adam",
+        optimizer_kwargs: dict | None = None,
+        verbosity: int = 2,
+        use_outputs: bool = True,
+        use_graph_outputs: bool = True,
+        outputs_weight: float = 1.0,
+        graph_outputs_weight: float = 1.0,
+        device: torch.device | None = None,
+        data_workers: int = 0,
+    ) -> dict:
+
         # initialize optimizer:
         if optimizer_kwargs is None:
             optimizer_kwargs = {}
-        if 'lr' not in optimizer_kwargs:
-            optimizer_kwargs['lr'] = lr
+        if "lr" not in optimizer_kwargs:
+            optimizer_kwargs["lr"] = lr
 
         # move model to device
         self.to(device)
 
-        optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)   
+        optim = get_optimizer(optimizer)(self.parameters(), **optimizer_kwargs)
 
         train_dl = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, 
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
             num_workers=data_workers,
-            collate_fn=TorchAtomwiseModel._collate_fn)
+            collate_fn=TorchAtomwiseModel._collate_fn,
+        )
         val_dl = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, 
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
             num_workers=data_workers,
-            collate_fn=TorchAtomwiseModel._collate_fn)
+            collate_fn=TorchAtomwiseModel._collate_fn,
+        )
 
         # create history dictionary
         history = {
-            'train_loss': [],
-            'validation_loss': [],
+            "train_loss": [],
+            "validation_loss": [],
         }
 
         epoch_iter = progress_bar if verbosity == 1 else (lambda x: x)
@@ -153,7 +177,7 @@ class TorchAtomwiseModel(nn.Module):
         for n in epoch_iter(range(epochs)):
 
             if verbosity >= 2:
-                print(f'Epoch {n}:')
+                print(f"Epoch {n}:")
             for batch in dataset_iter(train_dl):
 
                 # compute loss
@@ -161,15 +185,17 @@ class TorchAtomwiseModel(nn.Module):
                     self._compute_loss(
                         graph=graph.to(device),
                         outputs_weight=outputs_weight,
-                        graph_outputs_weight=graph_outputs_weight)
-                    for graph in batch) / len(batch)
+                        graph_outputs_weight=graph_outputs_weight,
+                    )
+                    for graph in batch
+                ) / len(batch)
 
                 loss.backward()
                 optim.step()
                 self.zero_grad()
 
             if verbosity >= 2:
-                print('Evaluating training and validation loss:')
+                print("Evaluating training and validation loss:")
 
             train_losses = []
             val_losses = []
@@ -182,34 +208,41 @@ class TorchAtomwiseModel(nn.Module):
                         self._compute_loss(
                             graph=graph.to(device),
                             outputs_weight=outputs_weight,
-                            graph_outputs_weight=graph_outputs_weight)
-                        for graph in batch) / len(batch)
+                            graph_outputs_weight=graph_outputs_weight,
+                        )
+                        for graph in batch
+                    ) / len(batch)
 
                     train_losses.append(loss.detach().cpu().numpy())
 
                 if val_dataset is not None:
                     for batch in dataset_iter(val_dl):
-                        
+
                         # compute validation loss
                         loss = sum(
                             self._compute_loss(
                                 graph=graph.to(device),
                                 outputs_weight=outputs_weight,
-                                graph_outputs_weight=graph_outputs_weight)
-                            for graph in batch) / len(batch)
+                                graph_outputs_weight=graph_outputs_weight,
+                            )
+                            for graph in batch
+                        ) / len(batch)
 
                         val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
-            epoch_validation_loss = None if val_dataset is None \
-                else np.nanmean(val_losses)
+            epoch_validation_loss = (
+                None if val_dataset is None else np.nanmean(val_losses)
+            )
 
-            history['train_loss'].append(epoch_train_loss)
-            history['validation_loss'].append(epoch_validation_loss)
+            history["train_loss"].append(epoch_train_loss)
+            history["validation_loss"].append(epoch_validation_loss)
 
             if verbosity >= 2:
-                print(f'Train loss: {epoch_train_loss}; '
-                      f'Validation loss: {epoch_validation_loss}.')
+                print(
+                    f"Train loss: {epoch_train_loss}; "
+                    f"Validation loss: {epoch_validation_loss}."
+                )
 
         for k, v in history.items():
             history[k] = np.array(v)
@@ -219,8 +252,3 @@ class TorchAtomwiseModel(nn.Module):
 
 # add TorchAtomwiseModel as safe to serialize
 torch.serialization.add_safe_globals([TorchAtomwiseModel])
-
-
-    
-
-

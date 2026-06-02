@@ -1,46 +1,53 @@
-from pyquinn.types.operator import Operator, BackendOperator
 import numpy as np
 import torch
 
+from pyquinn.types.operator import BackendOperator, Operator
 
-def _batch_shape(
-        onsite_values: torch.Tensor,
-        coupling_values: torch.Tensor):
 
-    onsite_batch = tuple(onsite_values.shape[:-1]) if onsite_values.ndim > 1 else ()
-    coupling_batch = tuple(coupling_values.shape[:-1]) if coupling_values.ndim > 1 else ()
+def _batch_shape(onsite_values: torch.Tensor, coupling_values: torch.Tensor):
+
+    onsite_batch = (
+        tuple(onsite_values.shape[:-1]) if onsite_values.ndim > 1 else ()
+    )
+    coupling_batch = (
+        tuple(coupling_values.shape[:-1]) if coupling_values.ndim > 1 else ()
+    )
 
     if onsite_batch and coupling_batch and onsite_batch != coupling_batch:
         raise ValueError(
-            'Leading batch dimensions of `onsite_values` and `coupling_values` must match '
-            f'(got: {onsite_batch} != {coupling_batch})')
+            "Leading batch dimensions of `onsite_values` and `coupling_values` must match "
+            f"(got: {onsite_batch} != {coupling_batch})"
+        )
 
     return onsite_batch if onsite_batch else coupling_batch
 
 
 def _ensure_batched_entries(
-        values: torch.Tensor,
-        batch_shape: tuple[int, ...],
-        entry_count: int):
+    values: torch.Tensor, batch_shape: tuple[int, ...], entry_count: int
+):
 
     if values.shape[-1] != entry_count:
         raise ValueError(
-            'Shape of last dimension must match entry count '
-            f'(got: {values.shape[-1]} != {entry_count})')
+            "Shape of last dimension must match entry count "
+            f"(got: {values.shape[-1]} != {entry_count})"
+        )
 
     if not batch_shape:
         return values
 
     if values.ndim == 1:
-        return values.view((1,) * len(batch_shape) + (entry_count,)).expand(batch_shape + (entry_count,))
+        return values.view((1,) * len(batch_shape) + (entry_count,)).expand(
+            batch_shape + (entry_count,)
+        )
 
     return values
 
 
 def build_nonperiodic_matrix(
-        onsite_values: torch.Tensor,
-        couplings: torch.IntTensor,
-        coupling_values: torch.Tensor):
+    onsite_values: torch.Tensor,
+    couplings: torch.IntTensor,
+    coupling_values: torch.Tensor,
+):
 
     N = onsite_values.shape[-1]
     E = couplings.shape[0]
@@ -58,7 +65,9 @@ def build_nonperiodic_matrix(
         onsite_flat = onsite_values.reshape(1, N)
         coupling_flat = coupling_values.reshape(1, E)
 
-    H_diag_idxs = (N + 1) * torch.arange(N, device=onsite_values.device, dtype=torch.int64)
+    H_diag_idxs = (N + 1) * torch.arange(
+        N, device=onsite_values.device, dtype=torch.int64
+    )
     H_ij_idxs = (N * couplings[:, 0] + couplings[:, 1]).to(dtype=torch.int64)
 
     H = torch.zeros(
@@ -68,7 +77,9 @@ def build_nonperiodic_matrix(
     )
 
     H[:, H_diag_idxs] += onsite_flat
-    H.scatter_add_(1, H_ij_idxs.unsqueeze(0).expand(batch_size, -1), coupling_flat)
+    H.scatter_add_(
+        1, H_ij_idxs.unsqueeze(0).expand(batch_size, -1), coupling_flat
+    )
 
     H = H.reshape(batch_shape + (N, N))
 
@@ -76,14 +87,15 @@ def build_nonperiodic_matrix(
 
 
 def build_matrix(
-        onsite_values: torch.Tensor,
-        couplings: torch.IntTensor,
-        coupling_values: torch.Tensor,
-        site_indices: torch.IntTensor,
-        images: torch.IntTensor,
-        k_pts: torch.Tensor,
-        frac_positions: torch.IntTensor,
-        sparse: bool = False):
+    onsite_values: torch.Tensor,
+    couplings: torch.IntTensor,
+    coupling_values: torch.Tensor,
+    site_indices: torch.IntTensor,
+    images: torch.IntTensor,
+    k_pts: torch.Tensor,
+    frac_positions: torch.IntTensor,
+    sparse: bool = False,
+):
 
     N = onsite_values.shape[-1]
     E = couplings.shape[0]
@@ -102,12 +114,18 @@ def build_matrix(
         onsite_flat = onsite_values.reshape(1, N)
         coupling_flat = coupling_values.reshape(1, E)
 
-    frac_dists = frac_positions[site_indices[couplings[:, 1]]] - \
-        frac_positions[site_indices[couplings[:, 0]]]
+    frac_dists = (
+        frac_positions[site_indices[couplings[:, 1]]]
+        - frac_positions[site_indices[couplings[:, 0]]]
+    )
 
-    H_ij_phases = torch.exp(2.j * torch.pi * ((frac_dists + images) @ k_pts.mT)).T
+    H_ij_phases = torch.exp(
+        2.0j * torch.pi * ((frac_dists + images) @ k_pts.mT)
+    ).T
 
-    H_diag_idxs = (N + 1) * torch.arange(N, device=onsite_values.device, dtype=torch.int64)
+    H_diag_idxs = (N + 1) * torch.arange(
+        N, device=onsite_values.device, dtype=torch.int64
+    )
     H_ij_idxs = (N * couplings[:, 0] + couplings[:, 1]).to(dtype=torch.int64)
 
     if sparse:
@@ -124,7 +142,9 @@ def build_matrix(
         row_idxs = torch.div(H_ij_total, N, rounding_mode="floor")
         col_idxs = H_ij_total % N
 
-        H_values_sparse = H_values_total.permute(2, 1, 0).reshape(N + E, N_k, *batch_shape)
+        H_values_sparse = H_values_total.permute(2, 1, 0).reshape(
+            N + E, N_k, *batch_shape
+        )
 
         H_indices = torch.stack((row_idxs, col_idxs), dim=0)
 
@@ -145,7 +165,9 @@ def build_matrix(
     )
 
     H[:, :, H_diag_idxs] += onsite_flat.unsqueeze(1)
-    H.scatter_add_(2, H_ij_idxs.view(1, 1, -1).expand(batch_size, N_k, -1), H_ij_values)
+    H.scatter_add_(
+        2, H_ij_idxs.view(1, 1, -1).expand(batch_size, N_k, -1), H_ij_values
+    )
 
     H = H.reshape(batch_shape + (N_k, N, N))
     H = torch.movedim(H, -3, 0)
@@ -157,10 +179,11 @@ class TorchOperator(BackendOperator):
 
     @staticmethod
     def compile(
-            operator: Operator,
-            device: torch.device = 'cpu',
-            dtype: torch.dtype = torch.complex64,
-            idx_dtype: torch.dtype = torch.int64):
+        operator: Operator,
+        device: torch.device = "cpu",
+        dtype: torch.dtype = torch.complex64,
+        idx_dtype: torch.dtype = torch.int64,
+    ):
 
         onsite_values_np = np.asarray(operator.onsite_values)
         if onsite_values_np.ndim > 1:
@@ -170,19 +193,31 @@ class TorchOperator(BackendOperator):
         if coupling_values_np.ndim > 1:
             coupling_values_np = np.moveaxis(coupling_values_np, 0, -1)
 
-        onsite_values = torch.tensor(onsite_values_np, device=device, dtype=dtype)
-        couplings = torch.tensor(operator.couplings, device=device, dtype=torch.int32)
+        onsite_values = torch.tensor(
+            onsite_values_np, device=device, dtype=dtype
+        )
+        couplings = torch.tensor(
+            operator.couplings, device=device, dtype=torch.int32
+        )
 
-        coupling_values = torch.tensor(coupling_values_np, device=device, dtype=dtype)
-        site_indices = torch.tensor(operator.site_indices, device=device, dtype=idx_dtype)
-        orbital_indices = torch.tensor(operator.orbital_indices, device=device, dtype=idx_dtype)
+        coupling_values = torch.tensor(
+            coupling_values_np, device=device, dtype=dtype
+        )
+        site_indices = torch.tensor(
+            operator.site_indices, device=device, dtype=idx_dtype
+        )
+        orbital_indices = torch.tensor(
+            operator.orbital_indices, device=device, dtype=idx_dtype
+        )
 
         if operator.images is None:
             images = torch.zeros(
-                (couplings.shape[0], 3), device=device, dtype=idx_dtype)
+                (couplings.shape[0], 3), device=device, dtype=idx_dtype
+            )
         else:
             images = torch.tensor(
-                operator.images, device=device, dtype=idx_dtype)
+                operator.images, device=device, dtype=idx_dtype
+            )
 
         return TorchOperator(
             onsite_values=onsite_values,
@@ -190,16 +225,18 @@ class TorchOperator(BackendOperator):
             coupling_values=coupling_values,
             site_indices=site_indices,
             orbital_indices=orbital_indices,
-            images=images)
+            images=images,
+        )
 
     def __init__(
-            self,
-            onsite_values: torch.Tensor,
-            couplings: torch.IntTensor,
-            coupling_values: torch.Tensor,
-            site_indices: torch.IntTensor,
-            orbital_indices: torch.IntTensor,
-            images: torch.IntTensor):
+        self,
+        onsite_values: torch.Tensor,
+        couplings: torch.IntTensor,
+        coupling_values: torch.Tensor,
+        site_indices: torch.IntTensor,
+        orbital_indices: torch.IntTensor,
+        images: torch.IntTensor,
+    ):
 
         super().__init__(
             onsite_values=onsite_values,
@@ -207,13 +244,15 @@ class TorchOperator(BackendOperator):
             coupling_values=coupling_values,
             site_indices=site_indices,
             orbital_indices=orbital_indices,
-            images=images)
+            images=images,
+        )
 
     def matrix(
-            self,
-            k_pts: torch.Tensor,
-            frac_positions: torch.Tensor,
-            sparse: bool = False):
+        self,
+        k_pts: torch.Tensor,
+        frac_positions: torch.Tensor,
+        sparse: bool = False,
+    ):
         return build_matrix(
             self.onsite_values,
             self.couplings,
@@ -232,7 +271,8 @@ class TorchOperator(BackendOperator):
             coupling_values=self.coupling_values.detach(),
             site_indices=self.site_indices.detach(),
             orbital_indices=self.orbital_indices.detach(),
-            images=self.images.detach())
+            images=self.images.detach(),
+        )
 
     def clone(self):
         return TorchOperator(
@@ -241,7 +281,8 @@ class TorchOperator(BackendOperator):
             coupling_values=self.coupling_values.clone(),
             site_indices=self.site_indices.clone(),
             orbital_indices=self.orbital_indices.clone(),
-            images=self.images.clone())
+            images=self.images.clone(),
+        )
 
     def to(self, *args, **kwargs):
 
@@ -254,7 +295,8 @@ class TorchOperator(BackendOperator):
             coupling_values=self.coupling_values.to(*args, **kwargs),
             site_indices=self.site_indices.to(*args, **kwargs),
             orbital_indices=self.orbital_indices.to(*args, **kwargs),
-            images=self.images.to(*args, **kwargs))
+            images=self.images.to(*args, **kwargs),
+        )
 
     def extract(self) -> Operator:
         onsite_values = self.onsite_values.detach().cpu().numpy()
@@ -271,16 +313,18 @@ class TorchOperator(BackendOperator):
             coupling_values=coupling_values,
             site_indices=self.site_indices.detach().cpu().numpy(),
             orbital_indices=self.orbital_indices.detach().cpu().numpy(),
-            images=self.images.detach().cpu().numpy())
+            images=self.images.detach().cpu().numpy(),
+        )
 
     @staticmethod
     def load(filename: str, device: torch.device | None = None):
         operator = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(operator, TorchOperator):
-            raise IOError(
-                f'Expected an instance of TorchOperator; '
-                f'got: {type(operator)}')
+            raise OSError(
+                f"Expected an instance of TorchOperator; "
+                f"got: {type(operator)}"
+            )
 
         return operator
 

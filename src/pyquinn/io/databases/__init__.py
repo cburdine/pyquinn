@@ -8,5 +8,5 @@ Currently, the following databases are supported:
 For more information, see the respective submodules:
 """
 
-from pyquinn.io.databases.materials_project import MaterialsProject
 from pyquinn.io.databases.cod import COD
+from pyquinn.io.databases.materials_project import MaterialsProject
