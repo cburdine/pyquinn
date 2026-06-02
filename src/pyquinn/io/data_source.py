@@ -54,13 +54,9 @@ class Database(DataSource, ABC):
 
         for elem in elements:
             if not isinstance(elem, str):
-                raise ValueError(
-                    f"Expected element symbol of type str (got {type(elem)})."
-                )
+                raise ValueError(f"Expected element symbol of type str (got {type(elem)}).")
             if len(elem) <= 0 or elem not in ATOMIC_NUMBERS:
-                raise ValueError(
-                    f"Expected valid element symbol (got: {elem})."
-                )
+                raise ValueError(f"Expected valid element symbol (got: {elem}).")
 
         return elements
 
@@ -139,9 +135,7 @@ class Database(DataSource, ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_atomgraph_ids_with_elements(
-        self, elements: list[str] | str, contains_all: bool = True
-    ) -> list[str]:
+    def get_atomgraph_ids_with_elements(self, elements: list[str] | str, contains_all: bool = True) -> list[str]:
         """Retrieves the IDs associated with all AtomGraphs containing
         either some or all of the supplied list of elements.
 

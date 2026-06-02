@@ -66,10 +66,7 @@ def get_optimizer(opt: str) -> Optimizer:
     """
 
     if opt not in SUPPORTED_TORCH_OPTIMIZERS:
-        raise ValueError(
-            f"Torch optimizer {opt} not supported; "
-            f"expected one of {list(SUPPORTED_TORCH_OPTIMIZERS)}"
-        )
+        raise ValueError(f"Torch optimizer {opt} not supported; " f"expected one of {list(SUPPORTED_TORCH_OPTIMIZERS)}")
 
     return SUPPORTED_TORCH_OPTIMIZERS[opt]
 
@@ -132,9 +129,7 @@ def sparse_coo_block_diag(*tensors):
     indices = []
     values = []
 
-    block_idx = torch.zeros(
-        (2, 1), dtype=torch.int64, device=next(iter(tensors)).device
-    )
+    block_idx = torch.zeros((2, 1), dtype=torch.int64, device=next(iter(tensors)).device)
 
     # combine nonzero elements of block tensors:
     for tensor in tensors:

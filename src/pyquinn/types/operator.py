@@ -106,9 +106,7 @@ class Operator(OperatorBase):
             op = pickle.load(f)
 
         if not isinstance(op, Operator):
-            raise OSError(
-                f"Expected an instance of Operator; " f"got: {type(op)}"
-            )
+            raise OSError(f"Expected an instance of Operator; " f"got: {type(op)}")
         return op
 
     def __init__(
@@ -158,25 +156,17 @@ class Operator(OperatorBase):
             value = self.coupling_values[i]
 
             if with_images:
-                image_key = (
-                    (0, 0, 0)
-                    if self.images is None
-                    else tuple(self.images[i].tolist())
-                )
+                image_key = (0, 0, 0) if self.images is None else tuple(self.images[i].tolist())
                 if edge_key not in couplings_dict:
                     couplings_dict[edge_key] = {}
                 image_dict = couplings_dict[edge_key]
 
                 if image_key not in image_dict:
-                    image_dict[image_key] = np.zeros(
-                        value.shape, dtype=self.coupling_values.dtype
-                    )
+                    image_dict[image_key] = np.zeros(value.shape, dtype=self.coupling_values.dtype)
                 image_dict[image_key] += value
             else:
                 if edge_key not in couplings_dict:
-                    couplings_dict[edge_key] = np.zeros(
-                        value.shape, dtype=self.coupling_values.dtype
-                    )
+                    couplings_dict[edge_key] = np.zeros(value.shape, dtype=self.coupling_values.dtype)
                 couplings_dict[edge_key] += value
 
         return couplings_dict
@@ -222,9 +212,7 @@ class Operator(OperatorBase):
             trim_idx = np.abs(self.coupling_values) > tol
         else:
             value_axes = tuple(range(1, self.coupling_values.ndim))
-            trim_idx = (
-                np.linalg.norm(self.coupling_values, axis=value_axes) > tol
-            )
+            trim_idx = np.linalg.norm(self.coupling_values, axis=value_axes) > tol
 
         self.couplings = self.couplings[trim_idx]
         self.coupling_values = self.coupling_values[trim_idx]
@@ -256,9 +244,7 @@ class Operator(OperatorBase):
         sort: bool = True,
     ):
 
-        neighbors, images = graph.extract().get_neighbor_list(
-            cutoffs=cutoffs, return_images=True
-        )
+        neighbors, images = graph.extract().get_neighbor_list(cutoffs=cutoffs, return_images=True)
 
         # get old couplings dictionary
         couplings_dict = self._get_couplings_dict(with_images=True)
@@ -268,33 +254,22 @@ class Operator(OperatorBase):
         graph_couplings = []
         graph_coupling_values = []
         graph_images = []
-        value_shape = (
-            self.coupling_values.shape[1:]
-            if self.coupling_values.ndim > 1
-            else ()
-        )
+        value_shape = self.coupling_values.shape[1:] if self.coupling_values.ndim > 1 else ()
 
-        for n_i, (nj_list, image_list) in enumerate(zip(neighbors, images)):
+        for n_i, (nj_list, image_list) in enumerate(zip(neighbors, images, strict=False)):
             nj_list = [int(n_i)] + list(nj_list)
             image_list = [(0, 0, 0)] + list(image_list)
-            for n_j, im in zip(nj_list, image_list):
+            for n_j, im in zip(nj_list, image_list, strict=False):
 
                 # iterate over all pairwise orbitals
-                for i, j in product(
-                    site_indices_dict[n_i], site_indices_dict[n_j]
-                ):
+                for i, j in product(site_indices_dict[n_i], site_indices_dict[n_j]):
 
                     edge_key = (int(i), int(j))
                     image_key = tuple(im)
-                    value = np.zeros(
-                        value_shape, dtype=self.coupling_values.dtype
-                    )
+                    value = np.zeros(value_shape, dtype=self.coupling_values.dtype)
 
                     # check if edge already exists in this operator (if so, keep it)
-                    if (
-                        edge_key in couplings_dict
-                        and image_key in couplings_dict[edge_key]
-                    ):
+                    if edge_key in couplings_dict and image_key in couplings_dict[edge_key]:
                         # print(couplings_dict[edge_key][image_key])
                         value += couplings_dict[edge_key][image_key]
 
@@ -304,9 +279,7 @@ class Operator(OperatorBase):
 
         self.couplings = np.array(graph_couplings)
         if len(graph_coupling_values) == 0:
-            self.coupling_values = np.zeros(
-                (0,) + value_shape, dtype=self.coupling_values.dtype
-            )
+            self.coupling_values = np.zeros((0,) + value_shape, dtype=self.coupling_values.dtype)
         else:
             self.coupling_values = np.stack(graph_coupling_values, axis=0)
         self.images = np.array(graph_images)
@@ -329,15 +302,9 @@ class Operator(OperatorBase):
         N_k = np_k_pts.shape[0]
 
         # determine the shape/dtype of the matrix required
-        value_shape = (
-            self.onsite_values.shape[1:] if self.onsite_values.ndim > 1 else ()
-        )
-        value_dtype = np.result_type(
-            self.onsite_values.dtype, self.coupling_values.dtype
-        )
-        needs_complex = np.iscomplexobj(self.onsite_values) or np.iscomplexobj(
-            self.coupling_values
-        )
+        value_shape = self.onsite_values.shape[1:] if self.onsite_values.ndim > 1 else ()
+        value_dtype = np.result_type(self.onsite_values.dtype, self.coupling_values.dtype)
+        needs_complex = np.iscomplexobj(self.onsite_values) or np.iscomplexobj(self.coupling_values)
         needs_complex = needs_complex or (self.couplings.size > 0)
         if needs_complex and value_dtype.kind != "c":
             value_dtype = np.result_type(value_dtype, np.complex64)
@@ -363,9 +330,7 @@ class Operator(OperatorBase):
 
         for i, k in enumerate(np_k_pts):
             phase = np.exp(2.0j * np.pi * ((np_frac_distances + np_images) @ k))
-            z_k = self.coupling_values * phase.reshape(
-                (-1,) + (1,) * len(value_shape)
-            )
+            z_k = self.coupling_values * phase.reshape((-1,) + (1,) * len(value_shape))
             np.add.at(H_k[i], (self.couplings[:, 0], self.couplings[:, 1]), z_k)
 
         return H_k
@@ -380,22 +345,16 @@ class Operator(OperatorBase):
         with open(filename, "wb") as f:
             pickle.dump(self, f)
 
-    def compile(
-        self, backend: str = "torch", **backend_kwargs
-    ) -> "BackendOperator":
+    def compile(self, backend: str = "torch", **backend_kwargs) -> "BackendOperator":
 
         if backend not in Operator._backends:
             if backend in SUPPORTED_BACKENDS:
                 path = SUPPORTED_BACKENDS[backend]
-                Operator._backends[backend] = _load_backend_object(
-                    backend, path
-                )
+                Operator._backends[backend] = _load_backend_object(backend, path)
             else:
                 raise ValueError(f"Unknown Backend Type: {backend}")
 
-        return Operator._backends[backend].compile(
-            operator=self, **backend_kwargs
-        )
+        return Operator._backends[backend].compile(operator=self, **backend_kwargs)
 
     def extract(self) -> "Operator":
         """Extracts an Operator from its backend, returning a new Operator.

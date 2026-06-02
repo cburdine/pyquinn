@@ -60,36 +60,30 @@ def _get_isosurface_mesh(mesh_xyz, mesh_values, iso_val, mesh_data=None):
 
     try:
         from skimage import measure
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             'Package "scikit-image" (skimage) must be installed to '
             "visualize isosurfaces with the mpl (matplotlib) backend. "
             'Please install with "pip install scikit-image".'
-        )
+        ) from err
 
     mesh_shape, mesh_spacing = _infer_shape_and_spacing(mesh_xyz)
     V = mesh_values.reshape(mesh_shape)
 
-    surface_xyz, surface_ijk, _, _ = measure.marching_cubes(
-        V, level=iso_val, spacing=mesh_spacing
-    )
+    surface_xyz, surface_ijk, _, _ = measure.marching_cubes(V, level=iso_val, spacing=mesh_spacing)
 
     surface_xyz += np.min(mesh_xyz, axis=0, keepdims=True)
 
     if mesh_data is None:
         surface_data = None
     else:
-        surface_data = griddata(
-            points=mesh_xyz, values=mesh_data, xi=surface_xyz, method="nearest"
-        )
+        surface_data = griddata(points=mesh_xyz, values=mesh_data, xi=surface_xyz, method="nearest")
 
     return surface_xyz, surface_ijk, surface_data
 
 
 def _make_sphere(xyz, r, resolution=10):
-    u, v = np.mgrid[
-        0 : 2 * np.pi : resolution * 2j, 0 : np.pi : resolution * 1j
-    ]
+    u, v = np.mgrid[0 : 2 * np.pi : resolution * 2j, 0 : np.pi : resolution * 1j]
     X = r * np.cos(u) * np.sin(v) + xyz[0]
     Y = r * np.sin(u) * np.sin(v) + xyz[1]
     Z = r * np.cos(v) + xyz[2]
@@ -99,7 +93,7 @@ def _make_sphere(xyz, r, resolution=10):
 def _make_bonds(positions, nvecs):
 
     x_lines, y_lines, z_lines = [], [], []
-    for x0, dxs in zip(positions, nvecs):
+    for x0, dxs in zip(positions, nvecs, strict=False):
         for dx in dxs:
             x_lines.append([x0[0], x0[0] + dx[0]])
             y_lines.append([x0[1], x0[1] + dx[1]])
@@ -112,7 +106,10 @@ def _make_bonds(positions, nvecs):
     return x_lines, y_lines, z_lines
 
 
-def _make_unitcell(unit_cell, periodic=False, origin=np.zeros(3)):
+def _make_unitcell(unit_cell, periodic=False, origin=None):
+
+    if origin is None:
+        origin = np.zeros(3)
 
     # compute unit cell vertices:
     v1, v2, v3, o = unit_cell[0], unit_cell[1], unit_cell[2], origin
@@ -188,9 +185,7 @@ def plot_atoms(
 
     # fix aspect ratio
     if not np.allclose(xyz_min, xyz_max):
-        fig.axes[-1].set_box_aspect(
-            tuple(xyz_max[i] - xyz_min[i] for i in range(3))
-        )
+        fig.axes[-1].set_box_aspect(tuple(xyz_max[i] - xyz_min[i] for i in range(3)))
 
     if show:
         plt.show()
@@ -245,17 +240,13 @@ def _plot_atoms_with_aspect(
 
     if not hide_bonds:
         bond_cutoffs = [
-            (
-                bond_factor * ATOMIC_COVALENT_RADII[ATOMIC_NUMBERS[sym]]
-                if sym in ATOMIC_NUMBERS
-                else 0.0
-            )
+            (bond_factor * ATOMIC_COVALENT_RADII[ATOMIC_NUMBERS[sym]] if sym in ATOMIC_NUMBERS else 0.0)
             for sym in atoms.atoms
         ]
 
         _, nvecs = atoms.get_neighbor_list(cutoffs=bond_cutoffs)
         x_lines, y_lines, z_lines = _make_bonds(atoms.positions, nvecs)
-        for xl, yl, zl in zip(x_lines, y_lines, z_lines):
+        for xl, yl, zl in zip(x_lines, y_lines, z_lines, strict=False):
             ax.plot(xl, yl, zl, color="grey", linewidth=3)
             ax.scatter(xl, yl, zl, color="grey")
 
@@ -265,11 +256,9 @@ def _plot_atoms_with_aspect(
                 xyz_max[i] = max(xyz_max[i], lines.max())
 
     if not hide_unit_cell:
-        x_lines, y_lines, z_lines = _make_unitcell(
-            atoms.unit_cell, atoms.periodic
-        )
+        x_lines, y_lines, z_lines = _make_unitcell(atoms.unit_cell, atoms.periodic)
 
-        for xl, yl, zl in zip(x_lines, y_lines, z_lines):
+        for xl, yl, zl in zip(x_lines, y_lines, z_lines, strict=False):
             ax.plot(xl, yl, zl, color="black", linewidth=1)
 
         for i, lines in enumerate((x_lines, y_lines, z_lines)):
@@ -299,10 +288,7 @@ def plot_atomic_isosurface(
     xyz_max = np.maximum(np.ones(3) * -1e-2, mesh_xyz.max(axis=0))
 
     if mode not in ATOMIC_ISOSURFACE_MODES:
-        raise ValueError(
-            f"Expected mode to be one of {ATOMIC_ISOSURFACE_MODES}; "
-            f'got: "{mode}".'
-        )
+        raise ValueError(f"Expected mode to be one of {ATOMIC_ISOSURFACE_MODES}; " f'got: "{mode}".')
 
     # plot figure
     if fig is None:
@@ -317,14 +303,8 @@ def plot_atomic_isosurface(
         pos_mesh_values = np.maximum(0.0, np.real(mesh_values))
         neg_mesh_values = np.minimum(0.0, np.real(mesh_values))
 
-        pos_iso_value = (
-            np.mean(pos_mesh_values) if iso_value is None else np.abs(iso_value)
-        )
-        neg_iso_value = (
-            np.mean(neg_mesh_values)
-            if iso_value is None
-            else -np.abs(iso_value)
-        )
+        pos_iso_value = np.mean(pos_mesh_values) if iso_value is None else np.abs(iso_value)
+        neg_iso_value = np.mean(neg_mesh_values) if iso_value is None else -np.abs(iso_value)
         comp_iso_value = 0.0 if iso_value is None else np.abs(iso_value)
 
         if np.min(neg_mesh_values) < -comp_iso_value:
@@ -334,11 +314,7 @@ def plot_atomic_isosurface(
                 iso_val=pos_iso_value,
             )
 
-            ax.add_collection(
-                Poly3DCollection(
-                    surf_xyz[surf_ijk], facecolors="red", alpha=alpha
-                )
-            )
+            ax.add_collection(Poly3DCollection(surf_xyz[surf_ijk], facecolors="red", alpha=alpha))
 
         if np.max(pos_mesh_values) > comp_iso_value:
             surf_xyz, surf_ijk, surf_data = _get_isosurface_mesh(
@@ -347,18 +323,10 @@ def plot_atomic_isosurface(
                 iso_val=neg_iso_value,
             )
 
-            ax.add_collection(
-                Poly3DCollection(
-                    surf_xyz[surf_ijk], facecolors="blue", alpha=alpha
-                )
-            )
+            ax.add_collection(Poly3DCollection(surf_xyz[surf_ijk], facecolors="blue", alpha=alpha))
 
     elif mode == "complex":
-        iso_value = (
-            np.abs(mesh_values).mean()
-            if iso_value is None
-            else np.abs(iso_value)
-        )
+        iso_value = np.abs(mesh_values).mean() if iso_value is None else np.abs(iso_value)
 
         mesh_phases = mesh_values / np.abs(mesh_values)
         surf_xyz, surf_ijk, surf_data = _get_isosurface_mesh(
@@ -372,11 +340,7 @@ def plot_atomic_isosurface(
         phases = (np.angle(face_data) / (2 * np.pi)) % 1.0
         phase_cmap = mpl.colormaps["hsv"]
 
-        ax.add_collection(
-            Poly3DCollection(
-                surf_xyz[surf_ijk], facecolors=phase_cmap(phases), alpha=alpha
-            )
-        )
+        ax.add_collection(Poly3DCollection(surf_xyz[surf_ijk], facecolors=phase_cmap(phases), alpha=alpha))
     else:
 
         if iso_value is None:
@@ -386,9 +350,7 @@ def plot_atomic_isosurface(
             mesh_xyz=mesh_xyz, mesh_values=mesh_values, iso_val=iso_value
         )
 
-        ax.add_collection(
-            Poly3DCollection(surf_xyz[surf_ijk], facecolors=color, alpha=alpha)
-        )
+        ax.add_collection(Poly3DCollection(surf_xyz[surf_ijk], facecolors=color, alpha=alpha))
 
     if atoms is not None:
         fig, atoms_xyz_min, atoms_xyz_max = _plot_atoms_with_aspect(
@@ -402,8 +364,6 @@ def plot_atomic_isosurface(
 
     # fix aspect ratio
     if not np.allclose(xyz_min, xyz_max):
-        fig.axes[-1].set_box_aspect(
-            tuple(xyz_max[i] - xyz_min[i] for i in range(3))
-        )
+        fig.axes[-1].set_box_aspect(tuple(xyz_max[i] - xyz_min[i] for i in range(3)))
 
     return fig

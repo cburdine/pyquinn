@@ -8,9 +8,7 @@ from scipy.special import erf
 from pyquinn.types.atom_graph import AtomGraph, BackendAtomGraph
 from pyquinn.types.backend import _load_backend_object
 
-SUPPORTED_BANDSTRUCTURE_BACKENDS = {
-    "torch": "pyquinn.torch.types.TorchBandStructure"
-}
+SUPPORTED_BANDSTRUCTURE_BACKENDS = {"torch": "pyquinn.torch.types.TorchBandStructure"}
 """ The supported backend BandStructure objects"""
 
 
@@ -65,9 +63,7 @@ class BandStructure(BandStructureBase):
             bs = pickle.load(f)
 
         if not isinstance(bs, BandStructure):
-            raise OSError(
-                f"Expected an instance of BandStructure; " f"got: {type(bs)}"
-            )
+            raise OSError(f"Expected an instance of BandStructure; " f"got: {type(bs)}")
 
         return bs
 
@@ -96,23 +92,11 @@ class BandStructure(BandStructureBase):
 
         self.energies = energies
 
-        self.k_pts = (
-            k_pts
-            if k_pts is not None
-            else np.zeros((self.energies.shape[0], 0))
-        )
+        self.k_pts = k_pts if k_pts is not None else np.zeros((self.energies.shape[0], 0))
 
-        self.projections = (
-            projections
-            if projections is not None
-            else np.zeros(self.energies.shape + (0,))
-        )
+        self.projections = projections if projections is not None else np.zeros(self.energies.shape + (0,))
 
-        self.chemical_potential = (
-            chemical_potential
-            if chemical_potential is not None
-            else np.array(0.0)
-        )
+        self.chemical_potential = chemical_potential if chemical_potential is not None else np.array(0.0)
 
     @property
     def energies(self):
@@ -176,9 +160,7 @@ class BandStructure(BandStructureBase):
         if backend not in BandStructure._backends:
             if backend in SUPPORTED_BANDSTRUCTURE_BACKENDS:
                 path = SUPPORTED_BANDSTRUCTURE_BACKENDS[backend]
-                BandStructure._backends[backend] = _load_backend_object(
-                    backend, path
-                )
+                BandStructure._backends[backend] = _load_backend_object(backend, path)
             else:
                 raise ValueError(f"Unknown Backend Type: {backend}")
 
@@ -189,9 +171,7 @@ class BandStructure(BandStructureBase):
             **backend_kwargs,
         )
 
-    def downsample_bands(
-        self, max_k_pts: int | None = None, max_bands: int | None = None
-    ) -> "BandStructure":
+    def downsample_bands(self, max_k_pts: int | None = None, max_bands: int | None = None) -> "BandStructure":
         """Downsamples a BandStructure to have a maximum number of k points and
            a maximum number of bands (removing the highest energy bands).
 
@@ -280,11 +260,7 @@ class BandStructure(BandStructureBase):
 
         # compute Fermi-Dirac dos
         unnorm_dos = np.sum(
-            projections
-            / (
-                1.0
-                + np.cosh(np.clip((energy - band_energies) / sigma, -700, 700))
-            ),
+            projections / (1.0 + np.cosh(np.clip((energy - band_energies) / sigma, -700, 700))),
             axis=1,
         )
 
@@ -302,17 +278,14 @@ class BandStructure(BandStructureBase):
 
         # compute Fermi-Dirac dos
         unnorm_dos = np.sum(
-            projections
-            * (0.5 + 0.5 * np.tanh((energy - band_energies) / (2 * sigma))),
+            projections * (0.5 + 0.5 * np.tanh((energy - band_energies) / (2 * sigma))),
             axis=1,
         )
 
         dos = weight * unnorm_dos
         return dos
 
-    def _get_dos_data(
-        self, energy: np.ndarray, projections: np.ndarray | None = None
-    ):
+    def _get_dos_data(self, energy: np.ndarray, projections: np.ndarray | None = None):
 
         if projections is not None and not np.isscalar(projections):
 
@@ -324,13 +297,9 @@ class BandStructure(BandStructureBase):
                     f"{self.energies.shape}.)"
                 )
 
-            projections = projections.reshape(
-                (1, self.energies.size) + projections.shape[2:]
-            )
+            projections = projections.reshape((1, self.energies.size) + projections.shape[2:])
             energy = energy.reshape((-1,) + (1,) * (projections.ndim - 1))
-            band_energies = self.energies.reshape(
-                (1, -1) + (1,) * (projections.ndim - 2)
-            )
+            band_energies = self.energies.reshape((1, -1) + (1,) * (projections.ndim - 2))
         else:
             projections = np.array(1.0)
             energy = energy.reshape((-1, 1))
@@ -377,23 +346,14 @@ class BandStructure(BandStructureBase):
         weight = np.array(band_mult / self.k_pts.shape[0])
         sigma = self._default_sigma() if sigma is None else sigma
 
-        band_energies, energy, projections = self._get_dos_data(
-            energy, projections
-        )
+        band_energies, energy, projections = self._get_dos_data(energy, projections)
 
         if smearing == "gaussian":
-            return self._gaussian_dos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._gaussian_dos(band_energies, energy, sigma, projections, weight)
         elif smearing == "fermi-dirac":
-            return self._fermi_dirac_dos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._fermi_dirac_dos(band_energies, energy, sigma, projections, weight)
         else:
-            raise ValueError(
-                f"Unknown smearing type {smearing} "
-                f"(expected one of {self._idos_smearing})."
-            )
+            raise ValueError(f"Unknown smearing type {smearing} " f"(expected one of {self._idos_smearing}).")
 
     def idos(
         self,
@@ -408,23 +368,14 @@ class BandStructure(BandStructureBase):
         weight = np.array(band_mult / self.k_pts.shape[0])
         sigma = self._default_sigma() if sigma is None else sigma
 
-        band_energies, energy, projections = self._get_dos_data(
-            energy, projections
-        )
+        band_energies, energy, projections = self._get_dos_data(energy, projections)
 
         if smearing == "gaussian":
-            return self._gaussian_idos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._gaussian_idos(band_energies, energy, sigma, projections, weight)
         elif smearing == "fermi-dirac":
-            return self._fermi_dirac_idos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._fermi_dirac_idos(band_energies, energy, sigma, projections, weight)
         else:
-            raise ValueError(
-                f"Unknown smearing type {smearing} "
-                f"(expected one of {self._dos_smearing})."
-            )
+            raise ValueError(f"Unknown smearing type {smearing} " f"(expected one of {self._dos_smearing}).")
 
     def idos_level(
         self,
@@ -441,9 +392,7 @@ class BandStructure(BandStructureBase):
         E_min, E_max = self.energies.min(), self.energies.max()
         E_range = E_max - E_min
 
-        E_level = (
-            E_guess if E_guess is not None else (n / n_max) * E_range + E_min
-        )
+        E_level = E_guess if E_guess is not None else (n / n_max) * E_range + E_min
 
         E_level = np.clip(E_level, E_min, E_max)
 
@@ -464,9 +413,7 @@ class BandStructure(BandStructureBase):
 
         return E_level
 
-    def band_gap(
-        self, energy: np.ndarray | float = 0.0, sigma_cutoff: float = 0.0
-    ) -> np.ndarray:
+    def band_gap(self, energy: np.ndarray | float = 0.0, sigma_cutoff: float = 0.0) -> np.ndarray:
 
         _band_energies = np.sort(self.energies.flatten())
         i = np.searchsorted(_band_energies, energy, side="right") - 1
@@ -487,9 +434,7 @@ class BandStructure(BandStructureBase):
 
         from pyquinn.plot import plotter
 
-        return plotter.plot_band_path(
-            bands=self, backend=backend, atoms=atoms, **plotter_kwargs
-        )
+        return plotter.plot_band_path(bands=self, backend=backend, atoms=atoms, **plotter_kwargs)
 
     def extract(self) -> "BandStructure":
         return self
@@ -566,9 +511,7 @@ class BackendBandStructure(ABC, BandStructureBase):
         pass
 
     @abstractmethod
-    def band_gap(
-        self, energy: Any | float = 0.0, sigma_cutoff: float = 0.0
-    ) -> Any:
+    def band_gap(self, energy: Any | float = 0.0, sigma_cutoff: float = 0.0) -> Any:
         pass
 
     def plot_band_path(
@@ -580,9 +523,7 @@ class BackendBandStructure(ABC, BandStructureBase):
 
         from pyquinn.plot import plotter
 
-        return plotter.plot_band_path(
-            bands=self, backend=backend, atoms=atoms, **plotter_kwargs
-        )
+        return plotter.plot_band_path(bands=self, backend=backend, atoms=atoms, **plotter_kwargs)
 
 
 # import supported BackendBandStructures

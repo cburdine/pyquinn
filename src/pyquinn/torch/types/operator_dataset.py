@@ -28,9 +28,7 @@ class TorchOperatorDataset(BackendOperatorDataset, torch.utils.data.Dataset):
     ) -> TorchOperator | str:
 
         # load operator (if necessary)
-        operator = (
-            Operator.load(operator) if isinstance(operator, str) else operator
-        )
+        operator = Operator.load(operator) if isinstance(operator, str) else operator
 
         # compile operator
         torch_operator = operator.compile(backend="torch", **compile_kwargs)
@@ -51,11 +49,7 @@ class TorchOperatorDataset(BackendOperatorDataset, torch.utils.data.Dataset):
     ):
 
         # load operator (if necessary)
-        operator = (
-            TorchOperator.load(operator, device=device)
-            if isinstance(operator, str)
-            else operator
-        )
+        operator = TorchOperator.load(operator, device=device) if isinstance(operator, str) else operator
 
         # save operator to cache dir
         torch_operator_path = os.path.join(cache_dir, f"{name}.pt.bands")
@@ -83,9 +77,7 @@ class TorchOperatorDataset(BackendOperatorDataset, torch.utils.data.Dataset):
 
         dataset_iter = progress_bar if verbosity > 0 else (lambda x, **_: x)
 
-        for name, (graph, operator) in dataset_iter(
-            dataset.items(), total=len(dataset)
-        ):
+        for name, (graph, operator) in dataset_iter(dataset.items(), total=len(dataset)):
 
             # compile and add graph
             torch_graphs.append(
@@ -158,23 +150,15 @@ class TorchOperatorDataset(BackendOperatorDataset, torch.utils.data.Dataset):
         return graph, operator
 
     @staticmethod
-    def load(
-        cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"
-    ):
+    def load(cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"):
 
         graphs = glob(os.path.join(cache_dir, "*.pt"))
         operators = glob(os.path.join(cache_dir, "*.pt.op"))
         names = [AtomGraphDataset._parse_graph_name(file) for file in graphs]
 
         if in_memory:
-            graphs = [
-                TorchAtomGraph.load(filename=file, device=device)
-                for file in graphs
-            ]
-            operators = [
-                TorchOperator.load(filename=file, device=device)
-                for file in operators
-            ]
+            graphs = [TorchAtomGraph.load(filename=file, device=device) for file in graphs]
+            operators = [TorchOperator.load(filename=file, device=device) for file in operators]
 
         return TorchOperatorDataset(
             graphs=graphs,
@@ -187,13 +171,12 @@ class TorchOperatorDataset(BackendOperatorDataset, torch.utils.data.Dataset):
     def save(self, cache_dir: str):
 
         _dataset_iter = progress_bar(
-            zip(self.names, self.graphs, self.operators), total=len(self.names)
+            zip(self.names, self.graphs, self.operators, strict=False),
+            total=len(self.names),
         )
 
         for name, graph, operator in _dataset_iter:
-            TorchAtomGraphDataset._save_graph(
-                graph=graph, name=name, cache_dir=cache_dir, device=self.device
-            )
+            TorchAtomGraphDataset._save_graph(graph=graph, name=name, cache_dir=cache_dir, device=self.device)
 
             TorchOperatorDataset._save_operator(
                 operator=operator,

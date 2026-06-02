@@ -25,9 +25,7 @@ class TorchBandStructure(BackendBandStructure):
 
         k_pts = torch.tensor(bands.k_pts, device=device, dtype=dtype)
 
-        projections = torch.tensor(
-            bands.projections, device=device, dtype=dtype
-        )
+        projections = torch.tensor(bands.projections, device=device, dtype=dtype)
 
         chemical_potential = torch.tensor(bands.chemical_potential)
 
@@ -85,17 +83,12 @@ class TorchBandStructure(BackendBandStructure):
         )
 
     @staticmethod
-    def load(
-        filename: str, device: torch.device | None = None
-    ) -> "TorchBandStructure":
+    def load(filename: str, device: torch.device | None = None) -> "TorchBandStructure":
 
         graph = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(graph, TorchBandStructure):
-            raise OSError(
-                f"Expected an instance of TorchBandStructure; "
-                f"got: {type(graph)}"
-            )
+            raise OSError(f"Expected an instance of TorchBandStructure; " f"got: {type(graph)}")
 
         return graph
 
@@ -131,9 +124,7 @@ class TorchBandStructure(BackendBandStructure):
 
         # compute Gaussian dos
         unnorm_dos = torch.sum(
-            projections
-            * 0.5
-            * (1.0 + torch.erf((energy - band_energies) / sigma)),
+            projections * 0.5 * (1.0 + torch.erf((energy - band_energies) / sigma)),
             axis=1,
         )
         dos = weight * unnorm_dos
@@ -169,17 +160,14 @@ class TorchBandStructure(BackendBandStructure):
 
         # compute Fermi-Dirac dos
         unnorm_dos = torch.sum(
-            projections
-            * (0.5 + 0.5 * torch.tanh((energy - band_energies) / (2 * sigma))),
+            projections * (0.5 + 0.5 * torch.tanh((energy - band_energies) / (2 * sigma))),
             axis=1,
         )
 
         dos = weight * unnorm_dos
         return dos
 
-    def _get_dos_data(
-        self, energy: torch.Tensor, projections: torch.Tensor | None = None
-    ):
+    def _get_dos_data(self, energy: torch.Tensor, projections: torch.Tensor | None = None):
 
         if projections is not None and projections.ndim > 0:
 
@@ -191,17 +179,11 @@ class TorchBandStructure(BackendBandStructure):
                     f"{self.energies.shape}.)"
                 )
 
-            projections = projections.reshape(
-                (1, self.energies.numel()) + projections.shape[2:]
-            )
+            projections = projections.reshape((1, self.energies.numel()) + projections.shape[2:])
             energy = energy.reshape((-1,) + (1,) * (projections.ndim - 1))
-            band_energies = self.energies.reshape(
-                (1, -1) + (1,) * (projections.ndim - 2)
-            )
+            band_energies = self.energies.reshape((1, -1) + (1,) * (projections.ndim - 2))
         else:
-            projections = torch.tensor(
-                1.0, dtype=self.energies.dtype, device=self.energies.device
-            )
+            projections = torch.tensor(1.0, dtype=self.energies.dtype, device=self.energies.device)
 
             energy = energy.reshape((-1, 1))
             band_energies = self.energies.reshape(1, -1)
@@ -227,30 +209,19 @@ class TorchBandStructure(BackendBandStructure):
     ) -> torch.Tensor:
 
         if isinstance(energy, float):
-            energy = torch.tensor(
-                energy, dtype=self.energies.dtype, device=self.energies.device
-            )
+            energy = torch.tensor(energy, dtype=self.energies.dtype, device=self.energies.device)
 
         weight = band_mult / self.k_pts.shape[0]
         sigma = self._default_sigma() if sigma is None else sigma
 
-        band_energies, energy, projections = self._get_dos_data(
-            energy, projections
-        )
+        band_energies, energy, projections = self._get_dos_data(energy, projections)
 
         if smearing == "gaussian":
-            return self._gaussian_dos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._gaussian_dos(band_energies, energy, sigma, projections, weight)
         elif smearing == "fermi-dirac":
-            return self._fermi_dirac_dos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._fermi_dirac_dos(band_energies, energy, sigma, projections, weight)
         else:
-            raise ValueError(
-                f"Unknown smearing type {smearing} "
-                f"(expected one of {self._idos_smearing})."
-            )
+            raise ValueError(f"Unknown smearing type {smearing} " f"(expected one of {self._idos_smearing}).")
 
     def idos(
         self,
@@ -262,30 +233,19 @@ class TorchBandStructure(BackendBandStructure):
     ) -> torch.Tensor:
 
         if isinstance(energy, float):
-            energy = torch.tensor(
-                energy, dtype=self.energies.dtype, device=self.energies.device
-            )
+            energy = torch.tensor(energy, dtype=self.energies.dtype, device=self.energies.device)
 
         weight = band_mult / self.k_pts.shape[0]
         sigma = self._default_sigma() if sigma is None else sigma
 
-        band_energies, energy, projections = self._get_dos_data(
-            energy, projections
-        )
+        band_energies, energy, projections = self._get_dos_data(energy, projections)
 
         if smearing == "gaussian":
-            return self._gaussian_idos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._gaussian_idos(band_energies, energy, sigma, projections, weight)
         elif smearing == "fermi-dirac":
-            return self._fermi_dirac_idos(
-                band_energies, energy, sigma, projections, weight
-            )
+            return self._fermi_dirac_idos(band_energies, energy, sigma, projections, weight)
         else:
-            raise ValueError(
-                f"Unknown smearing type {smearing} "
-                f"(expected one of {self._dos_smearing})."
-            )
+            raise ValueError(f"Unknown smearing type {smearing} " f"(expected one of {self._dos_smearing}).")
 
     def idos_level(
         self,
@@ -299,17 +259,13 @@ class TorchBandStructure(BackendBandStructure):
     ) -> torch.Tensor:
 
         if isinstance(n, float):
-            n = torch.tensor(
-                n, dtype=self.energies.dtype, device=self.energies.device
-            )
+            n = torch.tensor(n, dtype=self.energies.dtype, device=self.energies.device)
 
         n_max = self.energies.shape[1] * band_mult
         E_min, E_max = self.energies.min(), self.energies.max()
         E_range = E_max - E_min
 
-        E_level = (
-            E_guess if E_guess is not None else (n / n_max) * E_range + E_min
-        )
+        E_level = E_guess if E_guess is not None else (n / n_max) * E_range + E_min
 
         E_level = torch.clamp(E_level, E_min, E_max)
 
@@ -330,14 +286,10 @@ class TorchBandStructure(BackendBandStructure):
 
         return E_level
 
-    def band_gap(
-        self, energy: torch.Tensor | float = 0.0, sigma_cutoff: float = 0.0
-    ) -> torch.Tensor:
+    def band_gap(self, energy: torch.Tensor | float = 0.0, sigma_cutoff: float = 0.0) -> torch.Tensor:
 
         if isinstance(energy, float):
-            energy = torch.tensor(
-                energy, dtype=self.energies.dtype, device=self.energies.device
-            )
+            energy = torch.tensor(energy, dtype=self.energies.dtype, device=self.energies.device)
 
         _band_energies, _ = torch.sort(self.energies.flatten())
         i = torch.searchsorted(_band_energies, energy, right=True) - 1

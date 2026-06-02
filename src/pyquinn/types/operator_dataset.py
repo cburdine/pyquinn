@@ -8,9 +8,7 @@ from pyquinn.types.atom_graph import BackendAtomGraph
 from pyquinn.types.backend import _load_backend_object
 from pyquinn.types.operator import BackendOperator
 
-SUPPORTED_OPERATOR_DATASET_BACKENDS = {
-    "torch": "pyquinn.torch.types.TorchOperatorDataset"
-}
+SUPPORTED_OPERATOR_DATASET_BACKENDS = {"torch": "pyquinn.torch.types.TorchOperatorDataset"}
 """ The supported backend OperatorDataset objects"""
 
 
@@ -75,21 +73,15 @@ class OperatorDataset(OperatorDatasetBase):
             names = [None] * len(graphs)
 
         if len(graphs) != len(names):
-            raise ValueError(
-                f"Expected len(graphs) == len(names); "
-                f"got: {len(graphs)} != {len(names)}."
-            )
+            raise ValueError(f"Expected len(graphs) == len(names); " f"got: {len(graphs)} != {len(names)}.")
         if len(graphs) != len(operators):
-            raise ValueError(
-                f"Expected len(graphs) == len(operators); "
-                f"got: {len(graphs)} != {len(operators)}."
-            )
+            raise ValueError(f"Expected len(graphs) == len(operators); " f"got: {len(graphs)} != {len(operators)}.")
 
         # resolve the name of each graph:
         n_graphs = len(self.graphs)
         names = [
             AtomGraphDataset._resolve_graph_name(n_graphs + i, g, gn)
-            for i, (g, gn) in enumerate(zip(graphs, names))
+            for i, (g, gn) in enumerate(zip(graphs, names, strict=False))
         ]
 
         self.graphs.extend(graphs)
@@ -127,18 +119,10 @@ class OperatorDataset(OperatorDatasetBase):
 
     def items(self):
 
-        for name, graph, operator in zip(
-            self.names, self.graphs, self.operators
-        ):
+        for name, graph, operator in zip(self.names, self.graphs, self.operators, strict=False):
 
-            resolved_graph = (
-                AtomGraph.load(graph) if isinstance(graph, str) else graph
-            )
-            resolved_op = (
-                Operator.load(operator)
-                if isinstance(operator, str)
-                else operator
-            )
+            resolved_graph = AtomGraph.load(graph) if isinstance(graph, str) else graph
+            resolved_op = Operator.load(operator) if isinstance(operator, str) else operator
 
             yield name, (resolved_graph, resolved_op)
 
@@ -156,9 +140,7 @@ class OperatorDataset(OperatorDatasetBase):
         if backend not in OperatorDataset._backends:
             if backend in SUPPORTED_OPERATOR_DATASET_BACKENDS:
                 path = SUPPORTED_OPERATOR_DATASET_BACKENDS[backend]
-                OperatorDataset._backends[backend] = _load_backend_object(
-                    backend, path
-                )
+                OperatorDataset._backends[backend] = _load_backend_object(backend, path)
             else:
                 raise ValueError(f"Unknown Backend Type: {backend}")
 
@@ -178,9 +160,7 @@ class OperatorDataset(OperatorDatasetBase):
     def _save_operator(operator: str | Operator, name: str, dir: str):
 
         # load operator (if necessary):
-        operator = (
-            Operator.load(operator) if isinstance(operator, str) else operator
-        )
+        operator = Operator.load(operator) if isinstance(operator, str) else operator
 
         # save operator to cache dir:
         op_path = os.path.join(dir, f"{name}.pkl.op")
@@ -188,22 +168,16 @@ class OperatorDataset(OperatorDatasetBase):
 
     def save(self, dir: str):
 
-        for name, (graph, operator) in progress_bar(
-            self.items(), total=len(self)
-        ):
+        for name, (graph, operator) in progress_bar(self.items(), total=len(self)):
 
             AtomGraphDataset._save_graph(graph=graph, name=name, dir=dir)
-            OperatorDataset._save_operator(
-                operator=operator, name=name, dir=dir
-            )
+            OperatorDataset._save_operator(operator=operator, name=name, dir=dir)
 
     @staticmethod
     def load(dir: str, in_memory=False):
         graph_files = glob(os.path.join(dir, "*.pkl"))
 
-        names = sorted(
-            AtomGraphDataset._parse_graph_name(file) for file in graph_files
-        )
+        names = sorted(AtomGraphDataset._parse_graph_name(file) for file in graph_files)
 
         # parse all matching files:
         graphs = []
@@ -213,12 +187,8 @@ class OperatorDataset(OperatorDatasetBase):
             op_file = os.path.join(dir, f"{name}.pkl.op")
 
             if os.path.exists(graph_file) and os.path.exists(op_file):
-                graphs.append(
-                    AtomGraph.load(graph_file) if in_memory else graph_file
-                )
-                operators.append(
-                    Operator.load(op_file) if in_memory else op_file
-                )
+                graphs.append(AtomGraph.load(graph_file) if in_memory else graph_file)
+                operators.append(Operator.load(op_file) if in_memory else op_file)
 
         return OperatorDataset(graphs=graphs, operators=operators, names=names)
 

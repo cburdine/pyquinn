@@ -22,9 +22,7 @@ class TorchAtomGraph(BackendAtomGraph):
         idx_dtype: torch.dtype = torch.int64,
     ):
 
-        atomic_numbers = torch.tensor(
-            atomic_numbers, device=device, dtype=idx_dtype
-        )
+        atomic_numbers = torch.tensor(atomic_numbers, device=device, dtype=idx_dtype)
 
         positions = torch.tensor(graph.positions, device=device, dtype=dtype)
         masses = torch.tensor(masses, device=device, dtype=dtype)
@@ -32,9 +30,7 @@ class TorchAtomGraph(BackendAtomGraph):
         periodic = torch.tensor(graph.periodic, device=device, dtype=torch.bool)
         features = torch.tensor(graph.features, device=device, dtype=dtype)
         outputs = torch.tensor(graph.outputs, device=device, dtype=dtype)
-        graph_outputs = torch.tensor(
-            graph.graph_outputs, device=device, dtype=dtype
-        )
+        graph_outputs = torch.tensor(graph.graph_outputs, device=device, dtype=dtype)
         cutoffs = torch.tensor(cutoffs, device=device, dtype=dtype)
 
         return TorchAtomGraph(
@@ -86,12 +82,8 @@ class TorchAtomGraph(BackendAtomGraph):
             cutoffs=self.cutoffs.detach().cpu().numpy(),
         )
 
-        self.neighbors = torch.tensor(
-            neighbors, device=self.positions.device, dtype=torch.int64
-        )
-        self.unit_cell_images = torch.tensor(
-            unit_cell_images, device=self.positions.device, dtype=torch.int64
-        )
+        self.neighbors = torch.tensor(neighbors, device=self.positions.device, dtype=torch.int64)
+        self.unit_cell_images = torch.tensor(unit_cell_images, device=self.positions.device, dtype=torch.int64)
 
     def wrap(self):
         images = torch.floor(self.positions @ self.unit_rcell().T)
@@ -106,17 +98,13 @@ class TorchAtomGraph(BackendAtomGraph):
             # returns deterministic results when the unit cell is
             # perturbed by machine epsilon values. This may change
             # with future versions of PyTorch.
-            rcell = torch.linalg.lstsq(
-                self.unit_cell.T, torch.diag(delta), driver="gelsd"
-            )[0]
+            rcell = torch.linalg.lstsq(self.unit_cell.T, torch.diag(delta), driver="gelsd")[0]
         else:
             rcell = torch.linalg.pinv(self.unit_cell.T)
 
         return rcell
 
-    def band_path(
-        self, path: str | None = None, n_points: int = 2048
-    ) -> torch.Tensor:
+    def band_path(self, path: str | None = None, n_points: int = 2048) -> torch.Tensor:
 
         from ase import Atoms
 
@@ -156,9 +144,7 @@ class TorchAtomGraph(BackendAtomGraph):
         size_np = size.detach().cpu().numpy()
         matrix_np, lattice_points_np = supercell_lattice_points(size_np)
 
-        matrix = torch.tensor(
-            matrix_np, device=self.unit_cell.device, dtype=self.unit_cell.dtype
-        )
+        matrix = torch.tensor(matrix_np, device=self.unit_cell.device, dtype=self.unit_cell.dtype)
 
         supercell = matrix @ self.unit_cell
 
@@ -180,13 +166,9 @@ class TorchAtomGraph(BackendAtomGraph):
             masses=self.masses.repeat(N),
             unit_cell=supercell,
             periodic=self.periodic,
-            features=self.features.repeat(
-                (N,) + (1,) * (self.features.ndim - 1)
-            ),
+            features=self.features.repeat((N,) + (1,) * (self.features.ndim - 1)),
             outputs=self.outputs.repeat((N,) + (1,) * (self.features.ndim - 1)),
-            graph_outputs=self.graph_outputs.repeat(
-                (N,) + (1,) * (self.features.ndim - 1)
-            ),
+            graph_outputs=self.graph_outputs.repeat((N,) + (1,) * (self.features.ndim - 1)),
             cutoffs=self.cutoffs.repeat(N),
         )
 
@@ -267,9 +249,7 @@ class TorchAtomGraph(BackendAtomGraph):
         )
 
     @staticmethod
-    def load(
-        filename: str, device: torch.device | None = None
-    ) -> "TorchAtomGraph":
+    def load(filename: str, device: torch.device | None = None) -> "TorchAtomGraph":
         """Helper function to load a TorchAtomGraph from a pickle
         file. For TorchAtomGraphs, the file extension `*.pt`
         is recommended.
@@ -287,10 +267,7 @@ class TorchAtomGraph(BackendAtomGraph):
         graph = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(graph, TorchAtomGraph):
-            raise OSError(
-                f"Expected an instance of TorchAtomGraph; "
-                f"got: {type(graph)}"
-            )
+            raise OSError(f"Expected an instance of TorchAtomGraph; " f"got: {type(graph)}")
 
         return graph
 

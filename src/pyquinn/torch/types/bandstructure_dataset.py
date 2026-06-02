@@ -17,9 +17,7 @@ from pyquinn.types.bandstructure_dataset import (
 
 
 @BandStructureDataset.register_backend("torch")
-class TorchBandStructureDataset(
-    BackendBandStructureDataset, torch.utils.data.Dataset
-):
+class TorchBandStructureDataset(BackendBandStructureDataset, torch.utils.data.Dataset):
 
     @staticmethod
     def _compile_bands(
@@ -51,11 +49,7 @@ class TorchBandStructureDataset(
     ):
 
         # load bands (if necessary)
-        bands = (
-            TorchBandStructure.load(bands, device=device)
-            if isinstance(bands, str)
-            else bands
-        )
+        bands = TorchBandStructure.load(bands, device=device) if isinstance(bands, str) else bands
 
         # save bands to cache dir
         torch_bands_path = os.path.join(cache_dir, f"{name}.pt.bands")
@@ -81,9 +75,7 @@ class TorchBandStructureDataset(
 
         dataset_iter = progress_bar if verbosity > 0 else (lambda x, **_: x)
 
-        for name, (graph, bands) in dataset_iter(
-            dataset.items(), total=len(dataset)
-        ):
+        for name, (graph, bands) in dataset_iter(dataset.items(), total=len(dataset)):
 
             # compile and add graph
             torch_graphs.append(
@@ -159,23 +151,15 @@ class TorchBandStructureDataset(
             yield self.names[i], self[i]
 
     @staticmethod
-    def load(
-        cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"
-    ):
+    def load(cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"):
 
         graphs = glob(os.path.join(cache_dir, "*.pt"))
         band_structures = glob(os.path.join(cache_dir, "*.pt.bands"))
         names = [AtomGraphDataset._parse_graph_name(file) for file in graphs]
 
         if in_memory:
-            graphs = [
-                TorchAtomGraph.load(filename=file, device=device)
-                for file in graphs
-            ]
-            band_structures = [
-                TorchBandStructure.load(filename=file, device=device)
-                for file in band_structures
-            ]
+            graphs = [TorchAtomGraph.load(filename=file, device=device) for file in graphs]
+            band_structures = [TorchBandStructure.load(filename=file, device=device) for file in band_structures]
 
         return TorchBandStructureDataset(
             graphs=graphs,
@@ -188,15 +172,11 @@ class TorchBandStructureDataset(
     def save(self, cache_dir: str):
 
         _dataset_iter = progress_bar(
-            zip(self.names, self.graphs, self.band_structures),
+            zip(self.names, self.graphs, self.band_structures, strict=False),
             total=len(self.names),
         )
 
         for name, graph, bands in _dataset_iter:
-            TorchAtomGraphDataset._save_graph(
-                graph=graph, name=name, cache_dir=cache_dir, device=self.device
-            )
+            TorchAtomGraphDataset._save_graph(graph=graph, name=name, cache_dir=cache_dir, device=self.device)
 
-            TorchBandStructureDataset._save_bands(
-                bands=bands, name=name, cache_dir=cache_dir, device=self.device
-            )
+            TorchBandStructureDataset._save_bands(bands=bands, name=name, cache_dir=cache_dir, device=self.device)

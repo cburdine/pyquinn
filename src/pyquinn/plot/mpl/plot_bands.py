@@ -118,7 +118,7 @@ def plot_band_path(
         if proj_color_labels is not None:
             proj_elements = [
                 Line2D([0], [0], color=color, label=label)
-                for color, label in zip(proj_color_map, proj_color_labels)
+                for color, label in zip(proj_color_map, proj_color_labels, strict=False)
             ]
             ax.legend(handles=proj_elements)
 

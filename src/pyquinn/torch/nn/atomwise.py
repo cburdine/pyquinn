@@ -33,10 +33,7 @@ class RBFEmbedding(nn.Module):
 
     def forward(self, dx):
         sigma = (self.r_pts[-1] - self.r_pts[0]) / self.r_pts.shape[0]
-        x = torch.exp(
-            -0.5
-            * ((self.r_pts - torch.norm(dx, dim=-1, keepdim=True)) / sigma) ** 2
-        )
+        x = torch.exp(-0.5 * ((self.r_pts - torch.norm(dx, dim=-1, keepdim=True)) / sigma) ** 2)
         return x
 
 
@@ -56,12 +53,7 @@ class NeighborEdgeNN(nn.Module):
         matrix_features = in_features * out_features
 
         self.embedding_layer = nn.Linear(edge_features, matrix_features)
-        self.dense_layers = nn.ModuleList(
-            [
-                nn.Linear(matrix_features, matrix_features)
-                for _ in range(layers - 1)
-            ]
-        )
+        self.dense_layers = nn.ModuleList([nn.Linear(matrix_features, matrix_features) for _ in range(layers - 1)])
 
         self.activation = get_activation_fn(activation)()
 
@@ -111,9 +103,11 @@ class AtomwiseConv(nn.Module, ABC):
         in_features: int | None = None,
         out_features: int | None = None,
         z_max: int = 118,
-        module_kwargs: dict = {},
+        module_kwargs: dict = None,
     ):
 
+        if module_kwargs is None:
+            module_kwargs = {}
         if module_name not in AtomwiseConv._modules:
             raise ValueError(f"Unknown AtomwiseConv Type: {module_name}")
 
@@ -138,13 +132,9 @@ class AtomwiseConv(nn.Module, ABC):
         self.z_max = z_max
 
     @abstractmethod
-    def forward(
-        self, atomic_numbers, neighbors, neighbor_distances, features, **kwargs
-    ) -> tuple:
+    def forward(self, atomic_numbers, neighbors, neighbor_distances, features, **kwargs) -> tuple:
 
-        raise NotImplementedError(
-            "This method should be implemented in a " "subclass."
-        )
+        raise NotImplementedError("This method should be implemented in a " "subclass.")
 
 
 @AtomwiseConv.register("nnconv")
@@ -164,9 +154,7 @@ class AtomwiseNNConv(AtomwiseConv):
         z_max: int = 118,
     ):
 
-        super().__init__(
-            out_features=out_features, in_features=in_features, z_max=z_max
-        )
+        super().__init__(out_features=out_features, in_features=in_features, z_max=z_max)
 
         self.aggr = aggr
         self.activation = get_activation_fn(activation)()
@@ -224,33 +212,21 @@ class AtomwiseNNConv(AtomwiseConv):
     ) -> torch.Tensor:
 
         # generate edge list between neighboring atoms (the "bond pairs"):
-        bond_pairs, bond_distances = _get_neighbor_distance_edgelist(
-            neighbors=neighbors, distances=neighbor_distances
-        )
+        bond_pairs, bond_distances = _get_neighbor_distance_edgelist(neighbors=neighbors, distances=neighbor_distances)
 
         # get the "bond features" from the atomic distances:
         bond_features = self.distance_embedding(bond_distances)
 
         # build atomic "one-hot" encoded features:
-        atom_features = torch.nn.functional.one_hot(
-            atomic_numbers, num_classes=self.z_max + 1
-        ).to(torch.float32)
+        atom_features = torch.nn.functional.one_hot(atomic_numbers, num_classes=self.z_max + 1).to(torch.float32)
 
         # combine features into feature tensors:
-        x = (
-            atom_features
-            if features is None
-            else torch.cat((atom_features, features), dim=-1)
-        )
+        x = atom_features if features is None else torch.cat((atom_features, features), dim=-1)
 
         for layer in self.nnconv_layers[:-1]:
-            x = self.activation(
-                layer(x, edge_index=bond_pairs, edge_attr=bond_features)
-            )
+            x = self.activation(layer(x, edge_index=bond_pairs, edge_attr=bond_features))
 
-        y_unnorm = self.nnconv_layers[-1](
-            x, edge_index=bond_pairs, edge_attr=bond_features
-        )
+        y_unnorm = self.nnconv_layers[-1](x, edge_index=bond_pairs, edge_attr=bond_features)
 
         y = y_unnorm  # self.norm_layers[-1](y_unnorm)
 

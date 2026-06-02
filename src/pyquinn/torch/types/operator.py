@@ -6,12 +6,8 @@ from pyquinn.types.operator import BackendOperator, Operator
 
 def _batch_shape(onsite_values: torch.Tensor, coupling_values: torch.Tensor):
 
-    onsite_batch = (
-        tuple(onsite_values.shape[:-1]) if onsite_values.ndim > 1 else ()
-    )
-    coupling_batch = (
-        tuple(coupling_values.shape[:-1]) if coupling_values.ndim > 1 else ()
-    )
+    onsite_batch = tuple(onsite_values.shape[:-1]) if onsite_values.ndim > 1 else ()
+    coupling_batch = tuple(coupling_values.shape[:-1]) if coupling_values.ndim > 1 else ()
 
     if onsite_batch and coupling_batch and onsite_batch != coupling_batch:
         raise ValueError(
@@ -22,23 +18,18 @@ def _batch_shape(onsite_values: torch.Tensor, coupling_values: torch.Tensor):
     return onsite_batch if onsite_batch else coupling_batch
 
 
-def _ensure_batched_entries(
-    values: torch.Tensor, batch_shape: tuple[int, ...], entry_count: int
-):
+def _ensure_batched_entries(values: torch.Tensor, batch_shape: tuple[int, ...], entry_count: int):
 
     if values.shape[-1] != entry_count:
         raise ValueError(
-            "Shape of last dimension must match entry count "
-            f"(got: {values.shape[-1]} != {entry_count})"
+            "Shape of last dimension must match entry count " f"(got: {values.shape[-1]} != {entry_count})"
         )
 
     if not batch_shape:
         return values
 
     if values.ndim == 1:
-        return values.view((1,) * len(batch_shape) + (entry_count,)).expand(
-            batch_shape + (entry_count,)
-        )
+        return values.view((1,) * len(batch_shape) + (entry_count,)).expand(batch_shape + (entry_count,))
 
     return values
 
@@ -65,9 +56,7 @@ def build_nonperiodic_matrix(
         onsite_flat = onsite_values.reshape(1, N)
         coupling_flat = coupling_values.reshape(1, E)
 
-    H_diag_idxs = (N + 1) * torch.arange(
-        N, device=onsite_values.device, dtype=torch.int64
-    )
+    H_diag_idxs = (N + 1) * torch.arange(N, device=onsite_values.device, dtype=torch.int64)
     H_ij_idxs = (N * couplings[:, 0] + couplings[:, 1]).to(dtype=torch.int64)
 
     H = torch.zeros(
@@ -77,9 +66,7 @@ def build_nonperiodic_matrix(
     )
 
     H[:, H_diag_idxs] += onsite_flat
-    H.scatter_add_(
-        1, H_ij_idxs.unsqueeze(0).expand(batch_size, -1), coupling_flat
-    )
+    H.scatter_add_(1, H_ij_idxs.unsqueeze(0).expand(batch_size, -1), coupling_flat)
 
     H = H.reshape(batch_shape + (N, N))
 
@@ -114,18 +101,11 @@ def build_matrix(
         onsite_flat = onsite_values.reshape(1, N)
         coupling_flat = coupling_values.reshape(1, E)
 
-    frac_dists = (
-        frac_positions[site_indices[couplings[:, 1]]]
-        - frac_positions[site_indices[couplings[:, 0]]]
-    )
+    frac_dists = frac_positions[site_indices[couplings[:, 1]]] - frac_positions[site_indices[couplings[:, 0]]]
 
-    H_ij_phases = torch.exp(
-        2.0j * torch.pi * ((frac_dists + images) @ k_pts.mT)
-    ).T
+    H_ij_phases = torch.exp(2.0j * torch.pi * ((frac_dists + images) @ k_pts.mT)).T
 
-    H_diag_idxs = (N + 1) * torch.arange(
-        N, device=onsite_values.device, dtype=torch.int64
-    )
+    H_diag_idxs = (N + 1) * torch.arange(N, device=onsite_values.device, dtype=torch.int64)
     H_ij_idxs = (N * couplings[:, 0] + couplings[:, 1]).to(dtype=torch.int64)
 
     if sparse:
@@ -142,9 +122,7 @@ def build_matrix(
         row_idxs = torch.div(H_ij_total, N, rounding_mode="floor")
         col_idxs = H_ij_total % N
 
-        H_values_sparse = H_values_total.permute(2, 1, 0).reshape(
-            N + E, N_k, *batch_shape
-        )
+        H_values_sparse = H_values_total.permute(2, 1, 0).reshape(N + E, N_k, *batch_shape)
 
         H_indices = torch.stack((row_idxs, col_idxs), dim=0)
 
@@ -165,9 +143,7 @@ def build_matrix(
     )
 
     H[:, :, H_diag_idxs] += onsite_flat.unsqueeze(1)
-    H.scatter_add_(
-        2, H_ij_idxs.view(1, 1, -1).expand(batch_size, N_k, -1), H_ij_values
-    )
+    H.scatter_add_(2, H_ij_idxs.view(1, 1, -1).expand(batch_size, N_k, -1), H_ij_values)
 
     H = H.reshape(batch_shape + (N_k, N, N))
     H = torch.movedim(H, -3, 0)
@@ -193,31 +169,17 @@ class TorchOperator(BackendOperator):
         if coupling_values_np.ndim > 1:
             coupling_values_np = np.moveaxis(coupling_values_np, 0, -1)
 
-        onsite_values = torch.tensor(
-            onsite_values_np, device=device, dtype=dtype
-        )
-        couplings = torch.tensor(
-            operator.couplings, device=device, dtype=torch.int32
-        )
+        onsite_values = torch.tensor(onsite_values_np, device=device, dtype=dtype)
+        couplings = torch.tensor(operator.couplings, device=device, dtype=torch.int32)
 
-        coupling_values = torch.tensor(
-            coupling_values_np, device=device, dtype=dtype
-        )
-        site_indices = torch.tensor(
-            operator.site_indices, device=device, dtype=idx_dtype
-        )
-        orbital_indices = torch.tensor(
-            operator.orbital_indices, device=device, dtype=idx_dtype
-        )
+        coupling_values = torch.tensor(coupling_values_np, device=device, dtype=dtype)
+        site_indices = torch.tensor(operator.site_indices, device=device, dtype=idx_dtype)
+        orbital_indices = torch.tensor(operator.orbital_indices, device=device, dtype=idx_dtype)
 
         if operator.images is None:
-            images = torch.zeros(
-                (couplings.shape[0], 3), device=device, dtype=idx_dtype
-            )
+            images = torch.zeros((couplings.shape[0], 3), device=device, dtype=idx_dtype)
         else:
-            images = torch.tensor(
-                operator.images, device=device, dtype=idx_dtype
-            )
+            images = torch.tensor(operator.images, device=device, dtype=idx_dtype)
 
         return TorchOperator(
             onsite_values=onsite_values,
@@ -321,10 +283,7 @@ class TorchOperator(BackendOperator):
         operator = torch.load(filename, weights_only=True, map_location=device)
 
         if not isinstance(operator, TorchOperator):
-            raise OSError(
-                f"Expected an instance of TorchOperator; "
-                f"got: {type(operator)}"
-            )
+            raise OSError(f"Expected an instance of TorchOperator; " f"got: {type(operator)}")
 
         return operator
 

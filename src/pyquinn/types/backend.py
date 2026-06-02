@@ -8,9 +8,7 @@ def _load_backend_object(backend: str, import_path: str):
         module_path, attr = import_path.rsplit(".", 1)
         mod = __import__(module_path, fromlist=[attr])
         return getattr(mod, attr)
-    except ImportError as e:
-        raise ImportError(f"Backend '{backend}' is not available: {e}")
-    except AttributeError:
-        raise ImportError(
-            f"Object '{attr}' not found in module '{module_path}'."
-        )
+    except ImportError as err:
+        raise ImportError(f"Backend '{backend}' is not available.") from err
+    except AttributeError as err:
+        raise ImportError(f"Object '{attr}' not found in module '{module_path}'.") from err

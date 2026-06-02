@@ -13,16 +13,17 @@ from pyquinn.util.data import (
 
 
 def _make_sphere(xyz, r, resolution=10):
-    u, v = np.mgrid[
-        0 : 2 * np.pi : resolution * 2j, 0 : np.pi : resolution * 1j
-    ]
+    u, v = np.mgrid[0 : 2 * np.pi : resolution * 2j, 0 : np.pi : resolution * 1j]
     X = r * np.cos(u) * np.sin(v) + xyz[0]
     Y = r * np.sin(u) * np.sin(v) + xyz[1]
     Z = r * np.cos(v) + xyz[2]
     return (X, Y, Z)
 
 
-def _make_unitcell(unit_cell, periodic=False, origin=np.zeros(3)):
+def _make_unitcell(unit_cell, periodic=False, origin=None):
+
+    if origin is None:
+        origin = np.zeros(3)
 
     # compute unit cell vertices:
     v1, v2, v3, o = unit_cell[0], unit_cell[1], unit_cell[2], origin
@@ -75,7 +76,7 @@ def _make_unitcell(unit_cell, periodic=False, origin=np.zeros(3)):
 def _make_bonds(positions, nvecs):
 
     x_lines, y_lines, z_lines = [], [], []
-    for x0, dxs in zip(positions, nvecs):
+    for x0, dxs in zip(positions, nvecs, strict=False):
         for dx in dxs:
             x_lines.extend([x0[0], x0[0] + dx[0], None])
             y_lines.extend([x0[1], x0[1] + dx[1], None])
@@ -88,25 +89,21 @@ def _get_isosurface_mesh(mesh_xyz, mesh_values, iso_val, mesh_data):
 
     try:
         from skimage import measure
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             'Package "scikit-image" (skimage) must be installed to '
             "visualize complex isosurfaces with the plotly backend. "
             'Please install with "pip install scikit-image".'
-        )
+        ) from err
 
     mesh_shape, mesh_spacing = _infer_shape_and_spacing(mesh_xyz)
     V = mesh_values.reshape(mesh_shape)
 
-    surface_xyz, surface_ijk, _, _ = measure.marching_cubes(
-        V, level=iso_val, spacing=mesh_spacing
-    )
+    surface_xyz, surface_ijk, _, _ = measure.marching_cubes(V, level=iso_val, spacing=mesh_spacing)
 
     surface_xyz += np.min(mesh_xyz, axis=0, keepdims=True)
 
-    surface_data = griddata(
-        points=mesh_xyz, values=mesh_data, xi=surface_xyz, method="nearest"
-    )
+    surface_data = griddata(points=mesh_xyz, values=mesh_data, xi=surface_xyz, method="nearest")
 
     return surface_xyz, surface_ijk, surface_data
 
@@ -190,11 +187,7 @@ def plot_atoms(
 
     if not hide_bonds:
         bond_cutoffs = [
-            (
-                bond_factor * ATOMIC_COVALENT_RADII[ATOMIC_NUMBERS[sym]]
-                if sym in ATOMIC_NUMBERS
-                else 0.0
-            )
+            (bond_factor * ATOMIC_COVALENT_RADII[ATOMIC_NUMBERS[sym]] if sym in ATOMIC_NUMBERS else 0.0)
             for sym in atoms.atoms
         ]
 
@@ -261,10 +254,7 @@ def plot_atomic_isosurface(
 ):
 
     if mode not in ATOMIC_ISOSURFACE_MODES:
-        raise ValueError(
-            f"Expected mode to be one of {ATOMIC_ISOSURFACE_MODES}; "
-            f'got: "{mode}".'
-        )
+        raise ValueError(f"Expected mode to be one of {ATOMIC_ISOSURFACE_MODES}; " f'got: "{mode}".')
 
     # plot figure
     if fig is None:
@@ -278,14 +268,8 @@ def plot_atomic_isosurface(
         pos_mesh_values = np.maximum(0.0, np.real(mesh_values))
         neg_mesh_values = np.minimum(0.0, np.real(mesh_values))
 
-        pos_iso_value = (
-            np.mean(pos_mesh_values) if iso_value is None else np.abs(iso_value)
-        )
-        neg_iso_value = (
-            np.mean(neg_mesh_values)
-            if iso_value is None
-            else -np.abs(iso_value)
-        )
+        pos_iso_value = np.mean(pos_mesh_values) if iso_value is None else np.abs(iso_value)
+        neg_iso_value = np.mean(neg_mesh_values) if iso_value is None else -np.abs(iso_value)
         comp_iso_value = 0.0 if iso_value is None else np.abs(iso_value)
 
         if np.min(neg_mesh_values) < -comp_iso_value:

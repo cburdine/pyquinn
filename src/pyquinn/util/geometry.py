@@ -14,9 +14,7 @@ def get_special_k_pts(
 ):
 
     if special_radius is None:
-        special_radius = 1.1 * np.median(
-            np.linalg.norm(k_pts[:-1] - k_pts[1:], axis=-1)
-        )
+        special_radius = 1.1 * np.median(np.linalg.norm(k_pts[:-1] - k_pts[1:], axis=-1))
 
     # get the canonical band path and k-points (in fractional coordinates)
     path_pts = {}
@@ -31,9 +29,7 @@ def get_special_k_pts(
 
     # get the special points of the first Brillouin zone
     special_kpts = {
-        name.replace("G", "Γ").replace("S", "Σ"): np.nonzero(
-            np.linalg.norm(k_pts - pt, axis=-1) <= special_radius
-        )[0]
+        name.replace("G", "Γ").replace("S", "Σ"): np.nonzero(np.linalg.norm(k_pts - pt, axis=-1) <= special_radius)[0]
         for name, pt in path_pts.items()
     }
 
@@ -94,7 +90,7 @@ def build_neighbor_list(
     neighbor_j = [[] for _ in range(n_positions)]
     neighbor_s = [[] for _ in range(n_positions)]
     neighbor_r = [[] for _ in range(n_positions)]
-    for i, j, r, s in zip(I, J, R, S):
+    for i, j, r, s in zip(I, J, R, S, strict=False):
 
         # ignore inexact sphere collisions:
         ij_cutoff = cutoffs[i] + cutoffs[j]
@@ -105,12 +101,8 @@ def build_neighbor_list(
 
     neighbor_idxs = [np.argsort(r_arr) for r_arr in neighbor_r]
 
-    neighbors = [
-        np.array(arr)[idx] for arr, idx in zip(neighbor_j, neighbor_idxs)
-    ]
-    unit_cell_images = [
-        np.array(arr)[idx] for arr, idx in zip(neighbor_s, neighbor_idxs)
-    ]
+    neighbors = [np.array(arr)[idx] for arr, idx in zip(neighbor_j, neighbor_idxs, strict=False)]
+    unit_cell_images = [np.array(arr)[idx] for arr, idx in zip(neighbor_s, neighbor_idxs, strict=False)]
 
     return neighbors, unit_cell_images
 
@@ -153,8 +145,7 @@ def supercell_lattice_points(size: np.ndarray) -> tuple[np.ndarray]:
         matrix = np.diag(matrix)
     if matrix.shape != (3, 3):
         raise ValueError(
-            "Expected size to have a shape expandable to a 3x3 matrix "
-            f"(got expanded shape: {matrix.shape})."
+            "Expected size to have a shape expandable to a 3x3 matrix " f"(got expanded shape: {matrix.shape})."
         )
 
     frac_lattice_points = lattice_points_in_supercell(matrix)

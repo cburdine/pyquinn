@@ -44,11 +44,7 @@ class Hamiltonian(nn.Module):
         """
 
         super().__init__()
-        self.eigensolver = (
-            Eigensolver.from_name(eigensolver)
-            if isinstance(eigensolver, str)
-            else eigensolver
-        )
+        self.eigensolver = Eigensolver.from_name(eigensolver) if isinstance(eigensolver, str) else eigensolver
 
     @abstractmethod
     def hamiltonian_matrix(
@@ -363,17 +359,11 @@ class ExponentialSKCoefficients(nn.Module):
                 f"Expected `z_i` and `z_j` to have same shape (got: {tuple(z_i.shape)} vs {tuple(z_j.shape)})"
             )
         if r.shape != z_i.shape:
-            raise ValueError(
-                f"Expected `r` to have same shape as `z_i` (got: {tuple(r.shape)} vs {tuple(z_i.shape)})"
-            )
+            raise ValueError(f"Expected `r` to have same shape as `z_i` (got: {tuple(r.shape)} vs {tuple(z_i.shape)})")
 
         coeff = self.coeff.to(dtype=r.dtype, device=r.device).view(1, -1)
-        decay = torch.nn.functional.softplus(
-            self.raw_decay.to(dtype=r.dtype, device=r.device)
-        ).view(1, -1)
-        envelope = torch.exp(
-            -decay * r.to(dtype=r.dtype, device=r.device).view(-1, 1)
-        )
+        decay = torch.nn.functional.softplus(self.raw_decay.to(dtype=r.dtype, device=r.device)).view(1, -1)
+        envelope = torch.exp(-decay * r.to(dtype=r.dtype, device=r.device).view(-1, 1))
 
         if self.element_scale is None:
             return coeff * envelope
@@ -415,9 +405,7 @@ class SKHamiltonian(Hamiltonian):
         super().__init__(eigensolver=eigensolver)
 
         if orbital_shells is None or not orbital_shells:
-            raise ValueError(
-                "`orbital_shells` must be a non-empty dict, e.g. `{6: [0, 1]}` for carbon sp."
-            )
+            raise ValueError("`orbital_shells` must be a non-empty dict, e.g. `{6: [0, 1]}` for carbon sp.")
 
         self.energy_scale = float(energy_scale)
         self.z_max = int(z_max)
@@ -440,17 +428,11 @@ class SKHamiltonian(Hamiltonian):
         # Per-element local-orbital tables (padded) to avoid repeated Python loops.
         max_orbitals = 0
         for l_list in shells.values():
-            max_orbitals = max(
-                max_orbitals, sum((2 * int(l) + 1) for l in l_list)
-            )
+            max_orbitals = max(max_orbitals, sum((2 * int(l) + 1) for l in l_list))
 
         orbital_l_map = torch.full((z_dim, max_orbitals), -1, dtype=torch.int64)
-        orbital_comp_map = torch.full(
-            (z_dim, max_orbitals), -1, dtype=torch.int64
-        )
-        orbital_shell_map = torch.full(
-            (z_dim, max_orbitals), -1, dtype=torch.int64
-        )
+        orbital_comp_map = torch.full((z_dim, max_orbitals), -1, dtype=torch.int64)
+        orbital_shell_map = torch.full((z_dim, max_orbitals), -1, dtype=torch.int64)
         n_orbitals_by_z = torch.zeros((z_dim,), dtype=torch.int64)
 
         for z, l_list in shells.items():
@@ -470,9 +452,7 @@ class SKHamiltonian(Hamiltonian):
         self.register_buffer("n_orbitals_by_z", n_orbitals_by_z)
 
         # Trainable onsite energies per (element, shell instance).
-        self.onsite_energies = nn.Parameter(
-            torch.zeros((z_dim, n_shells_max), dtype=torch.float32)
-        )
+        self.onsite_energies = nn.Parameter(torch.zeros((z_dim, n_shells_max), dtype=torch.float32))
 
         # Trainable SK integrals.
         if sk_coefficients is None:
@@ -487,18 +467,14 @@ class SKHamiltonian(Hamiltonian):
         """
         for z, l_list in shells.items():
             if z <= 0:
-                raise ValueError(
-                    f"Expected positive atomic number in `orbital_shells`, got: {z}"
-                )
+                raise ValueError(f"Expected positive atomic number in `orbital_shells`, got: {z}")
             for l in l_list:
                 if int(l) not in (0, 1):
                     raise ValueError(
                         f"`SKHamiltonian` currently supports only l in {{0,1}}, got: l={l} for element {z}."
                     )
 
-    def _orbital_counts(
-        self, atomic_numbers: torch.IntTensor
-    ) -> tuple[torch.IntTensor, torch.IntTensor]:
+    def _orbital_counts(self, atomic_numbers: torch.IntTensor) -> tuple[torch.IntTensor, torch.IntTensor]:
         n_orbitals = self.n_orbitals_by_z[atomic_numbers.to(torch.int64)]
         if (n_orbitals <= 0).any():
             bad = torch.nonzero(n_orbitals <= 0, as_tuple=False).view(-1)
@@ -519,22 +495,15 @@ class SKHamiltonian(Hamiltonian):
     ) -> tuple[torch.IntTensor, torch.IntTensor]:
         n_orbitals, _offsets = self._orbital_counts(atomic_numbers)
 
-        max_orb = (
-            int(torch.max(n_orbitals).item()) if n_orbitals.numel() > 0 else 0
-        )
+        max_orb = int(torch.max(n_orbitals).item()) if n_orbitals.numel() > 0 else 0
         if max_orb == 0:
             return (
-                torch.empty(
-                    (0,), dtype=torch.int64, device=atomic_numbers.device
-                ),
-                torch.empty(
-                    (0,), dtype=torch.int64, device=atomic_numbers.device
-                ),
+                torch.empty((0,), dtype=torch.int64, device=atomic_numbers.device),
+                torch.empty((0,), dtype=torch.int64, device=atomic_numbers.device),
             )
 
         site_idxs, orbital_idxs = torch.nonzero(
-            torch.arange(max_orb, device=atomic_numbers.device).view(1, -1)
-            < n_orbitals.view(-1, 1),
+            torch.arange(max_orb, device=atomic_numbers.device).view(1, -1) < n_orbitals.view(-1, 1),
             as_tuple=True,
         )
         return site_idxs.to(torch.int64), orbital_idxs.to(torch.int64)
@@ -568,13 +537,9 @@ class SKHamiltonian(Hamiltonian):
         **kwargs,
     ) -> torch.Tensor:
         # Returns `(l, comp)` where `comp` enumerates components in the orbital order.
-        site_idxs, orb_idxs = self.orbital_indices(
-            atomic_numbers, positions, neighbors
-        )
+        site_idxs, orb_idxs = self.orbital_indices(atomic_numbers, positions, neighbors)
         if site_idxs.numel() == 0:
-            return torch.empty(
-                (0, 2), dtype=torch.int64, device=atomic_numbers.device
-            )
+            return torch.empty((0, 2), dtype=torch.int64, device=atomic_numbers.device)
 
         z = atomic_numbers[site_idxs].to(torch.int64)
         ls = self.orbital_l_map[z, orb_idxs].to(torch.int64)
@@ -585,9 +550,7 @@ class SKHamiltonian(Hamiltonian):
     def _undirected_site_pairs(neighbors: torch.IntTensor) -> torch.IntTensor:
         site_i, adj = torch.nonzero(neighbors >= 0, as_tuple=True)
         if site_i.numel() == 0:
-            return torch.empty(
-                (0, 2), dtype=torch.int64, device=neighbors.device
-            )
+            return torch.empty((0, 2), dtype=torch.int64, device=neighbors.device)
         site_j = neighbors[site_i, adj].to(torch.int64)
         a = torch.minimum(site_i.to(torch.int64), site_j)
         b = torch.maximum(site_i.to(torch.int64), site_j)
@@ -602,9 +565,7 @@ class SKHamiltonian(Hamiltonian):
     ) -> torch.IntTensor:
         """Resolve images for undirected site pairs, returning src->dst images."""
         if site_pairs.ndim != 2 or site_pairs.shape[1] != 2:
-            raise ValueError(
-                f"Expected `site_pairs` to have shape [P,2], got: {tuple(site_pairs.shape)}"
-            )
+            raise ValueError(f"Expected `site_pairs` to have shape [P,2], got: {tuple(site_pairs.shape)}")
         if unit_cell_images.ndim != 3 or unit_cell_images.shape[-1] != 3:
             raise ValueError(
                 "Expected `unit_cell_images` to have shape [N_sites, N_neighbors, 3], "
@@ -636,8 +597,7 @@ class SKHamiltonian(Hamiltonian):
             bad = torch.nonzero(~has_any, as_tuple=False).view(-1)
             bad_pairs = site_pairs[bad].detach().cpu().tolist()
             raise ValueError(
-                "Could not resolve `unit_cell_images` for some neighbor pairs. "
-                f"Missing pairs (src,dst): {bad_pairs}"
+                "Could not resolve `unit_cell_images` for some neighbor pairs. " f"Missing pairs (src,dst): {bad_pairs}"
             )
 
         if bool((has_src & has_dst).any().item()):
@@ -648,9 +608,7 @@ class SKHamiltonian(Hamiltonian):
                     "src->dst image does not equal -(dst->src) image."
                 )
 
-        return torch.where(has_src.view(-1, 1), img_src, img_dst).to(
-            torch.int64
-        )
+        return torch.where(has_src.view(-1, 1), img_src, img_dst).to(torch.int64)
 
     @staticmethod
     def _coupling_images(
@@ -665,13 +623,9 @@ class SKHamiltonian(Hamiltonian):
         so the second half is the Hermitian counterpart and uses `-images_u`.
         """
         if couplings.ndim != 2 or couplings.shape[1] != 2:
-            raise ValueError(
-                f"Expected `couplings` to have shape [E,2], got: {tuple(couplings.shape)}"
-            )
+            raise ValueError(f"Expected `couplings` to have shape [E,2], got: {tuple(couplings.shape)}")
         if couplings.shape[0] % 2 != 0:
-            raise ValueError(
-                f"Expected even number of couplings, got: E={int(couplings.shape[0])}"
-            )
+            raise ValueError(f"Expected even number of couplings, got: E={int(couplings.shape[0])}")
         if unit_cell_images.ndim != 3 or unit_cell_images.shape[-1] != 3:
             raise ValueError(
                 "Expected `unit_cell_images` to have shape [N_sites, N_neighbors, 3], "
@@ -745,40 +699,27 @@ class SKHamiltonian(Hamiltonian):
     ) -> tuple[torch.Tensor, torch.IntTensor, torch.Tensor, torch.IntTensor]:
         n_orbitals, offsets = self._orbital_counts(atomic_numbers)
 
-        site_idxs, local_orb_idxs = self.orbital_indices(
-            atomic_numbers, positions, neighbors
-        )
+        site_idxs, local_orb_idxs = self.orbital_indices(atomic_numbers, positions, neighbors)
         z_orb = atomic_numbers[site_idxs].to(torch.int64)
-        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(
-            torch.int64
-        )
-        onsite_values = (
-            self.onsite_energies[z_orb, shell_idx].to(dtype=positions.dtype)
-            * self.energy_scale
-        )
+        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(torch.int64)
+        onsite_values = self.onsite_energies[z_orb, shell_idx].to(dtype=positions.dtype) * self.energy_scale
 
         site_i, adj = torch.nonzero(neighbors >= 0, as_tuple=True)
         if site_i.numel() == 0:
             return (
                 onsite_values,
                 torch.empty((0, 2), dtype=torch.int64, device=positions.device),
-                torch.empty(
-                    (0,), dtype=onsite_values.dtype, device=positions.device
-                ),
+                torch.empty((0,), dtype=onsite_values.dtype, device=positions.device),
                 torch.empty((0, 3), dtype=torch.int64, device=positions.device),
             )
 
         site_j = neighbors[site_i, adj].to(torch.int64)
 
-        images_ij = torch.zeros(
-            (site_i.shape[0], 3), dtype=torch.int64, device=positions.device
-        )
+        images_ij = torch.zeros((site_i.shape[0], 3), dtype=torch.int64, device=positions.device)
         if unit_cell_images is not None:
             if unit_cell is None:
                 raise ValueError("`unit_cell_images` requires `unit_cell`.")
-            images_ij = unit_cell_images.to(
-                device=positions.device, dtype=torch.int64
-            )[site_i, adj]
+            images_ij = unit_cell_images.to(device=positions.device, dtype=torch.int64)[site_i, adj]
 
         # No deduplication: treat each directed neighbor entry as a distinct coupling.
         # This matches the repo convention where neighbor lists contain both directions
@@ -802,16 +743,14 @@ class SKHamiltonian(Hamiltonian):
 
         disp = positions[dst] - positions[src]
         if unit_cell is not None:
-            shift = edge_images.to(
+            shift = edge_images.to(dtype=positions.dtype, device=positions.device) @ unit_cell.to(
                 dtype=positions.dtype, device=positions.device
-            ) @ unit_cell.to(dtype=positions.dtype, device=positions.device)
+            )
             disp = disp + shift
 
         r = torch.linalg.norm(disp, dim=-1)
         if bool((r <= 0).any().item()):
-            raise ValueError(
-                "Encountered zero-distance neighbor pair while building SK Hamiltonian."
-            )
+            raise ValueError("Encountered zero-distance neighbor pair while building SK Hamiltonian.")
         u = disp / r.view(-1, 1)
 
         z_src = atomic_numbers[src].to(torch.int64)
@@ -834,8 +773,7 @@ class SKHamiltonian(Hamiltonian):
         required = ("ss_sigma", "sp_sigma", "pp_sigma", "pp_pi")
         if any(k not in name_to_idx for k in required):
             raise ValueError(
-                "Unsupported `sk_coefficients`: expected COEFF_NAMES to include "
-                f"{required}, got: {tuple(names)}"
+                "Unsupported `sk_coefficients`: expected COEFF_NAMES to include " f"{required}, got: {tuple(names)}"
             )
 
         v_ss = coeffs[:, name_to_idx["ss_sigma"]]
@@ -856,14 +794,8 @@ class SKHamiltonian(Hamiltonian):
             if n_i == 0 or n_j == 0:
                 continue
 
-            idx_i = (
-                torch.arange(n_i, device=positions.device, dtype=torch.int64)
-                + offsets[i]
-            )
-            idx_j = (
-                torch.arange(n_j, device=positions.device, dtype=torch.int64)
-                + offsets[j]
-            )
+            idx_i = torch.arange(n_i, device=positions.device, dtype=torch.int64) + offsets[i]
+            idx_j = torch.arange(n_j, device=positions.device, dtype=torch.int64) + offsets[j]
 
             z_i = int(atomic_numbers[i].item())
             z_j = int(atomic_numbers[j].item())
@@ -873,9 +805,7 @@ class SKHamiltonian(Hamiltonian):
             c_j = self.orbital_comp_map[z_j, :n_j].to(torch.int64)
 
             if bool((l_i > 1).any().item()) or bool((l_j > 1).any().item()):
-                raise ValueError(
-                    "`SKHamiltonian` currently supports only s/p orbitals (l <= 1)."
-                )
+                raise ValueError("`SKHamiltonian` currently supports only s/p orbitals (l <= 1).")
 
             uu = u[p].to(dtype=positions.dtype)  # [3]
             ux, uy, uz = uu[0], uu[1], uu[2]
@@ -886,9 +816,7 @@ class SKHamiltonian(Hamiltonian):
             Vsig = v_pp_sigma[p].to(dtype=positions.dtype) * self.energy_scale
             Vpi = v_pp_pi[p].to(dtype=positions.dtype) * self.energy_scale
 
-            block = torch.zeros(
-                (n_i, n_j), dtype=positions.dtype, device=positions.device
-            )
+            block = torch.zeros((n_i, n_j), dtype=positions.dtype, device=positions.device)
 
             for a in range(n_i):
                 la = int(l_i[a].item())
@@ -908,26 +836,18 @@ class SKHamiltonian(Hamiltonian):
                         delta = 1.0 if ca == cb else 0.0
                         block[a, b] = uab * Vsig + (delta - uab) * Vpi
                     else:
-                        raise ValueError(
-                            f"Unexpected orbital angular momentum (l_a={la}, l_b={lb})."
-                        )
+                        raise ValueError(f"Unexpected orbital angular momentum (l_a={la}, l_b={lb}).")
 
             couplings_u.append(torch.cartesian_prod(idx_i, idx_j))
             values_u.append(block.reshape(-1))
-            img = (
-                edge_images[p]
-                .to(dtype=torch.int64, device=positions.device)
-                .view(1, 3)
-            )
+            img = edge_images[p].to(dtype=torch.int64, device=positions.device).view(1, 3)
             images_list_u.append(img.expand(n_i * n_j, 3))
 
         if not couplings_u:
             return (
                 onsite_values,
                 torch.empty((0, 2), dtype=torch.int64, device=positions.device),
-                torch.empty(
-                    (0,), dtype=onsite_values.dtype, device=positions.device
-                ),
+                torch.empty((0,), dtype=onsite_values.dtype, device=positions.device),
                 torch.empty((0, 3), dtype=torch.int64, device=positions.device),
             )
 
@@ -951,15 +871,13 @@ class SKHamiltonian(Hamiltonian):
         unit_cell_images: torch.IntTensor | None = None,
         **kwargs,
     ) -> TorchOperator:
-        onsite_values, couplings, coupling_values, images = (
-            self.hamiltonian_operator_entries(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                **kwargs,
-            )
+        onsite_values, couplings, coupling_values, images = self.hamiltonian_operator_entries(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            **kwargs,
         )
 
         site_indices, orbital_indices = self.orbital_indices(
@@ -988,22 +906,16 @@ class SKHamiltonian(Hamiltonian):
         sparse: bool = False,
         **kwargs,
     ) -> torch.Tensor:
-        onsite_values, couplings, coupling_values, images = (
-            self.hamiltonian_operator_entries(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                **kwargs,
-            )
+        onsite_values, couplings, coupling_values, images = self.hamiltonian_operator_entries(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            **kwargs,
         )
 
-        periodic = (
-            (unit_cell is not None)
-            or (unit_cell_images is not None)
-            or (k_pts is not None)
-        )
+        periodic = (unit_cell is not None) or (unit_cell_images is not None) or (k_pts is not None)
         if not periodic:
             return build_nonperiodic_matrix(
                 onsite_values=onsite_values,
@@ -1012,24 +924,16 @@ class SKHamiltonian(Hamiltonian):
             )
 
         if unit_cell is None or unit_cell_images is None:
-            raise ValueError(
-                "Periodic `hamiltonian_matrix` requires both `unit_cell` and `unit_cell_images`."
-            )
+            raise ValueError("Periodic `hamiltonian_matrix` requires both `unit_cell` and `unit_cell_images`.")
 
         if k_pts is None:
-            k_pts = torch.zeros(
-                (1, 3), device=positions.device, dtype=positions.dtype
-            )
+            k_pts = torch.zeros((1, 3), device=positions.device, dtype=positions.dtype)
         elif not isinstance(k_pts, torch.Tensor):
-            k_pts = torch.as_tensor(
-                k_pts, device=positions.device, dtype=positions.dtype
-            )
+            k_pts = torch.as_tensor(k_pts, device=positions.device, dtype=positions.dtype)
         else:
             k_pts = k_pts.to(device=positions.device, dtype=positions.dtype)
 
-        frac_positions = positions @ torch.linalg.pinv(
-            unit_cell.to(device=positions.device, dtype=positions.dtype)
-        )
+        frac_positions = positions @ torch.linalg.pinv(unit_cell.to(device=positions.device, dtype=positions.dtype))
 
         site_indices, _orbital_indices = self.orbital_indices(
             atomic_numbers=atomic_numbers,
@@ -1056,9 +960,7 @@ class _UnusedSKCoefficients(nn.Module):
     the attribute to avoid allocating unused parameters.
     """
 
-    def forward(
-        self, z_i: torch.IntTensor, z_j: torch.IntTensor, r: torch.Tensor
-    ) -> torch.Tensor:  # pragma: no cover
+    def forward(self, z_i: torch.IntTensor, z_j: torch.IntTensor, r: torch.Tensor) -> torch.Tensor:  # pragma: no cover
         raise RuntimeError("`E3SKHamiltonian` does not use `sk_coefficients`.")
 
 
@@ -1102,17 +1004,13 @@ class E3SKHamiltonian(SKHamiltonian):
             import e3nn.nn  # noqa: F401
             import e3nn.o3 as o3  # noqa: F401
         except Exception as exc:  # pragma: no cover
-            raise ImportError(
-                "`E3SKHamiltonian` requires `e3nn` to be installed."
-            ) from exc
+            raise ImportError("`E3SKHamiltonian` requires `e3nn` to be installed.") from exc
 
         if orbital_shells is None or not orbital_shells:
             raise ValueError("`orbital_shells` must be a non-empty dict.")
 
         if l_max is None:
-            l_max = max(
-                int(l) for l_list in orbital_shells.values() for l in l_list
-            )
+            l_max = max(int(l) for l_list in orbital_shells.values() for l in l_list)
         self.l_max = int(l_max)
         if self.l_max < 0:
             raise ValueError("`l_max` must be non-negative.")
@@ -1146,17 +1044,11 @@ class E3SKHamiltonian(SKHamiltonian):
         self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=self.l_max)
 
         # RBF distance embedding similar to `AtomwiseNNConv`.
-        self.register_buffer(
-            "r_pts", torch.linspace(0.0, self.r_max, self.r_points)
-        )
+        self.register_buffer("r_pts", torch.linspace(0.0, self.r_max, self.r_points))
 
         # Build per-(l_in,l_out) tensor products and radial networks.
         # We only build for l values that appear in `orbital_shells` to keep things small.
-        l_values = (
-            torch.unique(self.orbital_shell_idxs[self.orbital_shell_idxs >= 0])
-            .to(torch.int64)
-            .tolist()
-        )
+        l_values = torch.unique(self.orbital_shell_idxs[self.orbital_shell_idxs >= 0]).to(torch.int64).tolist()
         l_values = sorted({int(l) for l in l_values})
         self.l_values = tuple(l_values)
 
@@ -1180,14 +1072,8 @@ class E3SKHamiltonian(SKHamiltonian):
                 self.tps[key] = tp
                 tp_l_pairs.append((int(l_in), int(l_out)))
 
-                hs = (
-                    [self.r_points]
-                    + [self.edge_hidden] * (self.edge_layers - 1)
-                    + [tp.weight_numel]
-                )
-                self.edge_nns[key] = e3nn.nn.FullyConnectedNet(
-                    hs, act=self._act
-                )
+                hs = [self.r_points] + [self.edge_hidden] * (self.edge_layers - 1) + [tp.weight_numel]
+                self.edge_nns[key] = e3nn.nn.FullyConnectedNet(hs, act=self._act)
         self.tp_l_pairs = tuple(tp_l_pairs)
 
         # Precompute per-element shell orbital starts/sizes for fast slicing.
@@ -1213,26 +1099,18 @@ class E3SKHamiltonian(SKHamiltonian):
     def _validate_orbital_shells(self, shells: dict[int, list[int]]) -> None:
         for z, l_list in shells.items():
             if z <= 0:
-                raise ValueError(
-                    f"Expected positive atomic number in `orbital_shells`, got: {z}"
-                )
+                raise ValueError(f"Expected positive atomic number in `orbital_shells`, got: {z}")
             for l in l_list:
                 l_int = int(l)
                 if l_int < 0:
-                    raise ValueError(
-                        f"Expected non-negative l, got: l={l_int} for element {z}."
-                    )
+                    raise ValueError(f"Expected non-negative l, got: l={l_int} for element {z}.")
                 if l_int > int(self.l_max):
-                    raise ValueError(
-                        f"Encountered l={l_int} > l_max={self.l_max} for element {z}."
-                    )
+                    raise ValueError(f"Encountered l={l_int} > l_max={self.l_max} for element {z}.")
 
     def _rbf(self, r: torch.Tensor) -> torch.Tensor:
         sigma = (self.r_pts[-1] - self.r_pts[0]) / float(self.r_pts.shape[0])
         r = r.to(dtype=self.r_pts.dtype, device=self.r_pts.device)
-        return torch.exp(
-            -0.5 * ((self.r_pts.view(1, -1) - r.view(-1, 1)) / sigma) ** 2
-        )
+        return torch.exp(-0.5 * ((self.r_pts.view(1, -1) - r.view(-1, 1)) / sigma) ** 2)
 
     def orbital_names(
         self,
@@ -1253,9 +1131,7 @@ class E3SKHamiltonian(SKHamiltonian):
                 elif l_int == 1:
                     names.extend(["p_x", "p_y", "p_z"])
                 else:
-                    names.extend(
-                        [f"l{l_int}_{i}" for i in range(2 * l_int + 1)]
-                    )
+                    names.extend([f"l{l_int}_{i}" for i in range(2 * l_int + 1)])
         return names
 
     def hamiltonian_operator_entries(
@@ -1272,16 +1148,10 @@ class E3SKHamiltonian(SKHamiltonian):
 
         n_orbitals, offsets = self._orbital_counts(atomic_numbers)
 
-        site_idxs, local_orb_idxs = self.orbital_indices(
-            atomic_numbers, positions, neighbors
-        )
+        site_idxs, local_orb_idxs = self.orbital_indices(atomic_numbers, positions, neighbors)
         z_orb = atomic_numbers[site_idxs].to(torch.int64)
-        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(
-            torch.int64
-        )
-        onsite_values = self.onsite_energies[z_orb, shell_idx].to(
-            dtype=positions.dtype, device=positions.device
-        )
+        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(torch.int64)
+        onsite_values = self.onsite_energies[z_orb, shell_idx].to(dtype=positions.dtype, device=positions.device)
         onsite_values = onsite_values * self.energy_scale
 
         site_i, adj = torch.nonzero(neighbors >= 0, as_tuple=True)
@@ -1289,29 +1159,21 @@ class E3SKHamiltonian(SKHamiltonian):
             return (
                 onsite_values,
                 torch.empty((0, 2), dtype=torch.int64, device=positions.device),
-                torch.empty(
-                    (0,), dtype=positions.dtype, device=positions.device
-                ),
+                torch.empty((0,), dtype=positions.dtype, device=positions.device),
                 torch.empty((0, 3), dtype=torch.int64, device=positions.device),
             )
 
         site_j = neighbors[site_i, adj].to(torch.int64)
 
-        images_ij = torch.zeros(
-            (site_i.shape[0], 3), dtype=torch.int64, device=positions.device
-        )
+        images_ij = torch.zeros((site_i.shape[0], 3), dtype=torch.int64, device=positions.device)
         if unit_cell_images is not None:
             if unit_cell is None:
                 raise ValueError("`unit_cell_images` requires `unit_cell`.")
-            images_ij = unit_cell_images.to(
-                device=positions.device, dtype=torch.int64
-            )[site_i, adj]
+            images_ij = unit_cell_images.to(device=positions.device, dtype=torch.int64)[site_i, adj]
 
         # Canonicalize to one direction (fast, no `unique`): requires bidirectional neighbor lists.
         if not bool(assume_bidirectional_neighbors):
-            raise ValueError(
-                "`E3SKHamiltonian` currently requires `assume_bidirectional_neighbors=True`."
-            )
+            raise ValueError("`E3SKHamiltonian` currently requires `assume_bidirectional_neighbors=True`.")
 
         src_all = site_i.to(torch.int64)
         dst_all = site_j.to(torch.int64)
@@ -1328,17 +1190,11 @@ class E3SKHamiltonian(SKHamiltonian):
                 lex_pos = (
                     (img_nz[:, 0] > 0)
                     | ((img_nz[:, 0] == 0) & (img_nz[:, 1] > 0))
-                    | (
-                        (img_nz[:, 0] == 0)
-                        & (img_nz[:, 1] == 0)
-                        & (img_nz[:, 2] > 0)
-                    )
+                    | ((img_nz[:, 0] == 0) & (img_nz[:, 1] == 0) & (img_nz[:, 2] > 0))
                 )
 
                 same_idx = torch.nonzero(same, as_tuple=False).view(-1)
-                nz_idx = same_idx[
-                    torch.nonzero(nonzero, as_tuple=False).view(-1)
-                ]
+                nz_idx = same_idx[torch.nonzero(nonzero, as_tuple=False).view(-1)]
                 keep[nz_idx] = lex_pos
 
         src = src_all[keep]
@@ -1349,24 +1205,20 @@ class E3SKHamiltonian(SKHamiltonian):
             return (
                 onsite_values,
                 torch.empty((0, 2), dtype=torch.int64, device=positions.device),
-                torch.empty(
-                    (0,), dtype=positions.dtype, device=positions.device
-                ),
+                torch.empty((0,), dtype=positions.dtype, device=positions.device),
                 torch.empty((0, 3), dtype=torch.int64, device=positions.device),
             )
 
         disp = positions[dst] - positions[src]
         if unit_cell is not None:
-            shift = edge_images.to(
+            shift = edge_images.to(dtype=positions.dtype, device=positions.device) @ unit_cell.to(
                 dtype=positions.dtype, device=positions.device
-            ) @ unit_cell.to(dtype=positions.dtype, device=positions.device)
+            )
             disp = disp + shift
 
         r = torch.linalg.norm(disp, dim=-1)
         if bool((r <= 0).any().item()):
-            raise ValueError(
-                "Encountered zero-distance neighbor pair while building E3SK Hamiltonian."
-            )
+            raise ValueError("Encountered zero-distance neighbor pair while building E3SK Hamiltonian.")
         u = disp / r.view(-1, 1)
 
         y = o3.spherical_harmonics(
@@ -1380,12 +1232,8 @@ class E3SKHamiltonian(SKHamiltonian):
         # Precompute all per-(l_in,l_out) operator blocks for each edge.
         ops: dict[str, torch.Tensor] = {}
         for key, tp in self.tps.items():
-            w = self.edge_nns[key](
-                x_r.to(dtype=positions.dtype, device=positions.device)
-            )
-            ops[key] = tp.right(
-                y.to(dtype=positions.dtype, device=positions.device), weight=w
-            )
+            w = self.edge_nns[key](x_r.to(dtype=positions.dtype, device=positions.device))
+            ops[key] = tp.right(y.to(dtype=positions.dtype, device=positions.device), weight=w)
 
         couplings_u: list[torch.IntTensor] = []
         values_u: list[torch.Tensor] = []
@@ -1405,18 +1253,10 @@ class E3SKHamiltonian(SKHamiltonian):
             z_i = int(atomic_numbers[i].item())
             z_j = int(atomic_numbers[j].item())
 
-            idx_i = (
-                torch.arange(n_i, device=positions.device, dtype=torch.int64)
-                + offsets[i]
-            )
-            idx_j = (
-                torch.arange(n_j, device=positions.device, dtype=torch.int64)
-                + offsets[j]
-            )
+            idx_i = torch.arange(n_i, device=positions.device, dtype=torch.int64) + offsets[i]
+            idx_j = torch.arange(n_j, device=positions.device, dtype=torch.int64) + offsets[j]
 
-            block = torch.zeros(
-                (n_i, n_j), dtype=positions.dtype, device=positions.device
-            )
+            block = torch.zeros((n_i, n_j), dtype=positions.dtype, device=positions.device)
 
             # Assemble block from shell-to-shell coupling operators.
             for s_i in range(n_shells_max):
@@ -1437,26 +1277,18 @@ class E3SKHamiltonian(SKHamiltonian):
                         continue
 
                     op = ops[f"{l_in}->{l_out}"][e]  # [dim_in, dim_out]
-                    block[
-                        start_i : start_i + size_i, start_j : start_j + size_j
-                    ] = (op * self.energy_scale)
+                    block[start_i : start_i + size_i, start_j : start_j + size_j] = op * self.energy_scale
 
             couplings_u.append(torch.cartesian_prod(idx_i, idx_j))
             values_u.append(block.reshape(-1))
-            img = (
-                edge_images[e]
-                .to(dtype=torch.int64, device=positions.device)
-                .view(1, 3)
-            )
+            img = edge_images[e].to(dtype=torch.int64, device=positions.device).view(1, 3)
             images_u.append(img.expand(n_i * n_j, 3))
 
         if not couplings_u:
             return (
                 onsite_values,
                 torch.empty((0, 2), dtype=torch.int64, device=positions.device),
-                torch.empty(
-                    (0,), dtype=positions.dtype, device=positions.device
-                ),
+                torch.empty((0,), dtype=positions.dtype, device=positions.device),
                 torch.empty((0, 3), dtype=torch.int64, device=positions.device),
             )
 
@@ -1506,14 +1338,10 @@ class PODHamiltonian(E3SKHamiltonian):
     ):
         super().__init__(*args, **kwargs)
         if bands_per_atom is not None and bands_per_atom <= 0:
-            raise ValueError(
-                "`bands_per_atom` must be a positive integer or None."
-            )
+            raise ValueError("`bands_per_atom` must be a positive integer or None.")
         if pod_eps < 0:
             raise ValueError("`pod_eps` must be non-negative.")
-        self.bands_per_atom: int | None = (
-            int(bands_per_atom) if bands_per_atom is not None else None
-        )
+        self.bands_per_atom: int | None = int(bands_per_atom) if bands_per_atom is not None else None
         self.detach_basis = bool(detach_basis)
         self.pod_eps = float(pod_eps)
 
@@ -1523,12 +1351,8 @@ class PODHamiltonian(E3SKHamiltonian):
         If set to None, this module behaves like `E3SKHamiltonian`.
         """
         if bands_per_atom is not None and int(bands_per_atom) <= 0:
-            raise ValueError(
-                "`bands_per_atom` must be a positive integer or None."
-            )
-        self.bands_per_atom = (
-            int(bands_per_atom) if bands_per_atom is not None else None
-        )
+            raise ValueError("`bands_per_atom` must be a positive integer or None.")
+        self.bands_per_atom = int(bands_per_atom) if bands_per_atom is not None else None
 
     def hamiltonian_operator_entries(
         self,
@@ -1565,15 +1389,8 @@ class PODHamiltonian(E3SKHamiltonian):
             neighbors=neighbors,
         )
         z_orb = atomic_numbers[site_idxs].to(torch.int64)
-        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(
-            torch.int64
-        )
-        onsite_full = (
-            self.onsite_energies[z_orb, shell_idx].to(
-                dtype=dtype, device=device
-            )
-            * self.energy_scale
-        )
+        shell_idx = self.orbital_shell_map[z_orb, local_orb_idxs].to(torch.int64)
+        onsite_full = self.onsite_energies[z_orb, shell_idx].to(dtype=dtype, device=device) * self.energy_scale
 
         e_site = torch.zeros((n_sites, max_orb), device=device, dtype=dtype)
         e_site.index_put_(
@@ -1594,15 +1411,11 @@ class PODHamiltonian(E3SKHamiltonian):
             )
 
         site_j = neighbors[site_i, adj].to(torch.int64)
-        edge_images_all = torch.zeros(
-            (site_i.shape[0], 3), dtype=torch.int64, device=device
-        )
+        edge_images_all = torch.zeros((site_i.shape[0], 3), dtype=torch.int64, device=device)
         if unit_cell_images is not None:
             if unit_cell is None:
                 raise ValueError("`unit_cell_images` requires `unit_cell`.")
-            edge_images_all = unit_cell_images.to(
-                device=device, dtype=torch.int64
-            )[site_i, adj]
+            edge_images_all = unit_cell_images.to(device=device, dtype=torch.int64)[site_i, adj]
 
         src_all = site_i.to(torch.int64)
         dst_all = site_j.to(torch.int64)
@@ -1617,16 +1430,10 @@ class PODHamiltonian(E3SKHamiltonian):
                 lex_pos = (
                     (img_nz[:, 0] > 0)
                     | ((img_nz[:, 0] == 0) & (img_nz[:, 1] > 0))
-                    | (
-                        (img_nz[:, 0] == 0)
-                        & (img_nz[:, 1] == 0)
-                        & (img_nz[:, 2] > 0)
-                    )
+                    | ((img_nz[:, 0] == 0) & (img_nz[:, 1] == 0) & (img_nz[:, 2] > 0))
                 )
                 same_idx = torch.nonzero(same, as_tuple=False).view(-1)
-                nz_idx = same_idx[
-                    torch.nonzero(nonzero, as_tuple=False).view(-1)
-                ]
+                nz_idx = same_idx[torch.nonzero(nonzero, as_tuple=False).view(-1)]
                 keep[nz_idx] = lex_pos
 
         src = src_all[keep]
@@ -1644,16 +1451,12 @@ class PODHamiltonian(E3SKHamiltonian):
 
         disp = positions[dst] - positions[src]
         if unit_cell is not None:
-            shift = edge_images.to(dtype=dtype, device=device) @ unit_cell.to(
-                dtype=dtype, device=device
-            )
+            shift = edge_images.to(dtype=dtype, device=device) @ unit_cell.to(dtype=dtype, device=device)
             disp = disp + shift
 
         r = torch.linalg.norm(disp, dim=-1)
         if bool((r <= 0).any().item()):
-            raise ValueError(
-                "Encountered zero-distance neighbor pair while building POD Hamiltonian."
-            )
+            raise ValueError("Encountered zero-distance neighbor pair while building POD Hamiltonian.")
         u = disp / r.view(-1, 1)
 
         y = o3.spherical_harmonics(
@@ -1694,12 +1497,8 @@ class PODHamiltonian(E3SKHamiltonian):
 
             val = op.reshape(E, dim_in * dim_out)
 
-            ar_in = torch.arange(dim_in, device=device, dtype=torch.int64).view(
-                1, -1
-            )
-            ar_out = torch.arange(
-                dim_out, device=device, dtype=torch.int64
-            ).view(1, -1)
+            ar_in = torch.arange(dim_in, device=device, dtype=torch.int64).view(1, -1)
+            ar_out = torch.arange(dim_out, device=device, dtype=torch.int64).view(1, -1)
 
             for s_in in range(n_shells_max):
                 l_in_s = l_in_all[:, s_in]
@@ -1707,9 +1506,7 @@ class PODHamiltonian(E3SKHamiltonian):
                 valid_in = (l_in_s == int(l_in)) & (row0 >= 0)
                 row0 = row0.clamp_min(0).to(torch.int64).view(-1, 1)
                 row_idx = row0 + ar_in  # [E, dim_in]
-                row_idx_flat = row_idx.repeat_interleave(
-                    dim_out, dim=1
-                )  # [E, dim_in*dim_out]
+                row_idx_flat = row_idx.repeat_interleave(dim_out, dim=1)  # [E, dim_in*dim_out]
 
                 for s_out in range(n_shells_max):
                     l_out_s = l_out_all[:, s_out]
@@ -1717,23 +1514,15 @@ class PODHamiltonian(E3SKHamiltonian):
                     valid = valid_in & (l_out_s == int(l_out)) & (col0 >= 0)
                     col0 = col0.clamp_min(0).to(torch.int64).view(-1, 1)
                     col_idx = col0 + ar_out  # [E, dim_out]
-                    col_idx_flat = col_idx.repeat(
-                        1, dim_in
-                    )  # [E, dim_in*dim_out]
+                    col_idx_flat = col_idx.repeat(1, dim_in)  # [E, dim_in*dim_out]
 
                     lin = row_idx_flat * max_orb + col_idx_flat
-                    H_flat.scatter_add_(
-                        1, lin, val * valid.to(dtype=dtype).view(E, 1)
-                    )
+                    H_flat.scatter_add_(1, lin, val * valid.to(dtype=dtype).view(E, 1))
 
         H_edge = H_flat.view(E, max_orb, max_orb)
 
         # Per-site covariance accumulation: C_i += H_ij H_ij^T and C_j += H_ij^T H_ij.
-        cov = (
-            torch.eye(max_orb, device=device, dtype=dtype)
-            .view(1, max_orb, max_orb)
-            .expand(n_sites, -1, -1)
-        )
+        cov = torch.eye(max_orb, device=device, dtype=dtype).view(1, max_orb, max_orb).expand(n_sites, -1, -1)
         cov = cov * self.pod_eps
 
         cov_src = H_edge @ H_edge.mT
@@ -1759,18 +1548,12 @@ class PODHamiltonian(E3SKHamiltonian):
         if k > 1:
             tri = torch.triu_indices(k, k, offset=1, device=device)
             P = int(tri.shape[1])
-            base = (
-                torch.arange(n_sites, device=device, dtype=torch.int64) * k
-            ).view(-1, 1)
+            base = (torch.arange(n_sites, device=device, dtype=torch.int64) * k).view(-1, 1)
             a = base + tri[0].view(1, -1)
             b = base + tri[1].view(1, -1)
             onsite_pairs = torch.stack((a, b), dim=-1).reshape(n_sites * P, 2)
-            onsite_vals = (
-                Hii[:, tri[0], tri[1]].reshape(n_sites * P).to(dtype=dtype)
-            )
-            onsite_img = torch.zeros(
-                (n_sites * P, 3), device=device, dtype=torch.int64
-            )
+            onsite_vals = Hii[:, tri[0], tri[1]].reshape(n_sites * P).to(dtype=dtype)
+            onsite_img = torch.zeros((n_sites * P, 3), device=device, dtype=torch.int64)
         else:
             onsite_pairs = torch.empty((0, 2), device=device, dtype=torch.int64)
             onsite_vals = torch.empty((0,), device=device, dtype=dtype)
@@ -1782,27 +1565,14 @@ class PODHamiltonian(E3SKHamiltonian):
         Htmp = H_edge @ U_dst  # [E, max_orb, k]
         Hij = (U_src.mT @ Htmp).to(dtype=dtype)  # [E, k, k]
 
-        ii = (src * k).view(-1, 1) + torch.arange(
-            k, device=device, dtype=torch.int64
-        ).view(
-            1, -1
-        )  # [E, k]
-        jj = (dst * k).view(-1, 1) + torch.arange(
-            k, device=device, dtype=torch.int64
-        ).view(
-            1, -1
-        )  # [E, k]
+        ii = (src * k).view(-1, 1) + torch.arange(k, device=device, dtype=torch.int64).view(1, -1)  # [E, k]
+        jj = (dst * k).view(-1, 1) + torch.arange(k, device=device, dtype=torch.int64).view(1, -1)  # [E, k]
 
         a = ii[:, :, None].expand(E, k, k)
         b = jj[:, None, :].expand(E, k, k)
         edge_pairs = torch.stack((a, b), dim=-1).reshape(E * k * k, 2)
         edge_vals = Hij.reshape(E * k * k)
-        edge_img = (
-            edge_images.to(torch.int64)
-            .view(E, 1, 1, 3)
-            .expand(E, k, k, 3)
-            .reshape(E * k * k, 3)
-        )
+        edge_img = edge_images.to(torch.int64).view(E, 1, 1, 3).expand(E, k, k, 3).reshape(E * k * k, 3)
 
         # Concatenate couplings and add transpose counterparts.
         pairs_u = torch.cat((onsite_pairs, edge_pairs), dim=0)
@@ -1839,25 +1609,19 @@ class PODHamiltonian(E3SKHamiltonian):
                 **kwargs,
             )
 
-        onsite_values, couplings, coupling_values, images = (
-            self.hamiltonian_operator_entries(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                **kwargs,
-            )
+        onsite_values, couplings, coupling_values, images = self.hamiltonian_operator_entries(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            **kwargs,
         )
 
         n_sites = int(atomic_numbers.shape[0])
         k = int(self.bands_per_atom)
-        site_indices = torch.arange(
-            n_sites, device=positions.device, dtype=torch.int64
-        ).repeat_interleave(k)
-        orbital_indices = torch.arange(
-            k, device=positions.device, dtype=torch.int64
-        ).repeat(n_sites)
+        site_indices = torch.arange(n_sites, device=positions.device, dtype=torch.int64).repeat_interleave(k)
+        orbital_indices = torch.arange(k, device=positions.device, dtype=torch.int64).repeat(n_sites)
 
         return TorchOperator(
             onsite_values=onsite_values,
@@ -1876,20 +1640,14 @@ class PODHamiltonian(E3SKHamiltonian):
         **kwargs,
     ) -> tuple[torch.IntTensor, torch.IntTensor]:
         if self.bands_per_atom is None:
-            return super().orbital_indices(
-                atomic_numbers, positions, neighbors, **kwargs
-            )
+            return super().orbital_indices(atomic_numbers, positions, neighbors, **kwargs)
 
         n_sites = int(atomic_numbers.shape[0])
         k = int(self.bands_per_atom)
         device = atomic_numbers.device
 
-        site_indices = torch.arange(
-            n_sites, device=device, dtype=torch.int64
-        ).repeat_interleave(k)
-        orbital_indices = torch.arange(
-            k, device=device, dtype=torch.int64
-        ).repeat(n_sites)
+        site_indices = torch.arange(n_sites, device=device, dtype=torch.int64).repeat_interleave(k)
+        orbital_indices = torch.arange(k, device=device, dtype=torch.int64).repeat(n_sites)
         return site_indices, orbital_indices
 
     def orbital_names(
@@ -1900,9 +1658,7 @@ class PODHamiltonian(E3SKHamiltonian):
         **kwargs,
     ) -> list[str]:
         if self.bands_per_atom is None:
-            return super().orbital_names(
-                atomic_numbers, positions, neighbors, **kwargs
-            )
+            return super().orbital_names(atomic_numbers, positions, neighbors, **kwargs)
 
         n_sites = int(atomic_numbers.shape[0])
         k = int(self.bands_per_atom)
@@ -1916,13 +1672,9 @@ class PODHamiltonian(E3SKHamiltonian):
         **kwargs,
     ) -> torch.Tensor:
         if self.bands_per_atom is None:
-            return super().orbital_quantum_numbers(
-                atomic_numbers, positions, neighbors, **kwargs
-            )
+            return super().orbital_quantum_numbers(atomic_numbers, positions, neighbors, **kwargs)
 
         n_sites = int(atomic_numbers.shape[0])
         k = int(self.bands_per_atom)
-        q = torch.arange(
-            k, device=atomic_numbers.device, dtype=torch.int64
-        ).repeat(n_sites)
+        q = torch.arange(k, device=atomic_numbers.device, dtype=torch.int64).repeat(n_sites)
         return q.view(-1, 1)

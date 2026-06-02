@@ -8,9 +8,7 @@ from pyquinn.types.atom_graph import BackendAtomGraph
 from pyquinn.types.backend import _load_backend_object
 from pyquinn.types.bandstructure import BackendBandStructure
 
-SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = {
-    "torch": "pyquinn.torch.types.TorchBandStructureDataset"
-}
+SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS = {"torch": "pyquinn.torch.types.TorchBandStructureDataset"}
 """ The supported backend BandStructureDataset objects"""
 
 
@@ -75,21 +73,17 @@ class BandStructureDataset(BandStructureDatasetBase):
             names = [None] * len(graphs)
 
         if len(graphs) != len(names):
-            raise ValueError(
-                f"Expected len(graphs) == len(names); "
-                f"got: {len(graphs)} != {len(names)}."
-            )
+            raise ValueError(f"Expected len(graphs) == len(names); " f"got: {len(graphs)} != {len(names)}.")
         if len(graphs) != len(band_structures):
             raise ValueError(
-                f"Expected len(graphs) == len(band_structures); "
-                f"got: {len(graphs)} != {len(band_structures)}."
+                f"Expected len(graphs) == len(band_structures); " f"got: {len(graphs)} != {len(band_structures)}."
             )
 
         # resolve the name of each graph:
         n_graphs = len(self.graphs)
         names = [
             AtomGraphDataset._resolve_graph_name(n_graphs + i, g, gn)
-            for i, (g, gn) in enumerate(zip(graphs, names))
+            for i, (g, gn) in enumerate(zip(graphs, names, strict=False))
         ]
 
         self.graphs.extend(graphs)
@@ -126,16 +120,10 @@ class BandStructureDataset(BandStructureDatasetBase):
         return graph, bands
 
     def items(self):
-        for name, graph, bands in zip(
-            self.names, self.graphs, self.band_structures
-        ):
+        for name, graph, bands in zip(self.names, self.graphs, self.band_structures, strict=False):
 
-            resolved_graph = (
-                AtomGraph.load(graph) if isinstance(graph, str) else graph
-            )
-            resolved_bands = (
-                BandStructure.load(bands) if isinstance(bands, str) else bands
-            )
+            resolved_graph = AtomGraph.load(graph) if isinstance(graph, str) else graph
+            resolved_bands = BandStructure.load(bands) if isinstance(bands, str) else bands
 
             yield name, (resolved_graph, resolved_bands)
 
@@ -155,9 +143,7 @@ class BandStructureDataset(BandStructureDatasetBase):
         if backend not in BandStructureDataset._backends:
             if backend in SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS:
                 path = SUPPORTED_BANDSTRUCTURE_DATASET_BACKENDS[backend]
-                BandStructureDataset._backends[backend] = _load_backend_object(
-                    backend, path
-                )
+                BandStructureDataset._backends[backend] = _load_backend_object(backend, path)
             else:
                 raise ValueError(f"Unknown Backend Type: {backend}")
 
@@ -197,9 +183,7 @@ class BandStructureDataset(BandStructureDatasetBase):
 
         graph_files = glob(os.path.join(dir, "*.pkl"))
 
-        names = sorted(
-            AtomGraphDataset._parse_graph_name(file) for file in graph_files
-        )
+        names = sorted(AtomGraphDataset._parse_graph_name(file) for file in graph_files)
 
         # parse all matching files:
         graphs = []
@@ -209,16 +193,10 @@ class BandStructureDataset(BandStructureDatasetBase):
             band_file = os.path.join(dir, f"{name}.pkl.bands")
 
             if os.path.exists(graph_file) and os.path.exists(band_file):
-                graphs.append(
-                    AtomGraph.load(graph_file) if in_memory else graph_file
-                )
-                band_structures.append(
-                    BandStructure.load(band_file) if in_memory else band_file
-                )
+                graphs.append(AtomGraph.load(graph_file) if in_memory else graph_file)
+                band_structures.append(BandStructure.load(band_file) if in_memory else band_file)
 
-        return BandStructureDataset(
-            graphs=graphs, band_structures=band_structures, names=names
-        )
+        return BandStructureDataset(graphs=graphs, band_structures=band_structures, names=names)
 
 
 class BackendBandStructureDataset(ABC, BandStructureDatasetBase):

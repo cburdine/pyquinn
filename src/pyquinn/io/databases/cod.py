@@ -94,8 +94,7 @@ class COD(Database):
                 return None
             elif response.status_code != 200:
                 raise HTTPError(
-                    f"HTTP Request failed with status code "
-                    f"{response.status_code}.",
+                    f"HTTP Request failed with status code " f"{response.status_code}.",
                     response=response,
                 )
             else:
@@ -146,9 +145,7 @@ class COD(Database):
         results = self.search(cod_query_params).keys()
         return [str(result) for result in results]
 
-    def get_atomgraphs_with_elements(
-        self, elements: list[str] | str
-    ) -> dict[str, AtomGraph]:
+    def get_atomgraphs_with_elements(self, elements: list[str] | str) -> dict[str, AtomGraph]:
         """Retrieves a list of all AtomGraphs containing either some or
         all of the supplied list of elements.
 
@@ -181,9 +178,7 @@ class COD(Database):
 
         return atomgraphs
 
-    def get_atomgraph_ids_with_elements(
-        self, elements: list[str] | str
-    ) -> list[str]:
+    def get_atomgraph_ids_with_elements(self, elements: list[str] | str) -> list[str]:
         """Retrieves the IDs associated with all AtomGraphs containing
         either some or all of the supplied list of elements.
 
@@ -203,10 +198,7 @@ class COD(Database):
         if not elements:
             raise Exception("Elements list cannot be empty")
         elif len(elements) > 8:
-            raise Exception(
-                "COD only supports queries with up to 8 elements "
-                f"(got: {len(elements)})."
-            )
+            raise Exception("COD only supports queries with up to 8 elements " f"(got: {len(elements)}).")
 
         params = {f"el{i + 1}": sym for i, sym in enumerate(elements)}
         params["strictmax"] = str(len(elements))
@@ -262,9 +254,7 @@ class COD(Database):
         if response.status_code == 404:
             return dict()
         elif response.status_code != 200:
-            raise Exception(
-                f"HTTP Request failed with status code {response.status_code}."
-            )
+            raise Exception(f"HTTP Request failed with status code {response.status_code}.")
         else:
             results = response.json()
             return {res["file"]: res for res in results}

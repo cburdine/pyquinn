@@ -6,9 +6,7 @@ from pyquinn.io.stdout import progress_bar
 from pyquinn.types import AtomGraph
 from pyquinn.types.backend import _load_backend_object
 
-SUPPORTED_DATASET_BACKENDS = {
-    "torch": "pyquinn.torch.types.TorchAtomGraphDataset"
-}
+SUPPORTED_DATASET_BACKENDS = {"torch": "pyquinn.torch.types.TorchAtomGraphDataset"}
 """ The supported backend AtomGraphDataset objects"""
 
 
@@ -152,16 +150,13 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             names = [None] * len(graphs)
 
         if len(graphs) != len(names):
-            raise ValueError(
-                f"Expected len(graphs) == len(names); "
-                f"got: {len(graphs)} != {len(names)}."
-            )
+            raise ValueError(f"Expected len(graphs) == len(names); " f"got: {len(graphs)} != {len(names)}.")
 
         # resolve the name of each graph:
         n_graphs = len(self.graphs)
         names = [
             AtomGraphDataset._resolve_graph_name(n_graphs + i, g, gn)
-            for i, (g, gn) in enumerate(zip(graphs, names))
+            for i, (g, gn) in enumerate(zip(graphs, names, strict=False))
         ]
 
         self.graphs.extend(graphs)
@@ -174,9 +169,7 @@ class AtomGraphDataset(AtomGraphDatasetBase):
         return name
 
     @staticmethod
-    def _resolve_graph_name(
-        idx: int, graph: AtomGraph, graph_name: str | None = None
-    ):
+    def _resolve_graph_name(idx: int, graph: AtomGraph, graph_name: str | None = None):
 
         if graph_name is None:
             if isinstance(graph, str):
@@ -221,10 +214,8 @@ class AtomGraphDataset(AtomGraphDatasetBase):
         Yields:
             tuple[str, AtomGraph]: Pairs of names and AtomGraphs.
         """
-        for name, graph in zip(self.names, self.graphs):
-            resolved_graph = (
-                AtomGraph.load(graph) if isinstance(graph, str) else graph
-            )
+        for name, graph in zip(self.names, self.graphs, strict=False):
+            resolved_graph = AtomGraph.load(graph) if isinstance(graph, str) else graph
             yield name, resolved_graph
 
     def compile(
@@ -306,9 +297,7 @@ class AtomGraphDataset(AtomGraphDatasetBase):
     def load(dir: str, in_memory: bool = False):
 
         graph_files = glob(os.path.join(dir, "*.pkl"))
-        names = sorted(
-            AtomGraphDataset._parse_graph_name(file) for file in graph_files
-        )
+        names = sorted(AtomGraphDataset._parse_graph_name(file) for file in graph_files)
 
         # parse all matching files:
         graphs = []
@@ -316,18 +305,14 @@ class AtomGraphDataset(AtomGraphDatasetBase):
             graph_file = os.path.join(dir, f"{name}.pkl")
 
             if os.path.exists(graph_file):
-                graphs.append(
-                    AtomGraph.load(graph_file) if in_memory else graph_file
-                )
+                graphs.append(AtomGraph.load(graph_file) if in_memory else graph_file)
 
         return AtomGraphDataset(graphs=graphs, names=names)
 
 
 class BackendAtomGraphDataset(ABC, AtomGraphDatasetBase):
 
-    def __init__(
-        self, graphs: list[str], names: list[str], cache_dir: str | None = None
-    ):
+    def __init__(self, graphs: list[str], names: list[str], cache_dir: str | None = None):
 
         self.graphs = graphs
         self.names = names

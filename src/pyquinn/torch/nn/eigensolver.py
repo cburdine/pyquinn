@@ -25,9 +25,7 @@ class _StableEigh(torch.autograd.Function):
         dLdV = grad_eigvecs  # (..., N, N)
 
         # 1. Compute symmetric part: V @ diag(dL/dLambda) @ V^T
-        grad_lambda_term = (
-            V @ torch.diag_embed(dLdLambda).to(V.dtype) @ VT
-        )  # (..., N, N)
+        grad_lambda_term = V @ torch.diag_embed(dLdLambda).to(V.dtype) @ VT  # (..., N, N)
 
         # 2. Compute eigenvector term
         #    Compute F_ij = 1 / (λ_i - λ_j) with 0 on diagonal
@@ -43,9 +41,7 @@ class _StableEigh(torch.autograd.Function):
 
         # Apply symmetric correction
         F_prod = F * Vt_dLdV
-        grad_v_term = (
-            V @ (F_prod + F_prod.conj().transpose(-2, -1)) * 0.5 @ VT
-        )  # (..., N, N)
+        grad_v_term = V @ (F_prod + F_prod.conj().transpose(-2, -1)) * 0.5 @ VT  # (..., N, N)
 
         # Combine
         grad_input = grad_lambda_term + grad_v_term
@@ -97,9 +93,7 @@ class Eigensolver(nn.Module, ABC):
         return decorator
 
     @staticmethod
-    def from_name(
-        solver_name: str, solver_kwargs: dict | None = None
-    ) -> "Eigensolver":
+    def from_name(solver_name: str, solver_kwargs: dict | None = None) -> "Eigensolver":
         """Loads an eigensolver with the given name from the set of
         supported eigensolvers in :attr:`SUPPORTED_EIGENSOLVERS
         <pyquinn.torch.eigensolver.SUPPORTED_EIGENSOLVERS>`
@@ -124,9 +118,7 @@ class Eigensolver(nn.Module, ABC):
         return Eigensolver._solvers[solver_name](**solver_kwargs)
 
     @abstractmethod
-    def diagonalize(
-        self, M: torch.Tensor, **kwargs
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def diagonalize(self, M: torch.Tensor, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "This method should be implemented in a "
             "subclass. To create a subclass instance, "
@@ -190,7 +182,9 @@ class EighEigensolver(Eigensolver):
 @Eigensolver.register("torch_lobpcg")
 class LobpcgEigensolver(Eigensolver):
 
-    def __init__(self, solver_kwargs: dict = {}):
+    def __init__(self, solver_kwargs: dict = None):
+        if solver_kwargs is None:
+            solver_kwargs = {}
         super().__init__()
         self.solver_kwargs = solver_kwargs
 
@@ -207,8 +201,8 @@ class LobpcgEigensolver(Eigensolver):
     def diagonalize(
         self,
         H: torch.Tensor,
-        E_min: torch.Tensor = torch.tensor(0.0),
-        n: torch.Tensor = torch.tensor(1),
+        E_min: torch.Tensor = 0.0,
+        n: torch.Tensor = 1,
         S: torch.Tensor | None = None,
         C: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -234,9 +228,9 @@ class LobpcgEigensolver(Eigensolver):
 
         Args:
             H (torch.Tensor): Hermitian matrix (shape: [..., N, N])
-            E_min (torch.Tensor, optional): Lower bound on eigenvalues of the
+            E_min (torch.Tensor | float, optional): Lower bound on eigenvalues of the
                 Hamiltonian. Defaults to torch.tensor(0.0).
-            n (torch.Tensor, optional): Number of lowest eigenvalues to
+            n (torch.Tensor | int, optional): Number of lowest eigenvalues to
                 solve for. Defaults to 1.
             S (torch.Tensor | None, optional): Overlap matrix :math:`S`.
                 (shape: [..., N, N]). Defaults to None.
@@ -250,9 +244,7 @@ class LobpcgEigensolver(Eigensolver):
 
         H_posdef = H - E_min * torch.eye(H.shape[-1])
 
-        eigvals, eigvects = torch.lobpcg(
-            A=H_posdef, k=n, B=S, X=C, largest=False, **self.solver_kwargs
-        )
+        eigvals, eigvects = torch.lobpcg(A=H_posdef, k=n, B=S, X=C, largest=False, **self.solver_kwargs)
         eigvals += E_min
 
         return eigvals, eigvects
@@ -260,8 +252,8 @@ class LobpcgEigensolver(Eigensolver):
     def forward(
         self,
         H: torch.Tensor,
-        E_min: torch.Tensor = torch.tensor(0.0),
-        n: torch.Tensor = torch.tensor(1),
+        E_min: torch.Tensor = 0.0,
+        n: torch.Tensor = 1,
         S: torch.Tensor | None = None,
         C: torch.Tensor | None = None,
     ):
@@ -287,9 +279,9 @@ class LobpcgEigensolver(Eigensolver):
 
         Args:
             H (torch.Tensor): Hermitian matrix (shape: [..., N, N])
-            E_min (torch.Tensor, optional): Lower bound on eigenvalues of the
+            E_min (torch.Tensor | float, optional): Lower bound on eigenvalues of the
                 Hamiltonian. Defaults to torch.tensor(0.0).
-            n (torch.Tensor, optional): Number of lowest eigenvalues to
+            n (torch.Tensor, | int optional): Number of lowest eigenvalues to
                 solve for. Defaults to 1.
             S (torch.Tensor | None, optional): Overlap matrix :math:`S`.
                 (shape: [..., N, N]). Defaults to None.

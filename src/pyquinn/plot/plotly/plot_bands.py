@@ -29,9 +29,7 @@ def _normalize_color(
                 r, g, b = [int(hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
                 return (r, g, b, 1.0)
             elif len(hex) == 8:
-                r, g, b, a = [
-                    int(hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4, 6)
-                ]
+                r, g, b, a = [int(hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4, 6)]
                 return (r, g, b, a)
         elif c in PLOTLY_BAND_COLORS:
             return PLOTLY_BAND_COLORS[c]

@@ -91,8 +91,7 @@ class MaterialsProject(Database):
                 mp_api_key = os.environ["MP_API_KEY"]
             else:
                 raise ValueError(
-                    "Materials Project API key must be given or "
-                    "set in the environment variable $MP_API_KEY"
+                    "Materials Project API key must be given or " "set in the environment variable $MP_API_KEY"
                 )
 
         self._cache_dir = tempfile.TemporaryDirectory()
@@ -125,9 +124,7 @@ class MaterialsProject(Database):
 
         # check if file is cached, if not, fetch data from database:
         if not os.path.isfile(id_file):
-            structure = self.mp_connector.get_structure_by_material_id(
-                id, **kwargs
-            )
+            structure = self.mp_connector.get_structure_by_material_id(id, **kwargs)
             if isinstance(structure, list):
                 if structure:
                     structure = structure[0]
@@ -140,9 +137,7 @@ class MaterialsProject(Database):
         graph = AtomGraph.from_file(id_file)
         return graph
 
-    def get_atomgraphs(
-        self, formula: str, max_ehull: float | None = None
-    ) -> dict[str, AtomGraph]:
+    def get_atomgraphs(self, formula: str, max_ehull: float | None = None) -> dict[str, AtomGraph]:
         """Retrieves a list of all AtomGraphs associated with the
            given chemical formula string.
 
@@ -163,9 +158,7 @@ class MaterialsProject(Database):
         atomgraphs = {}
         for doc in docs:
             # cache material structure:
-            id_file = os.path.join(
-                self._cache_dir.name, f"{doc.material_id}.cif"
-            )
+            id_file = os.path.join(self._cache_dir.name, f"{doc.material_id}.cif")
             doc.structure.to(id_file, fmt="cif")
 
             # parse structure as atoms:
@@ -174,9 +167,7 @@ class MaterialsProject(Database):
 
         return atomgraphs
 
-    def get_atomgraph_ids(
-        self, formula: str, max_ehull: float | None = None
-    ) -> list[str]:
+    def get_atomgraph_ids(self, formula: str, max_ehull: float | None = None) -> list[str]:
         """Retrieves the IDs associated with all AtomGraphs matching
         the given chemical formula string.
 
@@ -232,18 +223,14 @@ class MaterialsProject(Database):
         # cache and parse structures
         atomgraphs = {}
         for doc in docs:
-            id_file = os.path.join(
-                self._cache_dir.name, f"{doc.material_id}.cif"
-            )
+            id_file = os.path.join(self._cache_dir.name, f"{doc.material_id}.cif")
             doc.structure.to(id_file, fmt="cif")
             graph = AtomGraph.from_file(id_file)
             atomgraphs[str(doc.material_id)] = graph
 
         return atomgraphs
 
-    def get_atomgraph_ids_with_elements(
-        self, elements: list[str], max_ehull: float | None = None
-    ) -> list[str]:
+    def get_atomgraph_ids_with_elements(self, elements: list[str], max_ehull: float | None = None) -> list[str]:
         """Retrieves the IDs associated with all AtomGraphs containing
         either some or all of the supplied list of elements.
 
@@ -321,9 +308,7 @@ class MaterialsProject(Database):
         for doc in docs:
             # cache material structures (if present):
             if "atomgraph" in doc:
-                id_file = os.path.join(
-                    self._cache_dir.name, f"{doc.material_id}.cif"
-                )
+                id_file = os.path.join(self._cache_dir.name, f"{doc.material_id}.cif")
                 doc.structure.to(id_file, fmt="cif")
 
                 # parse structure as atoms:
@@ -347,20 +332,14 @@ class MaterialsProject(Database):
                 - `energy_per_atom`: The total energy per atom.
         """
 
-        docs = self.mp_connector.summary.search(
-            material_ids=id, fields=["material_id"] + self._thermodynamic_fields
-        )
+        docs = self.mp_connector.summary.search(material_ids=id, fields=["material_id"] + self._thermodynamic_fields)
 
         doc_dict = dict(docs[0])
-        result = {
-            field: doc_dict[field] for field in self._thermodynamic_fields
-        }
+        result = {field: doc_dict[field] for field in self._thermodynamic_fields}
 
         return result
 
-    def get_thermodynamic_data_with_elements(
-        self, elements: list[str], max_ehull: float | None = None
-    ) -> dict:
+    def get_thermodynamic_data_with_elements(self, elements: list[str], max_ehull: float | None = None) -> dict:
         """Retrieves the thermodynamic data associated with all materials
         containing either some or all of the supplied list of elements.
 
@@ -387,9 +366,7 @@ class MaterialsProject(Database):
         results = {}
         for doc in docs:
             doc_dict = dict(doc)
-            results[str(doc.material_id)] = {
-                field: doc_dict[field] for field in self._thermodynamic_fields
-            }
+            results[str(doc.material_id)] = {field: doc_dict[field] for field in self._thermodynamic_fields}
 
         return results
 
@@ -422,17 +399,11 @@ class MaterialsProject(Database):
                 projs_list = None
             elif projs_list is not None:
                 projs = np.array(bandstructure.projections[k])
-                projs_list.append(
-                    np.moveaxis(projs, (0, 1, 2, 3), (1, 0, 3, 2))
-                )
+                projs_list.append(np.moveaxis(projs, (0, 1, 2, 3), (1, 0, 3, 2)))
 
         energies = np.stack(bands_list, axis=-1).squeeze(-1)
 
-        projections = (
-            np.stack(projs_list, axis=-1).squeeze(-1)
-            if projs_list is not None
-            else None
-        )
+        projections = np.stack(projs_list, axis=-1).squeeze(-1) if projs_list is not None else None
 
         bandstructure = BandStructure(
             energies=energies,

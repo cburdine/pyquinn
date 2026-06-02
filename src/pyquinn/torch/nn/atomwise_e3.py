@@ -28,18 +28,12 @@ def _make_irrep_change_of_basis(o3_basis: str = "xyz"):
     o3_eye = torch.eye(3)
 
     if not isinstance(o3_basis, str) or len(o3_basis) > 3:
-        raise ValueError(
-            f"Expected o3_basis to be a string of length 3; "
-            f'got: "{o3_basis}."'
-        )
+        raise ValueError(f"Expected o3_basis to be a string of length 3; " f'got: "{o3_basis}."')
 
     for i, ch in enumerate(o3_basis):
         ax = ch.lower()
         if ax not in "xyz":
-            raise ValueError(
-                f'Unknown axis "{ax}" in basis string "{o3_basis}"; '
-                f'expected "x", "y", or "z"'
-            )
+            raise ValueError(f'Unknown axis "{ax}" in basis string "{o3_basis}"; ' f'expected "x", "y", or "z"')
         o3_matrix[:, i] = o3_eye["xyz".index(ch)]
 
     return o3_matrix
@@ -86,16 +80,12 @@ class AtomwiseE3Conv(AtomwiseConv):
         self.r_max = r_max
         self.r_points = r_points
 
-        D_output_transform = self.out_irreps.D_from_matrix(
-            _make_irrep_change_of_basis(o3_basis)
-        )
+        D_output_transform = self.out_irreps.D_from_matrix(_make_irrep_change_of_basis(o3_basis))
 
         self.register_buffer("D_output_transform", D_output_transform)
 
         D_input_transform = (
-            self.in_irreps.D_from_matrix(_make_irrep_change_of_basis(o3_basis))
-            if self.in_irreps
-            else None
+            self.in_irreps.D_from_matrix(_make_irrep_change_of_basis(o3_basis)) if self.in_irreps else None
         )
 
         self.register_buffer("D_input_transform", D_input_transform)
@@ -117,9 +107,7 @@ class AtomwiseE3Conv(AtomwiseConv):
 
         for i in range(layers - 1):
             layer_in_irreps = self.hidden_irreps
-            layer_out_irreps = (
-                self.hidden_irreps if i < (layers - 2) else self.out_irreps
-            )
+            layer_out_irreps = self.hidden_irreps if i < (layers - 2) else self.out_irreps
             self.irrep_tps.append(
                 o3.FullyConnectedTensorProduct(
                     layer_in_irreps,
@@ -130,37 +118,24 @@ class AtomwiseE3Conv(AtomwiseConv):
             )
 
         self.edge_nns = nn.ModuleList(
-            [
-                e3nn.nn.FullyConnectedNet(
-                    [r_points, r_points, tp.weight_numel], self.activation
-                )
-                for tp in self.irrep_tps
-            ]
+            [e3nn.nn.FullyConnectedNet([r_points, r_points, tp.weight_numel], self.activation) for tp in self.irrep_tps]
         )
 
     def _get_atom_features(self, atomic_numbers, features):
 
         # build atomic "one-hot" encoded features
-        atom_features = nn.functional.one_hot(
-            atomic_numbers, num_classes=self.z_max + 1
-        ).to(torch.float32)
+        atom_features = nn.functional.one_hot(atomic_numbers, num_classes=self.z_max + 1).to(torch.float32)
 
         if features is not None and self.D_input_transform is not None:
             transformed_features = features @ self.D_input_transform.T
-            atom_features = torch.cat(
-                (atom_features, transformed_features), dim=-1
-            )
+            atom_features = torch.cat((atom_features, transformed_features), dim=-1)
 
         return atom_features
 
-    def forward(
-        self, atomic_numbers, neighbors, neighbor_distances, features, **kwargs
-    ):
+    def forward(self, atomic_numbers, neighbors, neighbor_distances, features, **kwargs):
 
         # generate edge list between neighboring atoms (the "bond pairs")
-        bond_pairs, bond_distances = _get_neighbor_distance_edgelist(
-            neighbors=neighbors, distances=neighbor_distances
-        )
+        bond_pairs, bond_distances = _get_neighbor_distance_edgelist(neighbors=neighbors, distances=neighbor_distances)
 
         atom_neighbors = torch.sum(neighbors >= 0, dim=-1, keepdim=True)
 
@@ -184,7 +159,7 @@ class AtomwiseE3Conv(AtomwiseConv):
             normalization="component",
         )
 
-        for tp, edge_nn in zip(self.irrep_tps, self.edge_nns):
+        for tp, edge_nn in zip(self.irrep_tps, self.edge_nns, strict=False):
 
             tp_weights = edge_nn(bond_features)
             f = scatter(

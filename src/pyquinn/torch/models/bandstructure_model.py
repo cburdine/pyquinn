@@ -20,24 +20,16 @@ from pyquinn.torch.util import cuda_stream_map, get_optimizer
 
 class TorchBandStructureModel(nn.Module):
 
-    def __init__(
-        self, bands_model: TBHamiltonian | None = None, **model_kwargs
-    ):
+    def __init__(self, bands_model: TBHamiltonian | None = None, **model_kwargs):
 
         super().__init__()
 
-        self.bands_model = (
-            VariationalTBHamiltonian(**model_kwargs)
-            if bands_model is None
-            else bands_model
-        )
+        self.bands_model = VariationalTBHamiltonian(**model_kwargs) if bands_model is None else bands_model
 
     def forward(self, graph: TorchAtomGraph, k_pts: torch.Tensor):
         return self.bands(graph=graph, k_pts=k_pts)
 
-    def predict(
-        self, graph: TorchAtomGraph, k_pts: torch.Tensor
-    ) -> TorchBandStructure:
+    def predict(self, graph: TorchAtomGraph, k_pts: torch.Tensor) -> TorchBandStructure:
 
         bands, projections = self.band_projections(
             graph=graph,
@@ -53,9 +45,7 @@ class TorchBandStructureModel(nn.Module):
             chemical_potential=chemical_potential,
         )
 
-    def orbital_indices(
-        self, graph: TorchAtomGraph
-    ) -> tuple[torch.IntTensor, torch.IntTensor]:
+    def orbital_indices(self, graph: TorchAtomGraph) -> tuple[torch.IntTensor, torch.IntTensor]:
         return self.bands_model.orbital_indices(
             atomic_numbers=graph.atomic_numbers,
             positions=graph.positions,
@@ -93,14 +83,12 @@ class TorchBandStructureModel(nn.Module):
         )
 
     def hamiltonian_operator(self, graph: TorchAtomGraph):
-        onsite_values, couplings, coupling_values, images = (
-            self.bands_model.hamiltonian_operator_entries(
-                atomic_numbers=graph.atomic_numbers,
-                positions=graph.positions,
-                neighbors=graph.neighbors,
-                unit_cell=graph.unit_cell,
-                unit_cell_images=graph.unit_cell_images,
-            )
+        onsite_values, couplings, coupling_values, images = self.bands_model.hamiltonian_operator_entries(
+            atomic_numbers=graph.atomic_numbers,
+            positions=graph.positions,
+            neighbors=graph.neighbors,
+            unit_cell=graph.unit_cell,
+            unit_cell_images=graph.unit_cell_images,
         )
 
         site_indices, orbital_indices = self.bands_model.orbital_indices(
@@ -137,33 +125,22 @@ class TorchBandStructureModel(nn.Module):
 
         return bands, band_eigenstates
 
-    def _band_loss_fn(
-        self, pred_bands: torch.Tensor, target_bands: torch.Tensor
-    ):
+    def _band_loss_fn(self, pred_bands: torch.Tensor, target_bands: torch.Tensor):
 
         n_bands = min(pred_bands.shape[-1], target_bands.shape[-1])
-        loss = torch.mean(
-            torch.square(
-                pred_bands[..., :n_bands] - target_bands[..., :n_bands]
-            )
-        )
+        loss = torch.mean(torch.square(pred_bands[..., :n_bands] - target_bands[..., :n_bands]))
 
         return loss
 
-    def _projection_loss_fn(
-        self, pred_projections: torch.Tensor, target_projections: torch.Tensor
-    ):
+    def _projection_loss_fn(self, pred_projections: torch.Tensor, target_projections: torch.Tensor):
 
         n_bands = min(pred_projections.shape[1], target_projections.shape[1])
-        n_orbitals = min(
-            pred_projections.shape[-1], target_projections.shape[-1]
-        )
+        n_orbitals = min(pred_projections.shape[-1], target_projections.shape[-1])
 
         loss = torch.mean(
             torch.sum(
                 torch.square(
-                    pred_projections[:, :n_bands, :, :n_orbitals]
-                    - target_projections[:, :n_bands, :, :n_orbitals],
+                    pred_projections[:, :n_bands, :, :n_orbitals] - target_projections[:, :n_bands, :, :n_orbitals],
                 ),
                 dim=(-2, -1),
             )
@@ -181,13 +158,9 @@ class TorchBandStructureModel(nn.Module):
 
         if use_projections:
 
-            pred_bands, pred_projections = self.band_projections(
-                graph=graph, k_pts=band_structure.k_pts
-            )
+            pred_bands, pred_projections = self.band_projections(graph=graph, k_pts=band_structure.k_pts)
 
-            band_loss = self._band_loss_fn(
-                pred_bands=pred_bands, target_bands=band_structure.energies
-            )
+            band_loss = self._band_loss_fn(pred_bands=pred_bands, target_bands=band_structure.energies)
             projection_loss = self._projection_loss_fn(
                 pred_projections=pred_projections,
                 target_projections=band_structure.projections,
@@ -217,20 +190,14 @@ class TorchBandStructureModel(nn.Module):
 
         pred_operator = self.hamiltonian_operator(graph)
 
-        image_offsets = torch.minimum(
-            operator.images.amin(dim=0), pred_operator.images.amin(dim=0)
-        ).reshape(1, 3)
+        image_offsets = torch.minimum(operator.images.amin(dim=0), pred_operator.images.amin(dim=0)).reshape(1, 3)
 
-        coupling_tuples = torch.hstack(
-            (operator.couplings, operator.images + image_offsets)
-        ).to(torch.int64)
-        pred_coupling_tuples = torch.hstack(
-            (pred_operator.couplings, pred_operator.images + image_offsets)
-        ).to(torch.int64)
-
-        tuple_dim_sizes = 1 + torch.maximum(
-            coupling_tuples.amax(dim=0), pred_coupling_tuples.amax(dim=0)
+        coupling_tuples = torch.hstack((operator.couplings, operator.images + image_offsets)).to(torch.int64)
+        pred_coupling_tuples = torch.hstack((pred_operator.couplings, pred_operator.images + image_offsets)).to(
+            torch.int64
         )
+
+        tuple_dim_sizes = 1 + torch.maximum(coupling_tuples.amax(dim=0), pred_coupling_tuples.amax(dim=0))
 
         strides = torch.ones_like(tuple_dim_sizes)
         strides[1:] = torch.cumprod(tuple_dim_sizes, 0)[:-1]
@@ -239,16 +206,12 @@ class TorchBandStructureModel(nn.Module):
         pred_coupling_keys = pred_coupling_tuples @ strides
 
         keys = torch.cat((coupling_keys, pred_coupling_keys))
-        value_diffs = torch.cat(
-            (operator.coupling_values, -pred_operator.coupling_values)
-        )
+        value_diffs = torch.cat((operator.coupling_values, -pred_operator.coupling_values))
         unique_keys, unique_inv = torch.unique(keys, return_inverse=True)
         reduced_diffs = torch.zeros_like(unique_keys, dtype=value_diffs.dtype)
         reduced_diffs.scatter_add_(0, unique_inv, value_diffs)
 
-        onsite_loss = torch.square(
-            torch.abs(operator.onsite_values - pred_operator.onsite_values)
-        ).mean()
+        onsite_loss = torch.square(torch.abs(operator.onsite_values - pred_operator.onsite_values)).mean()
         loss = torch.square(torch.abs(reduced_diffs)).mean()
 
         return loss + onsite_weight * onsite_loss
@@ -281,9 +244,7 @@ class TorchBandStructureModel(nn.Module):
             neighbors=graph.neighbors,
         )
 
-        bloch_projections = torch.square(
-            torch.abs(bloch_eigenstates.transpose(-2, -1))
-        )
+        bloch_projections = torch.square(torch.abs(bloch_eigenstates.transpose(-2, -1)))
 
         n_sites = graph.atomic_numbers.shape[0]
         n_orbital_indices = torch.max(orbital_indices) + 1
@@ -293,9 +254,7 @@ class TorchBandStructureModel(nn.Module):
             device=bloch_projections.device,
         )
 
-        band_projections[
-            ..., site_indices, orbital_indices
-        ] += bloch_projections
+        band_projections[..., site_indices, orbital_indices] += bloch_projections
 
         return bands, band_projections
 
@@ -453,9 +412,7 @@ class TorchBandStructureModel(nn.Module):
                 for batch in dataset_iter(train_dl):
 
                     # compute training loss
-                    batch_losses = cuda_stream_map(
-                        eval_loss, batch, batch_streams
-                    )
+                    batch_losses = cuda_stream_map(eval_loss, batch, batch_streams)
                     loss = sum(batch_losses) / len(batch_losses)
 
                     train_losses.append(loss.detach().cpu().numpy())
@@ -464,26 +421,19 @@ class TorchBandStructureModel(nn.Module):
                     for batch in dataset_iter(val_dl):
 
                         # compute validation loss
-                        batch_losses = cuda_stream_map(
-                            eval_loss, batch, batch_streams
-                        )
+                        batch_losses = cuda_stream_map(eval_loss, batch, batch_streams)
                         loss = sum(batch_losses) / len(batch_losses)
 
                         val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
-            epoch_validation_loss = (
-                None if val_dataset is None else np.nanmean(val_losses)
-            )
+            epoch_validation_loss = None if val_dataset is None else np.nanmean(val_losses)
 
             history["train_loss"].append(epoch_train_loss)
             history["validation_loss"].append(epoch_validation_loss)
 
             if verbosity >= 2:
-                print(
-                    f"Train loss: {epoch_train_loss}; "
-                    f"Validation loss: {epoch_validation_loss}."
-                )
+                print(f"Train loss: {epoch_train_loss}; " f"Validation loss: {epoch_validation_loss}.")
 
         for k, v in history.items():
             history[k] = np.array(v)
@@ -541,9 +491,7 @@ class TorchBandStructureModel(nn.Module):
         # loss function evaluator
         def eval_loss(data):
             graph, operator = data
-            return self._compute_operator_loss(
-                graph=graph.to(device), operator=operator.to(device)
-            )
+            return self._compute_operator_loss(graph=graph.to(device), operator=operator.to(device))
 
         # create history dictionary
         history = {
@@ -590,18 +538,13 @@ class TorchBandStructureModel(nn.Module):
                         val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
-            epoch_validation_loss = (
-                None if val_dataset is None else np.nanmean(val_losses)
-            )
+            epoch_validation_loss = None if val_dataset is None else np.nanmean(val_losses)
 
             history["train_loss"].append(epoch_train_loss)
             history["validation_loss"].append(epoch_validation_loss)
 
             if verbosity >= 2:
-                print(
-                    f"Train loss: {epoch_train_loss}; "
-                    f"Validation loss: {epoch_validation_loss}."
-                )
+                print(f"Train loss: {epoch_train_loss}; " f"Validation loss: {epoch_validation_loss}.")
 
         for k, v in history.items():
             history[k] = np.array(v)

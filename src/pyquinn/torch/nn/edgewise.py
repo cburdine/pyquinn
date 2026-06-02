@@ -42,9 +42,11 @@ class EdgewiseConv(nn.Module, ABC):
         in_edge_features: int | None = None,
         out_edge_features: int | None = None,
         z_max: int = 118,
-        module_kwargs: dict = {},
+        module_kwargs: dict = None,
     ):
 
+        if module_kwargs is None:
+            module_kwargs = {}
         if module_name not in EdgewiseConv._modules:
             raise ValueError(f"Unknown EdgewiseConv Type: {module_name}")
 
@@ -75,6 +77,4 @@ class EdgewiseConv(nn.Module, ABC):
     @abstractmethod
     def forward(self, atomic_numbers, neighbors, neighbor_distances):
 
-        raise NotImplementedError(
-            "This method should be implemented in a " "subclass."
-        )
+        raise NotImplementedError("This method should be implemented in a " "subclass.")

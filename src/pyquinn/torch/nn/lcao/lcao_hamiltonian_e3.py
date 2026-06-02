@@ -39,13 +39,9 @@ def _make_atomwise_e3_nn(
             )
 
     elif nn is None:
-        nn = AtomwiseE3Conv(
-            out_features=out_irreps, in_features=in_irreps, **nn_kwargs
-        )
+        nn = AtomwiseE3Conv(out_features=out_irreps, in_features=in_irreps, **nn_kwargs)
     else:
-        raise ValueError(
-            f'Unexpected type for AtomwiseE3Conv "{name}" ' f"(got {type(nn)})."
-        )
+        raise ValueError(f'Unexpected type for AtomwiseE3Conv "{name}" ' f"(got {type(nn)}).")
 
     return nn
 
@@ -66,7 +62,7 @@ def _make_shell_irrep_map(orbital_shell_idxs) -> tuple:
     l_max = torch.max(orbital_shell_idxs)
     l_unique_shell_counts = torch.zeros(l_max + 1, dtype=torch.int32)
     max_shell_block_size = torch.tensor(0)
-    for z, l_arr in enumerate(orbital_shell_idxs):
+    for _, l_arr in enumerate(orbital_shell_idxs):
         l_counts = torch.zeros(l_max + 1, dtype=torch.int32)
         ls, counts = torch.unique(l_arr, return_counts=True)
         ls_nz = ls >= 0
@@ -78,18 +74,14 @@ def _make_shell_irrep_map(orbital_shell_idxs) -> tuple:
         max_shell_block_size = torch.maximum(max_shell_block_size, block_size)
 
     # determine the minimal set of unique shells for building all irreps
-    l_unique_idxs = (
-        torch.cumsum(l_unique_shell_counts, -1) - l_unique_shell_counts
-    )
+    l_unique_idxs = torch.cumsum(l_unique_shell_counts, -1) - l_unique_shell_counts
     irrep_blocks = torch.zeros(l_unique_shell_counts.sum(), dtype=torch.int32)
     for l, count in enumerate(l_unique_shell_counts):
         idx = l_unique_idxs[l]
         irrep_blocks[idx : idx + count] = l
 
     # assemble the block indices of each unique shell
-    irrep_block_sizes = l_unique_shell_counts * (
-        2 * torch.arange(l_max + 1) + 1
-    )
+    irrep_block_sizes = l_unique_shell_counts * (2 * torch.arange(l_max + 1) + 1)
     irrep_block_idxs = torch.cumsum(irrep_block_sizes, -1) - irrep_block_sizes
 
     # construct map of (shell idxs) -> (irrep idxs)
@@ -102,11 +94,7 @@ def _make_shell_irrep_map(orbital_shell_idxs) -> tuple:
         for i, l in enumerate(l_arr):
             if l >= 0:
                 block_size = 2 * l + 1
-                irrep_idxs = (
-                    torch.arange(block_size)
-                    + block_size * l_shell_counts[l]
-                    + irrep_block_idxs[l]
-                )
+                irrep_idxs = torch.arange(block_size) + block_size * l_shell_counts[l] + irrep_block_idxs[l]
                 irrep_map[z, shell_idx : shell_idx + block_size] = irrep_idxs
                 irrep_shell_map[z, shell_idx : shell_idx + block_size] = i
                 l_shell_counts[l] += 1
@@ -147,17 +135,13 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         else:
             super().__init__(**base_model_kwargs)
 
-        irrep_blocks, irrep_shell_map, irrep_map = _make_shell_irrep_map(
-            self.orbital_shell_idxs
-        )
+        irrep_blocks, irrep_shell_map, irrep_map = _make_shell_irrep_map(self.orbital_shell_idxs)
 
         self.register_buffer("irrep_blocks", irrep_blocks)
         self.register_buffer("irrep_shell_map", irrep_shell_map)
         self.register_buffer("irrep_map", irrep_map)
 
-        shell_irreps = _make_shell_irreps(
-            self.irrep_blocks, n_coeffs=self.basis_size
-        )
+        shell_irreps = _make_shell_irreps(self.irrep_blocks, n_coeffs=self.basis_size)
 
         onsite_energy_irreps = _make_shell_irreps(self.irrep_blocks, n_coeffs=1)
 
@@ -207,28 +191,18 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
 
         # compute neighbor distances
         unit_cell_images = unit_cell_images.to(torch.float)
-        neighbor_distances = (
-            positions[neighbors]
-            + (unit_cell_images @ unit_cell)
-            - positions.unsqueeze(-2)
-        )
+        neighbor_distances = positions[neighbors] + (unit_cell_images @ unit_cell) - positions.unsqueeze(-2)
 
         # generate irrep index mapping
         irrep_shell_map = self.irrep_shell_map[atomic_numbers]
         irrep_map = self.irrep_map[atomic_numbers]
-        site_idxs, irrep_idxs = torch.nonzero(
-            irrep_shell_map >= 0, as_tuple=True
-        )
+        site_idxs, irrep_idxs = torch.nonzero(irrep_shell_map >= 0, as_tuple=True)
 
         # get on-site energy
         onsite_energies = torch.zeros_like(irrep_shell_map, dtype=torch.float32)
-        shell_energies = torch.sinh(
-            self.logscale_onsite_energies[atomic_numbers]
-        )
+        shell_energies = torch.sinh(self.logscale_onsite_energies[atomic_numbers])
 
-        onsite_energies[site_idxs, irrep_idxs] += shell_energies[
-            site_idxs, irrep_shell_map[site_idxs, irrep_idxs]
-        ]
+        onsite_energies[site_idxs, irrep_idxs] += shell_energies[site_idxs, irrep_shell_map[site_idxs, irrep_idxs]]
 
         # apply variational nn to obtain on-site perturbations
         irrep_perts = self.onsite_weight * self.onsite_nn(
@@ -238,9 +212,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
             features=None,
         )
 
-        onsite_energies[site_idxs, irrep_idxs] += irrep_perts[
-            site_idxs, irrep_map[site_idxs, irrep_idxs]
-        ]
+        onsite_energies[site_idxs, irrep_idxs] += irrep_perts[site_idxs, irrep_map[site_idxs, irrep_idxs]]
 
         # combine energies and perturbations
         return self.energy_scale * onsite_energies
@@ -257,18 +229,12 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         n_alpha_params = self.logscale_orbital_alphas[0].flatten().size(-1)
         n_gamma_params = self.logscale_potential_gammas[0].flatten().size(-1)
         alpha_params_shape = self.logscale_orbital_alphas[atomic_numbers].shape
-        gamma_params_shape = self.logscale_potential_gammas[
-            atomic_numbers
-        ].shape
+        gamma_params_shape = self.logscale_potential_gammas[atomic_numbers].shape
 
         # get alpha & gamma orbital parameters
-        logscale_alphas, logscale_gammas = (
-            self._get_logscale_basis_width_parameters(
-                atomic_numbers=atomic_numbers
-            )
-        )
+        logscale_alphas, logscale_gammas = self._get_logscale_basis_width_parameters(atomic_numbers=atomic_numbers)
 
-        logscale_alphas_flat = logscale_alphas.view(atomic_numbers.shape[0], -1)
+        logscale_alphas.view(atomic_numbers.shape[0], -1)
         logscale_gammas_flat = logscale_gammas.view(atomic_numbers.shape[0], -1)
 
         n_c_params = (2 * self.irrep_blocks + 1).sum() * self.basis_size
@@ -276,11 +242,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
 
         # compute neighbor distances
         unit_cell_images = unit_cell_images.to(torch.float)
-        neighbor_distances = (
-            positions[neighbors]
-            + (unit_cell_images @ unit_cell)
-            - positions.unsqueeze(-2)
-        )
+        neighbor_distances = positions[neighbors] + (unit_cell_images @ unit_cell) - positions.unsqueeze(-2)
 
         # apply variational nn
         nn_features_out = self.variational_nn(
@@ -291,47 +253,36 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         )
 
         # unpack basis coefficient perturbations
-        c_perts_flat, alpha_perts_flat, v_perts_flat, gamma_perts_flat = (
-            torch.split(
-                nn_features_out,
-                (n_c_params, n_alpha_params, n_v_params, n_gamma_params),
-                dim=1,
-            )
+        c_perts_flat, alpha_perts_flat, v_perts_flat, gamma_perts_flat = torch.split(
+            nn_features_out,
+            (n_c_params, n_alpha_params, n_v_params, n_gamma_params),
+            dim=1,
         )
 
         # compute perturbed alpha and gammas
         alphas = torch.clamp(
-            torch.exp(logscale_alphas)
-            + self.basis_weight * alpha_perts_flat.reshape(alpha_params_shape),
+            torch.exp(logscale_alphas) + self.basis_weight * alpha_perts_flat.reshape(alpha_params_shape),
             min=1e-3,
         )
         gammas = torch.clamp(
-            torch.exp(logscale_gammas)
-            + self.basis_weight * gamma_perts_flat.reshape(gamma_params_shape),
+            torch.exp(logscale_gammas) + self.basis_weight * gamma_perts_flat.reshape(gamma_params_shape),
             min=1e-3,
         )
 
         irrep_shell_map = self.irrep_shell_map[atomic_numbers]
         irrep_map = self.irrep_map[atomic_numbers]
 
-        site_idxs, irrep_idxs = torch.nonzero(
-            irrep_shell_map >= 0, as_tuple=True
-        )
+        site_idxs, irrep_idxs = torch.nonzero(irrep_shell_map >= 0, as_tuple=True)
 
         # compute normalized c coeffficients
         shell_cs = torch.sinh(self.logscale_orbital_cs[atomic_numbers])
         cs_shape = irrep_shell_map.shape + (self.basis_size,)
         cs_unnormed = torch.zeros(cs_shape, device=alphas.device)
-        cs_unnormed[site_idxs, irrep_idxs] += shell_cs[
-            site_idxs, irrep_shell_map[site_idxs, irrep_idxs]
-        ]
+        cs_unnormed[site_idxs, irrep_idxs] += shell_cs[site_idxs, irrep_shell_map[site_idxs, irrep_idxs]]
 
-        c_perts = c_perts_flat.reshape(
-            atomic_numbers.shape[0], -1, self.basis_size
-        )
+        c_perts = c_perts_flat.reshape(atomic_numbers.shape[0], -1, self.basis_size)
         cs_unnormed[site_idxs, irrep_idxs] += (
-            self.variational_weight
-            * c_perts[site_idxs, irrep_map[site_idxs, irrep_idxs]]
+            self.variational_weight * c_perts[site_idxs, irrep_map[site_idxs, irrep_idxs]]
         )
 
         cs = cs_unnormed * self._get_c_normalization_coeffs(
@@ -341,8 +292,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         # compute v coefficients
         logscale_vs = self.logscale_potential_vs[atomic_numbers]
         vs = -self.energy_scale * (
-            torch.exp(logscale_vs)
-            + self.variational_weight * v_perts_flat.reshape(logscale_vs.shape)
+            torch.exp(logscale_vs) + self.variational_weight * v_perts_flat.reshape(logscale_vs.shape)
         )
 
         return alphas, cs, gammas, vs
@@ -357,9 +307,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
         irrep_shell_map = self.irrep_shell_map[atomic_numbers]
         shell_idxs = self.orbital_shell_idxs[atomic_numbers]
 
-        site_idxs, irrep_idxs = torch.nonzero(
-            irrep_shell_map >= 0, as_tuple=True
-        )
+        site_idxs, irrep_idxs = torch.nonzero(irrep_shell_map >= 0, as_tuple=True)
 
         irrep_alpha_idxs = irrep_shell_map[site_idxs, irrep_idxs]
         site_ls = shell_idxs[site_idxs, irrep_alpha_idxs]
@@ -378,9 +326,7 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
 
         return c_norm_coeffs
 
-    def _get_orbital_basis_idxs(
-        self, idxs: torch.Tensor, atomic_numbers: torch.Tensor
-    ) -> tuple:
+    def _get_orbital_basis_idxs(self, idxs: torch.Tensor, atomic_numbers: torch.Tensor) -> tuple:
 
         block_atoms = atomic_numbers[idxs]
         orbital_shells = self.orbital_shell_idxs[block_atoms]
@@ -395,17 +341,13 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
             device=orbital_shells.device,
         ).put_(block_idxs, block_l_sizes, accumulate=True)
 
-        orbital_shell_totals_idxs = (
-            orbital_shell_size_totals.cumsum(dim=0) - orbital_shell_size_totals
-        )
+        orbital_shell_totals_idxs = orbital_shell_size_totals.cumsum(dim=0) - orbital_shell_size_totals
 
         orbital_site_idxs = idxs[block_idxs].repeat_interleave(block_l_sizes)
 
         orbital_idxs = torch.arange(
             orbital_site_idxs.shape[0], device=orbital_site_idxs.device
-        ) - orbital_shell_totals_idxs.repeat_interleave(
-            orbital_shell_size_totals
-        )
+        ) - orbital_shell_totals_idxs.repeat_interleave(orbital_shell_size_totals)
 
         return orbital_site_idxs, orbital_idxs
 
@@ -429,18 +371,14 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
             device=orbital_shells.device,
         ).put_(block_idxs, block_l_sizes, accumulate=True)
 
-        orbital_shell_totals_idxs = (
-            orbital_shell_size_totals.cumsum(dim=0) - orbital_shell_size_totals
-        )
+        orbital_shell_totals_idxs = orbital_shell_size_totals.cumsum(dim=0) - orbital_shell_size_totals
 
         orbital_site_idxs = idxs[block_idxs].repeat_interleave(block_l_sizes)
         orbital_image_idxs = image_idxs[orbital_site_idxs]
 
         orbital_idxs = torch.arange(
             orbital_site_idxs.shape[0], device=orbital_site_idxs.device
-        ) - orbital_shell_totals_idxs.repeat_interleave(
-            orbital_shell_size_totals
-        )
+        ) - orbital_shell_totals_idxs.repeat_interleave(orbital_shell_size_totals)
 
         return orbital_site_idxs, orbital_image_idxs, orbital_idxs
 
@@ -498,23 +436,15 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
                 requires_grad=False,
             )
 
-            site_e3_idxs, site_e3_orbital_idxs = self._get_orbital_basis_idxs(
-                site, atomic_numbers
-            )
-            site_idxs, site_l_idxs, site_ls = self._get_block_basis_idxs(
-                site, atomic_numbers
-            )
+            site_e3_idxs, site_e3_orbital_idxs = self._get_orbital_basis_idxs(site, atomic_numbers)
+            site_idxs, site_l_idxs, site_ls = self._get_block_basis_idxs(site, atomic_numbers)
 
             site_data = e3_cho_overlap_matrix_metadata(site_ls, sparse=True)
 
-            H_site_idxs = self._get_neighborhood_hamiltonian_idxs(
-                site, H_idxs, H_blocksizes
-            )
+            H_site_idxs = self._get_neighborhood_hamiltonian_idxs(site, H_idxs, H_blocksizes)
 
             # compute on-site diagonals:
-            H_site_diagonal = onsite_energies[
-                site_e3_idxs, site_e3_orbital_idxs
-            ]
+            H_site_diagonal = onsite_energies[site_e3_idxs, site_e3_orbital_idxs]
             H_diagonals.append(H_site_diagonal)
 
             # retrieve neighborhood data:
@@ -538,37 +468,23 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
                         device=site_neighbors.device,
                     )
                 )
-                H_component_distances.append(
-                    torch.zeros(
-                        (0, 3), dtype=positions.dtype, device=positions.device
-                    )
-                )
+                H_component_distances.append(torch.zeros((0, 3), dtype=positions.dtype, device=positions.device))
             else:
                 # otherwise, compute neighborhood overlap matrices
-                neighbor_e3_idxs, _, neighbor_e3_orbital_idxs = (
-                    self._get_orbital_image_basis_idxs(
-                        site_neighbors, site_neighbor_images, atomic_numbers
-                    )
+                neighbor_e3_idxs, _, neighbor_e3_orbital_idxs = self._get_orbital_image_basis_idxs(
+                    site_neighbors, site_neighbor_images, atomic_numbers
                 )
 
-                neighbor_idxs, neighbor_images, neighbor_l_idxs, neighbor_ls = (
-                    self._get_block_image_basis_idxs(
-                        site_neighbors, site_neighbor_images, atomic_numbers
-                    )
+                neighbor_idxs, neighbor_images, neighbor_l_idxs, neighbor_ls = self._get_block_image_basis_idxs(
+                    site_neighbors, site_neighbor_images, atomic_numbers
                 )
 
-                neighbor_data = e3_cho_overlap_matrix_metadata(
-                    neighbor_ls, sparse=True
-                )
+                neighbor_data = e3_cho_overlap_matrix_metadata(neighbor_ls, sparse=True)
 
-                H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(
-                    site_neighbors, H_idxs, H_blocksizes
-                )
+                H_neighbor_idxs = self._get_neighborhood_hamiltonian_idxs(site_neighbors, H_idxs, H_blocksizes)
 
                 # compute distances to neighbors across unit cell boundaries
-                neighbor_positions = (
-                    positions[neighbor_idxs] + neighbor_images @ unit_cell
-                )
+                neighbor_positions = positions[neighbor_idxs] + neighbor_images @ unit_cell
 
                 # compute neighborhood Hamiltonian matrix
                 H_neighborhood = e3_cho_ng_hamiltonian_potential_matrix(
@@ -587,16 +503,12 @@ class VariationalE3TBHamiltonian(TBHamiltonian):
                 )
 
                 H_neighborhood_dxs = (
-                    self._get_neighborhood_hamiltonian_distances(
-                        neighbor_positions - positions[i], neighbor_ls
-                    )
+                    self._get_neighborhood_hamiltonian_distances(neighbor_positions - positions[i], neighbor_ls)
                     .view(1, -1, 3)
                     .expand(*H_neighborhood.shape, 3)
                 )
 
-                H_neighborhood_idxs = torch.cartesian_prod(
-                    H_site_idxs, H_neighbor_idxs
-                )
+                H_neighborhood_idxs = torch.cartesian_prod(H_site_idxs, H_neighbor_idxs)
 
                 H_components.append(H_neighborhood.flatten())
                 H_component_idxs.append(H_neighborhood_idxs)

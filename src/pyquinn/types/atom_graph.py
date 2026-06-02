@@ -182,9 +182,7 @@ class AtomGraph(AtomGraphBase):
             graph = pickle.load(f)
 
         if not isinstance(graph, AtomGraph):
-            raise OSError(
-                f"Expected an instance of Atomgraph; " f"got: {type(graph)}"
-            )
+            raise OSError(f"Expected an instance of Atomgraph; " f"got: {type(graph)}")
 
         return graph
 
@@ -252,29 +250,15 @@ class AtomGraph(AtomGraphBase):
             graph_outputs = atom_graph.graph_outputs
 
         self.atoms = atoms if atoms is not None else []
-        self.positions = (
-            positions if positions is not None else np.zeros((0, 3))
-        )
+        self.positions = positions if positions is not None else np.zeros((0, 3))
 
-        self.unit_cell = (
-            unit_cell if unit_cell is not None else np.zeros((3, 3))
-        )
+        self.unit_cell = unit_cell if unit_cell is not None else np.zeros((3, 3))
 
-        self.features = (
-            features
-            if features is not None
-            else np.zeros((self.atoms.shape[0], 0))
-        )
+        self.features = features if features is not None else np.zeros((self.atoms.shape[0], 0))
 
-        self.outputs = (
-            outputs
-            if outputs is not None
-            else np.zeros((self.atoms.shape[0], 0))
-        )
+        self.outputs = outputs if outputs is not None else np.zeros((self.atoms.shape[0], 0))
 
-        self.graph_outputs = (
-            graph_outputs if graph_outputs is not None else np.zeros(0)
-        )
+        self.graph_outputs = graph_outputs if graph_outputs is not None else np.zeros(0)
 
         self.periodic = periodic
 
@@ -285,17 +269,13 @@ class AtomGraph(AtomGraphBase):
         if coordinates == "fractional":
             self.positions = self.positions @ self.unit_cell
         elif coordinates != "cartesian":
-            raise ValueError(
-                'Coordinates must be either "fractional" ' 'or "cartesian".'
-            )
+            raise ValueError('Coordinates must be either "fractional" ' 'or "cartesian".')
 
         # configure unit cell origin
         if origin is not None:
             origin = np.array(origin)
             if origin.shape != (3,):
-                raise ValueError(
-                    f"Expected origin.shape = (3,), " f"got: {origin.shape}"
-                )
+                raise ValueError(f"Expected origin.shape = (3,), " f"got: {origin.shape}")
 
             self.positions += origin
 
@@ -312,9 +292,7 @@ class AtomGraph(AtomGraphBase):
     def atoms(self, value):
         """Updates the atomic symbols of atoms in this AtomGraph."""
 
-        atomic_symbols = np.array(
-            [a if isinstance(a, str) else ATOMIC_SYMBOLS[int(a)] for a in value]
-        )
+        atomic_symbols = np.array([a if isinstance(a, str) else ATOMIC_SYMBOLS[int(a)] for a in value])
         self._atoms = atomic_symbols
 
     @property
@@ -333,13 +311,9 @@ class AtomGraph(AtomGraphBase):
         positions = np.array(value, dtype=np.float64)
 
         if positions.ndim != 2:
-            raise ValueError(
-                f"Expected positions.ndim = 2, got: {positions.ndim}"
-            )
+            raise ValueError(f"Expected positions.ndim = 2, got: {positions.ndim}")
         if positions.shape[1] != 3:
-            raise ValueError(
-                f"Expected positions.shape[1] = 3, got: {positions.shape}"
-            )
+            raise ValueError(f"Expected positions.shape[1] = 3, got: {positions.shape}")
 
         self._positions = positions
 
@@ -359,9 +333,7 @@ class AtomGraph(AtomGraphBase):
         unit_cell = np.array(value)
 
         if unit_cell.shape != (3, 3):
-            raise ValueError(
-                f"Expected unit_cell.shape = (3, 3), " f"got: {unit_cell.shape}"
-            )
+            raise ValueError(f"Expected unit_cell.shape = (3, 3), " f"got: {unit_cell.shape}")
 
         self._unit_cell = unit_cell
 
@@ -382,9 +354,7 @@ class AtomGraph(AtomGraphBase):
         periodic = np.array(value, dtype=bool)
 
         if periodic.shape != (3,):
-            raise ValueError(
-                f"Expected periodic.shape = (3), got" f"got: {periodic.shape}"
-            )
+            raise ValueError(f"Expected periodic.shape = (3), got" f"got: {periodic.shape}")
 
         self._periodic = periodic
 
@@ -470,9 +440,7 @@ class AtomGraph(AtomGraphBase):
 
     def __getitem__(self, key: slice | np.ndarray) -> "AtomGraph":
         """Accesses a sub-AtomGraph at a given slice or numpy array index."""
-        if isinstance(key, (int, np.integer)) or (
-            isinstance(key, np.ndarray) and key.ndim <= 0
-        ):
+        if isinstance(key, (int, np.integer)) or (isinstance(key, np.ndarray) and key.ndim <= 0):
             raise KeyError(
                 "Index key must be a valid numpy array index or slice with "
                 "dimension greater than 0. Integer indexing is not supported "
@@ -495,9 +463,7 @@ class AtomGraph(AtomGraphBase):
         """Returns the number of atoms in this AtomGraph"""
         return self.atoms.shape[0]
 
-    def _resolve_atomic_numbers(
-        self, symbols: dict | list[str] | None = None
-    ) -> np.ndarray:
+    def _resolve_atomic_numbers(self, symbols: dict | list[str] | None = None) -> np.ndarray:
         """Helper method to automatically resolve atomic numbers"""
         # convert all symbols to valid atomic symbols
         if symbols is None:
@@ -505,9 +471,7 @@ class AtomGraph(AtomGraphBase):
         elif isinstance(symbols, list):
             atomic_symbols = np.array(symbols)
         elif isinstance(symbols, dict):
-            atomic_symbols = np.array(
-                [symbols[s] if s in symbols else s for s in self.atoms]
-            )
+            atomic_symbols = np.array([symbols[s] if s in symbols else s for s in self.atoms])
 
         # validate symbols
         for s in atomic_symbols:
@@ -519,9 +483,7 @@ class AtomGraph(AtomGraphBase):
 
         return atomic_numbers
 
-    def _resolve_cutoffs(
-        self, cutoffs: dict | list[float] | None = None
-    ) -> np.ndarray:
+    def _resolve_cutoffs(self, cutoffs: dict | list[float] | None = None) -> np.ndarray:
         """Helper method to automatically resolve atomic cutoffs"""
         if cutoffs is None:
             cutoffs = np.array([NATURAL_CUTOFFS_DICT[a] for a in self.atoms])
@@ -533,10 +495,7 @@ class AtomGraph(AtomGraphBase):
                     f"got: {cutoffs.shape[0]} != {self.positions.shape[0]}"
                 )
         elif isinstance(cutoffs, dict):
-            cutoffs_symbols = {
-                (ATOMIC_SYMBOLS[int(k)] if not isinstance(k, str) else k): v
-                for k, v in cutoffs.items()
-            }
+            cutoffs_symbols = {(ATOMIC_SYMBOLS[int(k)] if not isinstance(k, str) else k): v for k, v in cutoffs.items()}
 
             cutoffs_dict = NATURAL_CUTOFFS_DICT | cutoffs_symbols
             cutoffs = np.array([cutoffs_dict[a] for a in self.atoms])
@@ -545,9 +504,7 @@ class AtomGraph(AtomGraphBase):
 
         return cutoffs
 
-    def _resolve_masses(
-        self, masses: dict | list[float] | None = None
-    ) -> np.ndarray:
+    def _resolve_masses(self, masses: dict | list[float] | None = None) -> np.ndarray:
         """Helper method to automatically resolve atomic masses"""
         if masses is None:
             masses = np.array([NATURAL_MASSES_DICT[a] for a in self.atoms])
@@ -560,10 +517,7 @@ class AtomGraph(AtomGraphBase):
                 )
         elif isinstance(masses, dict):
             masses_symbols = {
-                (
-                    NATURAL_MASSES_DICT[int(k)] if not isinstance(k, str) else k
-                ): v
-                for k, v in masses.items()
+                (NATURAL_MASSES_DICT[int(k)] if not isinstance(k, str) else k): v for k, v in masses.items()
             }
 
             masses_dict = NATURAL_MASSES_DICT | masses_symbols
@@ -642,9 +596,7 @@ class AtomGraph(AtomGraphBase):
 
         neighbor_list = []
         neighbor_vectors = []
-        for i, (neighbors_i, images_i) in enumerate(
-            zip(neighbors, unit_cell_images)
-        ):
+        for i, (neighbors_i, images_i) in enumerate(zip(neighbors, unit_cell_images, strict=False)):
 
             neighbor_list.append(neighbors_i)
 
@@ -655,10 +607,7 @@ class AtomGraph(AtomGraphBase):
                 distances = (
                     []
                     if len(neighbors_i) == 0
-                    else (
-                        (self.positions[neighbors_i] - self.positions[i])
-                        + (images_i @ self.unit_cell)
-                    )
+                    else ((self.positions[neighbors_i] - self.positions[i]) + (images_i @ self.unit_cell))
                 )
                 neighbor_vectors.append(distances)
 
@@ -710,9 +659,7 @@ class AtomGraph(AtomGraphBase):
         inv_unit_cell = np.linalg.pinv(self.unit_cell)
         return self.positions @ inv_unit_cell
 
-    def band_path(
-        self, path: str | None = None, n_points: int = 2048
-    ) -> np.ndarray:
+    def band_path(self, path: str | None = None, n_points: int = 2048) -> np.ndarray:
         """Generates a High-symmetry canonical band path based on the ASE
         implementation of `ase.Cell.bandpath()`. The variable `path` specifies
         a path in the first Brillouin zone, using the conventions specified in
@@ -856,9 +803,7 @@ class AtomGraph(AtomGraphBase):
         if backend not in AtomGraph._backends:
             if backend in SUPPORTED_BACKENDS:
                 path = SUPPORTED_BACKENDS[backend]
-                AtomGraph._backends[backend] = _load_backend_object(
-                    backend, path
-                )
+                AtomGraph._backends[backend] = _load_backend_object(backend, path)
             else:
                 raise ValueError(f"Unknown Backend Type: {backend}")
 
@@ -1150,9 +1095,7 @@ class BackendAtomGraph(ABC, AtomGraphBase):
         """
         from pyquinn.plot import plotter
 
-        return plotter.plot_atoms(
-            atoms=self.extract(), backend=backend, **plotter_kwargs
-        )
+        return plotter.plot_atoms(atoms=self.extract(), backend=backend, **plotter_kwargs)
 
     @abstractmethod
     def copy(self) -> "BackendAtomGraph":

@@ -23,17 +23,9 @@ class TorchAtomwiseModel(nn.Module):
 
         super().__init__()
 
-        self.atomwise_model = (
-            AtomwiseNNConv(**model_kwargs)
-            if atomwise_model is None
-            else atomwise_model
-        )
+        self.atomwise_model = AtomwiseNNConv(**model_kwargs) if atomwise_model is None else atomwise_model
 
-        self.atomwise_pool = (
-            ArithmeticPool(atomwise_pool)
-            if isinstance(atomwise_pool, str)
-            else atomwise_pool
-        )
+        self.atomwise_pool = ArithmeticPool(atomwise_pool) if isinstance(atomwise_pool, str) else atomwise_pool
 
     def forward(self, graph: TorchAtomGraph) -> TorchAtomGraph:
         return self.predict(graph=graph)
@@ -57,9 +49,7 @@ class TorchAtomwiseModel(nn.Module):
         if self.atomwise_pool is None:
             pooled_features_out = torch.zeros_like(graph.graph_outputs)
         else:
-            pooled_features_out = self.atomwise_pool(
-                atomic_numbers=graph.atomic_numbers, features=features_out
-            )
+            pooled_features_out = self.atomwise_pool(atomic_numbers=graph.atomic_numbers, features=features_out)
 
         return TorchAtomGraph(
             atomic_numbers=graph.atomic_numbers,
@@ -74,15 +64,9 @@ class TorchAtomwiseModel(nn.Module):
             compute_neighbors=False,
         )
 
-    def _outputs_loss_fn(
-        self, pred_outputs: torch.Tensor, target_outputs: torch.Tensor
-    ):
+    def _outputs_loss_fn(self, pred_outputs: torch.Tensor, target_outputs: torch.Tensor):
 
-        loss = (
-            torch.square(pred_outputs - target_outputs).mean()
-            if target_outputs.numel()
-            else 0.0
-        )
+        loss = torch.square(pred_outputs - target_outputs).mean() if target_outputs.numel() else 0.0
 
         return loss
 
@@ -92,11 +76,7 @@ class TorchAtomwiseModel(nn.Module):
         target_graph_outputs: torch.Tensor,
     ):
 
-        loss = (
-            torch.square(pred_graph_outputs - target_graph_outputs).mean()
-            if target_graph_outputs.numel()
-            else 0.0
-        )
+        loss = torch.square(pred_graph_outputs - target_graph_outputs).mean() if target_graph_outputs.numel() else 0.0
 
         return loss
 
@@ -111,9 +91,7 @@ class TorchAtomwiseModel(nn.Module):
 
         loss = graph_outputs_weight * self._graph_outputs_loss_fn(
             pred_graph.graph_outputs, graph.graph_outputs
-        ) + outputs_weight * self._outputs_loss_fn(
-            pred_graph.outputs, graph.outputs
-        )
+        ) + outputs_weight * self._outputs_loss_fn(pred_graph.outputs, graph.outputs)
 
         return loss
 
@@ -231,18 +209,13 @@ class TorchAtomwiseModel(nn.Module):
                         val_losses.append(loss.detach().cpu().numpy())
 
             epoch_train_loss = np.nanmean(train_losses)
-            epoch_validation_loss = (
-                None if val_dataset is None else np.nanmean(val_losses)
-            )
+            epoch_validation_loss = None if val_dataset is None else np.nanmean(val_losses)
 
             history["train_loss"].append(epoch_train_loss)
             history["validation_loss"].append(epoch_validation_loss)
 
             if verbosity >= 2:
-                print(
-                    f"Train loss: {epoch_train_loss}; "
-                    f"Validation loss: {epoch_validation_loss}."
-                )
+                print(f"Train loss: {epoch_train_loss}; " f"Validation loss: {epoch_validation_loss}.")
 
         for k, v in history.items():
             history[k] = np.array(v)

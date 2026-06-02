@@ -48,13 +48,9 @@ class AtomwisePool(nn.Module, ABC):
 
         module_kwargs = {} if module_kwargs is None else module_kwargs
 
-        return AtomwisePool._modules[module_name](
-            in_features=in_features, out_features=out_features, **module_kwargs
-        )
+        return AtomwisePool._modules[module_name](in_features=in_features, out_features=out_features, **module_kwargs)
 
-    def __init__(
-        self, out_features: int | None = None, in_features: int | None = None
-    ):
+    def __init__(self, out_features: int | None = None, in_features: int | None = None):
 
         super().__init__()
 
@@ -64,9 +60,7 @@ class AtomwisePool(nn.Module, ABC):
     @abstractmethod
     def forward(self, atomic_numbers, features, **kwargs) -> tuple:
 
-        raise NotImplementedError(
-            "This method should be implemented in a " "subclass."
-        )
+        raise NotImplementedError("This method should be implemented in a " "subclass.")
 
 
 @AtomwisePool.register("arithmetic")
@@ -93,9 +87,7 @@ class ArithmeticPool(AtomwisePool):
 
         if aggr not in ArithmeticPool._pool_ops:
             oplist = list(ArithmeticPool._pool_ops.keys())
-            raise ValueError(
-                f'Invalid aggr value "{aggr}"; ' f"expected one of {oplist}"
-            )
+            raise ValueError(f'Invalid aggr value "{aggr}"; ' f"expected one of {oplist}")
 
         self.pool_op = ArithmeticPool._pool_ops[aggr]
 

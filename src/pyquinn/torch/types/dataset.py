@@ -45,11 +45,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
     ):
 
         # load graph (if necessary)
-        torch_graph = (
-            TorchAtomGraph.load(graph, device=device)
-            if isinstance(graph, str)
-            else graph
-        )
+        torch_graph = TorchAtomGraph.load(graph, device=device) if isinstance(graph, str) else graph
 
         # save graph to cache dir:
         torch_graph_path = os.path.join(cache_dir, f"{name}.pt")
@@ -112,9 +108,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
         graph = self.graphs[index]
 
         if isinstance(graph, str):
-            graph = TorchAtomGraph.load(
-                filename=self.graphs[index], device=self.device
-            )
+            graph = TorchAtomGraph.load(filename=self.graphs[index], device=self.device)
 
         return graph
 
@@ -123,18 +117,13 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
             yield self.names[i], self[i]
 
     @staticmethod
-    def load(
-        cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"
-    ):
+    def load(cache_dir: str, in_memory: bool = False, device: torch.device = "cpu"):
 
         graphs = glob(os.path.join(cache_dir, "*.pt"))
         names = [AtomGraphDataset._parse_graph_name(file) for file in graphs]
 
         if in_memory:
-            graphs = [
-                TorchAtomGraph.load(filename=file, device=device)
-                for file in graphs
-            ]
+            graphs = [TorchAtomGraph.load(filename=file, device=device) for file in graphs]
 
         return TorchAtomGraphDataset(
             graphs=graphs,
@@ -144,11 +133,7 @@ class TorchAtomGraphDataset(BackendAtomGraphDataset, Dataset):
 
     def save(self, cache_dir: str):
 
-        _dataset_iter = progress_bar(
-            zip(self.names, self.graphs), total=len(self.names)
-        )
+        _dataset_iter = progress_bar(zip(self.names, self.graphs, strict=False), total=len(self.names))
 
         for name, graph in _dataset_iter:
-            TorchAtomGraphDataset._save_graph(
-                graph=graph, name=name, cache_dir=cache_dir, device=self.device
-            )
+            TorchAtomGraphDataset._save_graph(graph=graph, name=name, cache_dir=cache_dir, device=self.device)

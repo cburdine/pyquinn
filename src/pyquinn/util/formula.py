@@ -19,9 +19,7 @@ def get_formula(atoms: list[str], format: str = "hill") -> str:
     """
 
     if format not in FORMULA_FORMATS:
-        raise ValueError(
-            'Invalid format "{format}" ; ' f"expected one of: {FORMULA_FORMATS}"
-        )
+        raise ValueError('Invalid format "{format}" ; ' f"expected one of: {FORMULA_FORMATS}")
 
     return _FORMULA_FORMATTERS[format](atoms)
 

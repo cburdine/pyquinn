@@ -24,10 +24,7 @@ def _get_plotter_backend(backend: str) -> "plotter":  # noqa
     elif backend == "plotly":
         import pyquinn.plot.plotly as plotter
     else:
-        raise ValueError(
-            f"Unknown plotter backend type {backend} "
-            f"(expected one of {PLOTTER_BACKENDS})."
-        )
+        raise ValueError(f"Unknown plotter backend type {backend} " f"(expected one of {PLOTTER_BACKENDS}).")
 
     return plotter
 

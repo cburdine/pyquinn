@@ -3,9 +3,7 @@ import numpy as np
 from pyquinn.types import Operator
 
 
-def read_wannier90_hamiltonian(
-    file: str, site_indices: list[int], orbital_indices: list[int]
-) -> Operator:
+def read_wannier90_hamiltonian(file: str, site_indices: list[int], orbital_indices: list[int]) -> Operator:
     """Reads a Wannier90 Hamiltonian file (typically of the form *_hr.dat).
 
     Args:
@@ -39,11 +37,12 @@ def read_wannier90_hamiltonian(
 
         if len(site_indices) != num_wann:
             raise ValueError(
-                f"Expected # wannier orbitals ({num_wann}) to equal len(site_indices) (got: {len(site_indices)})."
+                f"Expected # wannier orbitals ({num_wann}) to equal len(site_indices) " f"(got: {len(site_indices)})."
             )
         if len(orbital_indices) != num_wann:
             raise ValueError(
-                f"Expected # wannier orbitals ({num_wann}) to equal len(orbital_indices) (got: {len(orbital_indices)})."
+                f"Expected # wannier orbitals ({num_wann}) to equal len(orbital_indices) "
+                f"(got: {len(orbital_indices)})."
             )
 
         degeneracies = []
@@ -62,14 +61,14 @@ def read_wannier90_hamiltonian(
                 Rx, Ry, Rz, m, n = map(int, line[:5])
                 Re, Im = map(float, line[5:])
                 idx = (m - 1, n - 1)
-                idx_t = (n - 1, m - 1)
+                (n - 1, m - 1)
                 if idx not in H_entries:
                     H_entries[idx] = {}
                 # if idx_t not in H_entries:
                 #     H_entries[idx_t] = {}
 
                 z = complex((Re + 1j * Im) * d_R)
-                z_t = complex((Re - 1j * Im) * d_R)
+                complex((Re - 1j * Im) * d_R)
 
                 H_entries[idx] |= {(Rx, Ry, Rz): z}
                 # H_entries[idx_t] |= {(Rx, Ry, Rz): z_t}

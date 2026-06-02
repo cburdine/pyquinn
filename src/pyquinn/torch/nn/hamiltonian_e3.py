@@ -26,14 +26,10 @@ def _make_shell_idxs(shells: dict[int, list[int]]) -> torch.IntTensor:
     shell_idxs = torch.full((z_max + 1, n_shells_max), -1, dtype=torch.int64)
     for z, l_list in shells.items():
         if z <= 0:
-            raise ValueError(
-                f"Expected positive atomic number in `shells`, got: {z}"
-            )
+            raise ValueError(f"Expected positive atomic number in `shells`, got: {z}")
         for i, l in enumerate(l_list):
             if l < 0 or l > GTO_L_MAX:
-                raise ValueError(
-                    f"Expected 0 <= l <= {GTO_L_MAX} for element {z} in shell {i}, got: l={l}"
-                )
+                raise ValueError(f"Expected 0 <= l <= {GTO_L_MAX} for element {z} in shell {i}, got: l={l}")
             shell_idxs[z, i] = int(l)
 
     return shell_idxs
@@ -73,37 +69,25 @@ def _make_shell_irrep_map(
         ls, counts = ls[valid], counts[valid]
         if ls.numel() > 0:
             l_counts[ls.to(torch.int64)] += counts.to(torch.int32)
-            l_unique_shell_counts = torch.maximum(
-                l_unique_shell_counts, l_counts
-            )
+            l_unique_shell_counts = torch.maximum(l_unique_shell_counts, l_counts)
 
             block_size = torch.sum((2 * ls + 1) * counts)
-            max_shell_block_size = torch.maximum(
-                max_shell_block_size, block_size.to(torch.int32)
-            )
+            max_shell_block_size = torch.maximum(max_shell_block_size, block_size.to(torch.int32))
 
-    l_unique_idxs = (
-        torch.cumsum(l_unique_shell_counts, -1) - l_unique_shell_counts
-    )
-    irrep_blocks = torch.zeros(
-        int(l_unique_shell_counts.sum().item()), dtype=torch.int32
-    )
+    l_unique_idxs = torch.cumsum(l_unique_shell_counts, -1) - l_unique_shell_counts
+    irrep_blocks = torch.zeros(int(l_unique_shell_counts.sum().item()), dtype=torch.int32)
     for l, count in enumerate(l_unique_shell_counts.tolist()):
         if count <= 0:
             continue
         idx = int(l_unique_idxs[l].item())
         irrep_blocks[idx : idx + count] = l
 
-    irrep_block_sizes = l_unique_shell_counts * (
-        2 * torch.arange(l_max + 1, dtype=torch.int32) + 1
-    )
+    irrep_block_sizes = l_unique_shell_counts * (2 * torch.arange(l_max + 1, dtype=torch.int32) + 1)
     irrep_block_idxs = torch.cumsum(irrep_block_sizes, -1) - irrep_block_sizes
 
     z_dim = orbital_shell_idxs.shape[0]
     max_shell_block_size_int = int(max_shell_block_size.item())
-    irrep_map = torch.full(
-        (z_dim, max_shell_block_size_int), -1, dtype=torch.int64
-    )
+    irrep_map = torch.full((z_dim, max_shell_block_size_int), -1, dtype=torch.int64)
 
     # Map each element's local orbital component index -> unique-shell component index.
     for z, l_arr in enumerate(orbital_shell_idxs):
@@ -113,9 +97,7 @@ def _make_shell_irrep_map(
             if l < 0:
                 continue
             block_size = 2 * l + 1
-            base = int(irrep_block_idxs[l].item()) + block_size * int(
-                l_shell_counts[l].item()
-            )
+            base = int(irrep_block_idxs[l].item()) + block_size * int(l_shell_counts[l].item())
             irrep_idxs = torch.arange(block_size, dtype=torch.int64) + base
             irrep_map[z, shell_idx : shell_idx + block_size] = irrep_idxs
             l_shell_counts[l] += 1
@@ -142,9 +124,9 @@ def _neighbor_distances(
     if unit_cell_images is not None:
         if unit_cell is None:
             raise ValueError("`unit_cell_images` requires `unit_cell`.")
-        shift = unit_cell_images.to(
+        shift = unit_cell_images.to(dtype=positions.dtype, device=positions.device) @ unit_cell.to(
             dtype=positions.dtype, device=positions.device
-        ) @ unit_cell.to(dtype=positions.dtype, device=positions.device)
+        )
         dx = dx + shift
 
     invalid = neighbors < 0
@@ -188,9 +170,7 @@ class E3Hamiltonian(Hamiltonian):
         super().__init__(eigensolver=eigensolver)
 
         if spin not in self.SPIN_OPTIONS:
-            raise ValueError(
-                f"Spin must be one of {self.SPIN_OPTIONS}, got: {spin}"
-            )
+            raise ValueError(f"Spin must be one of {self.SPIN_OPTIONS}, got: {spin}")
         if rank <= 0:
             raise ValueError("`rank` must be a positive integer.")
 
@@ -199,9 +179,7 @@ class E3Hamiltonian(Hamiltonian):
         self.rank = int(rank)
 
         # Fill in unspecified elements from the default valence shells.
-        shells = {
-            int(z): list(v) for z, v in _ELEMENT_CHO_VALENCE_SHELLS.items()
-        }
+        shells = {int(z): list(v) for z, v in _ELEMENT_CHO_VALENCE_SHELLS.items()}
         if orbital_shells is not None:
             for z, l_list in orbital_shells.items():
                 shells[int(z)] = list(l_list)
@@ -228,9 +206,7 @@ class E3Hamiltonian(Hamiltonian):
 
         out_irreps = self.unique_shell_irreps * self.rank
 
-        equivariant_nn_kwargs = (
-            {} if equivariant_nn_kwargs is None else dict(equivariant_nn_kwargs)
-        )
+        equivariant_nn_kwargs = {} if equivariant_nn_kwargs is None else dict(equivariant_nn_kwargs)
 
         if equivariant_nn is None:
             self.equivariant_nn = AtomwiseE3Conv(
@@ -247,26 +223,18 @@ class E3Hamiltonian(Hamiltonian):
                 )
             self.equivariant_nn = equivariant_nn
         else:
-            raise ValueError(
-                f"Unexpected type for `equivariant_nn` (got: {type(equivariant_nn)})."
-            )
+            raise ValueError(f"Unexpected type for `equivariant_nn` (got: {type(equivariant_nn)}).")
 
         # Learnable scalar weights for each outer-product term.
         self.rank_weights = nn.Parameter(torch.randn(self.rank) * 0.05)
 
-    def _orbital_counts(
-        self, atomic_numbers: torch.IntTensor
-    ) -> tuple[torch.IntTensor, torch.IntTensor]:
+    def _orbital_counts(self, atomic_numbers: torch.IntTensor) -> tuple[torch.IntTensor, torch.IntTensor]:
         l_values_padded = self.orbital_shell_idxs[atomic_numbers]
-        l_site_idxs, l_shell_idxs = torch.nonzero(
-            l_values_padded >= 0, as_tuple=True
-        )
+        l_site_idxs, l_shell_idxs = torch.nonzero(l_values_padded >= 0, as_tuple=True)
         ls = l_values_padded[l_site_idxs, l_shell_idxs]
 
         n_orbitals = torch.zeros_like(atomic_numbers, dtype=torch.int64)
-        n_orbitals.put_(
-            l_site_idxs, (2 * ls + 1).to(torch.int64), accumulate=True
-        )
+        n_orbitals.put_(l_site_idxs, (2 * ls + 1).to(torch.int64), accumulate=True)
 
         offsets = torch.cumsum(n_orbitals, dim=0) - n_orbitals
         return n_orbitals, offsets
@@ -281,9 +249,7 @@ class E3Hamiltonian(Hamiltonian):
         n_orbitals, _offsets = self._orbital_counts(atomic_numbers)
 
         site_idxs, orbital_idxs = torch.nonzero(
-            torch.arange(
-                int(torch.max(n_orbitals).item()), device=atomic_numbers.device
-            ).view(1, -1)
+            torch.arange(int(torch.max(n_orbitals).item()), device=atomic_numbers.device).view(1, -1)
             < n_orbitals.view(-1, 1),
             as_tuple=True,
         )
@@ -324,9 +290,7 @@ class E3Hamiltonian(Hamiltonian):
     ) -> torch.Tensor:
         # Returns (l, m) with a conventional m=-l..l ordering per shell.
         l_values_padded = self.orbital_shell_idxs[atomic_numbers]
-        l_site_idxs, l_shell_idxs = torch.nonzero(
-            l_values_padded >= 0, as_tuple=True
-        )
+        l_site_idxs, l_shell_idxs = torch.nonzero(l_values_padded >= 0, as_tuple=True)
         ls = l_values_padded[l_site_idxs, l_shell_idxs]
         block_sizes = (2 * ls + 1).to(torch.int64)
 
@@ -334,9 +298,7 @@ class E3Hamiltonian(Hamiltonian):
         offsets = torch.cumsum(block_sizes, dim=0) - block_sizes
 
         quantum_ms = (
-            torch.arange(
-                quantum_ls.shape[0], device=quantum_ls.device, dtype=torch.int64
-            )
+            torch.arange(quantum_ls.shape[0], device=quantum_ls.device, dtype=torch.int64)
             - torch.repeat_interleave(offsets, block_sizes)
             - quantum_ls.to(torch.int64)
         )
@@ -378,9 +340,7 @@ class E3Hamiltonian(Hamiltonian):
 
         unique_idxs = self.irrep_map[atomic_numbers][site_idxs, orbital_idxs]
         if (unique_idxs < 0).any():
-            raise RuntimeError(
-                "Encountered invalid orbital->irrep map index while building orbital features."
-            )
+            raise RuntimeError("Encountered invalid orbital->irrep map index while building orbital features.")
 
         gathered = per_atom[site_idxs]  # [H, rank, unique_dim]
         v = torch.gather(
@@ -414,10 +374,7 @@ class E3Hamiltonian(Hamiltonian):
                 n_i = int(n_orbitals[i].item())
                 if n_i <= 1:
                     continue
-                idx_i = (
-                    torch.arange(n_i, device=device, dtype=torch.int64)
-                    + offsets[i]
-                )
+                idx_i = torch.arange(n_i, device=device, dtype=torch.int64) + offsets[i]
                 coupling_pairs.append(torch.combinations(idx_i, r=2))
 
         # Unique undirected site pairs from neighbor list.
@@ -434,14 +391,8 @@ class E3Hamiltonian(Hamiltonian):
                 n_j = int(n_orbitals[j].item())
                 if n_i == 0 or n_j == 0:
                     continue
-                idx_i = (
-                    torch.arange(n_i, device=device, dtype=torch.int64)
-                    + offsets[i]
-                )
-                idx_j = (
-                    torch.arange(n_j, device=device, dtype=torch.int64)
-                    + offsets[j]
-                )
+                idx_i = torch.arange(n_i, device=device, dtype=torch.int64) + offsets[i]
+                idx_j = torch.arange(n_j, device=device, dtype=torch.int64) + offsets[j]
                 coupling_pairs.append(torch.cartesian_prod(idx_i, idx_j))
 
         if not coupling_pairs:
@@ -470,9 +421,7 @@ class E3Hamiltonian(Hamiltonian):
         )  # [rank, H]
 
         w = self.rank_weights.to(dtype=v.dtype)
-        onsite_values = (v.square() * w.view(-1, 1)).sum(
-            dim=0
-        ) * self.energy_scale
+        onsite_values = (v.square() * w.view(-1, 1)).sum(dim=0) * self.energy_scale
 
         couplings_u = self._coupling_pairs(
             atomic_numbers=atomic_numbers,
@@ -484,9 +433,7 @@ class E3Hamiltonian(Hamiltonian):
             return (
                 onsite_values,
                 couplings_u,
-                torch.empty(
-                    (0,), dtype=onsite_values.dtype, device=onsite_values.device
-                ),
+                torch.empty((0,), dtype=onsite_values.dtype, device=onsite_values.device),
             )
 
         v_a = v[:, couplings_u[:, 0]]
@@ -509,17 +456,15 @@ class E3Hamiltonian(Hamiltonian):
         unit_cell_images: torch.IntTensor | None = None,
         **kwargs,
     ) -> TorchOperator:
-        onsite_values, couplings, coupling_values = (
-            self.hamiltonian_operator_entries(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                features=features,
-                include_onsite_offdiag=include_onsite_offdiag,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                **kwargs,
-            )
+        onsite_values, couplings, coupling_values = self.hamiltonian_operator_entries(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            features=features,
+            include_onsite_offdiag=include_onsite_offdiag,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            **kwargs,
         )
 
         site_indices, orbital_indices = self.orbital_indices(
@@ -528,13 +473,9 @@ class E3Hamiltonian(Hamiltonian):
             neighbors=neighbors,
         )
 
-        images = torch.zeros(
-            (couplings.shape[0], 3), device=couplings.device, dtype=torch.int64
-        )
+        images = torch.zeros((couplings.shape[0], 3), device=couplings.device, dtype=torch.int64)
         if unit_cell_images is not None:
-            unit_cell_images = unit_cell_images.to(
-                device=couplings.device, dtype=torch.int64
-            )
+            unit_cell_images = unit_cell_images.to(device=couplings.device, dtype=torch.int64)
             neighbors = neighbors.to(device=couplings.device, dtype=torch.int64)
             images = self._coupling_images(
                 couplings=couplings,
@@ -565,13 +506,9 @@ class E3Hamiltonian(Hamiltonian):
         so the second half is the Hermitian counterpart and uses `-images_u`.
         """
         if couplings.ndim != 2 or couplings.shape[1] != 2:
-            raise ValueError(
-                f"Expected `couplings` to have shape [E,2], got: {tuple(couplings.shape)}"
-            )
+            raise ValueError(f"Expected `couplings` to have shape [E,2], got: {tuple(couplings.shape)}")
         if couplings.shape[0] % 2 != 0:
-            raise ValueError(
-                f"Expected even number of couplings, got: E={int(couplings.shape[0])}"
-            )
+            raise ValueError(f"Expected even number of couplings, got: E={int(couplings.shape[0])}")
         if unit_cell_images.ndim != 3 or unit_cell_images.shape[-1] != 3:
             raise ValueError(
                 "Expected `unit_cell_images` to have shape [N_sites, N_neighbors, 3], "
@@ -648,24 +585,18 @@ class E3Hamiltonian(Hamiltonian):
         sparse: bool = False,
         **kwargs,
     ) -> torch.Tensor:
-        onsite_values, couplings, coupling_values = (
-            self.hamiltonian_operator_entries(
-                atomic_numbers=atomic_numbers,
-                positions=positions,
-                neighbors=neighbors,
-                features=features,
-                include_onsite_offdiag=include_onsite_offdiag,
-                unit_cell=unit_cell,
-                unit_cell_images=unit_cell_images,
-                **kwargs,
-            )
+        onsite_values, couplings, coupling_values = self.hamiltonian_operator_entries(
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            neighbors=neighbors,
+            features=features,
+            include_onsite_offdiag=include_onsite_offdiag,
+            unit_cell=unit_cell,
+            unit_cell_images=unit_cell_images,
+            **kwargs,
         )
 
-        periodic = (
-            (unit_cell is not None)
-            or (unit_cell_images is not None)
-            or (k_pts is not None)
-        )
+        periodic = (unit_cell is not None) or (unit_cell_images is not None) or (k_pts is not None)
         if not periodic:
             return build_nonperiodic_matrix(
                 onsite_values=onsite_values,
@@ -674,24 +605,16 @@ class E3Hamiltonian(Hamiltonian):
             )
 
         if unit_cell is None or unit_cell_images is None:
-            raise ValueError(
-                "Periodic `hamiltonian_matrix` requires both `unit_cell` and `unit_cell_images`."
-            )
+            raise ValueError("Periodic `hamiltonian_matrix` requires both `unit_cell` and `unit_cell_images`.")
 
         if k_pts is None:
-            k_pts = torch.zeros(
-                (1, 3), device=positions.device, dtype=positions.dtype
-            )
+            k_pts = torch.zeros((1, 3), device=positions.device, dtype=positions.dtype)
         elif not isinstance(k_pts, torch.Tensor):
-            k_pts = torch.as_tensor(
-                k_pts, device=positions.device, dtype=positions.dtype
-            )
+            k_pts = torch.as_tensor(k_pts, device=positions.device, dtype=positions.dtype)
         else:
             k_pts = k_pts.to(device=positions.device, dtype=positions.dtype)
 
-        frac_positions = positions @ torch.linalg.pinv(
-            unit_cell.to(device=positions.device, dtype=positions.dtype)
-        )
+        frac_positions = positions @ torch.linalg.pinv(unit_cell.to(device=positions.device, dtype=positions.dtype))
 
         site_indices, _orbital_indices = self.orbital_indices(
             atomic_numbers=atomic_numbers,
@@ -703,9 +626,7 @@ class E3Hamiltonian(Hamiltonian):
             couplings=couplings.to(torch.int64),
             site_indices=site_indices.to(torch.int64),
             neighbors=neighbors.to(device=positions.device, dtype=torch.int64),
-            unit_cell_images=unit_cell_images.to(
-                device=positions.device, dtype=torch.int64
-            ),
+            unit_cell_images=unit_cell_images.to(device=positions.device, dtype=torch.int64),
         )
 
         return build_matrix(
