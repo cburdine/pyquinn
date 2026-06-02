@@ -28,7 +28,7 @@ pip install -e ".[dev]"
 
 In this directory, run:
 ```
-python3 -m unittest discover
+python -m unittest discover
 
 ```
 
@@ -79,7 +79,7 @@ python -m http.server --directory docs/build/html
 
 The benchmarks are currently standalone executable python files in the `benchmark/` directory. For example, to run the benchmarks for the `pyquinn.torch.lcao.gto` submodule, run the command
 ```
-python3 benchmark/torch/benchmark_lcao_gto.py
+python benchmark/torch/benchmark_lcao_gto.py
 ```
 
 ---
@@ -88,7 +88,7 @@ python3 benchmark/torch/benchmark_lcao_gto.py
 
 - [x] Add basic functionality of the `torch.lcao.gto` subpackage 
 - [x] Add basic support for spin-paired states in the `LCAOHamiltonian` and `TBHamiltonian` modules.
-- [ ] Add support for evaluating $\hat{x}$ and $\hat{p}$ matrices in the `LCAOHamiltonian` and `TBHamiltonian` modules. 
+- [x] Add support for evaluating $\hat{x}$ and $\hat{p}$ matrices in the `LCAOHamiltonian` and `TBHamiltonian` modules. 
 - [ ] Implement support for spin-polarized states in the `LCAOHamiltonian` and `TBHamiltonian` modules.
 
 ## Development TODO List:
@@ -97,7 +97,9 @@ python3 benchmark/torch/benchmark_lcao_gto.py
 - [x] Add support for linting
 - [x] Build documentation
 - [x] Add benchmarking suite
-- [ ] Migrate linter to [Black](https://github.com/psf/black)
-- [ ] Migrate unit testing to PyTest
+- [x] Migrate linter to [Black](https://github.com/psf/black)
 - [ ] Add a tutorial repository
+- [ ] Migrate unit testing to PyTest
 - [ ] Add a CI pipline (via github actions)
+
+

@@ -3,7 +3,7 @@ from torch.utils import benchmark
 
 from pyquinn.torch.nn.lcao.gto import (
     cho_ng_overlap_matrix,
-    cho_ng_potential_overlap_matrix,
+    cho_ng_hamiltonian_matrix,
     cho_overlap_matrix_metadata,
 )
 
@@ -50,8 +50,8 @@ def _make_gto_potential_overlap_args(idx_size, n_size=5, m_size=5, sparse=False)
 python_cho_ng_overlap_matrix = cho_ng_overlap_matrix
 compiled_cho_ng_overlap_matrix = torch.compile(cho_ng_overlap_matrix, dynamic=True)
 
-python_cho_ng_potential_overlap_matrix = cho_ng_potential_overlap_matrix
-compiled_cho_ng_potential_overlap_matrix = torch.compile(cho_ng_potential_overlap_matrix, dynamic=True)
+python_cho_ng_hamiltonian_matrix = cho_ng_hamiltonian_matrix
+compiled_cho_ng_hamiltonian_matrix = torch.compile(cho_ng_hamiltonian_matrix, dynamic=True)
 
 
 def benchmark_cho_overlap(results):
@@ -102,39 +102,39 @@ def benchmark_cho_overlap(results):
 
 def benchmark_cho_potential_overlap(results):
     num_threads = torch.get_num_threads()
-    print(f"Benchmarking cho_potential_overlap on {num_threads} threads...")
+    print(f"Benchmarking cho_hamiltonian on {num_threads} threads...")
 
     def _run_benchmark(n, m, size, results, threads=None):
         num_threads = torch.get_num_threads() if threads is None else threads
 
         t0 = benchmark.Timer(
-            stmt="python_cho_ng_potential_overlap_matrix(**kwargs)",
-            setup="from __main__ import python_cho_ng_potential_overlap_matrix",  # noqa
+            stmt="python_cho_ng_hamiltonian_matrix(**kwargs)",
+            setup="from __main__ import python_cho_ng_hamiltonian_matrix",  # noqa
             globals={"kwargs": _make_gto_potential_overlap_args(size, n, m, sparse=False)},  # noqa
             num_threads=num_threads,
-            label="CHO Potential Overlap",
+            label="CHO Hamiltonian",
             sub_label=f"[{size},{size}] (n={n},m={m})",
             description="python",
         ).blocked_autorange(min_run_time=0.2)
         results.append(t0)
 
         t1 = benchmark.Timer(
-            stmt="compiled_cho_ng_potential_overlap_matrix(**kwargs)",
-            setup="from __main__ import compiled_cho_ng_potential_overlap_matrix",  # noqa
+            stmt="compiled_cho_ng_hamiltonian_matrix(**kwargs)",
+            setup="from __main__ import compiled_cho_ng_hamiltonian_matrix",  # noqa
             globals={"kwargs": _make_gto_potential_overlap_args(size, n, m, sparse=False)},  # noqa
             num_threads=num_threads,
-            label="CHO Potential Overlap",
+            label="CHO Hamiltonian",
             sub_label=f"[{size},{size}] (n={n},m={m})",
             description="torch.compile",
         ).blocked_autorange(min_run_time=0.2)
         results.append(t1)
 
         t2 = benchmark.Timer(
-            stmt="compiled_cho_ng_potential_overlap_matrix(**kwargs)",
-            setup="from __main__ import compiled_cho_ng_potential_overlap_matrix",  # noqa
+            stmt="compiled_cho_ng_hamiltonian_matrix(**kwargs)",
+            setup="from __main__ import compiled_cho_ng_hamiltonian_matrix",  # noqa
             globals={"kwargs": _make_gto_potential_overlap_args(size, n, m, sparse=True)},  # noqa
             num_threads=num_threads,
-            label="CHO Potential Overlap",
+            label="CHO Hamiltonian",
             sub_label=f"[{size},{size}] (n={n},m={m})",
             description="torch.compile (sparse)",
         ).blocked_autorange(min_run_time=0.2)
