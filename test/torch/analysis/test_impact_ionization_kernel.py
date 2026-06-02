@@ -106,4 +106,3 @@ class ImpactIonizationKernelTest(unittest.TestCase):
         expected[expected_n] = (A.conj() @ B @ B) * (dE**2)
 
         self.assertTrue(torch.allclose(sigma, expected, atol=1e-6, rtol=1e-6))
-

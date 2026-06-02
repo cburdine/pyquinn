@@ -3,8 +3,8 @@ import unittest
 import torch
 
 from pyquinn.torch.analysis.negf import (
-    ElasticDephasingScatterer,
     EinsteinPhononScatterer,
+    ElasticDephasingScatterer,
     ImpactIonizationScatterer,
     PhotonDipoleScatterer,
     correlation_self_energies_from_scatterers,
@@ -14,7 +14,6 @@ from pyquinn.torch.analysis.negf import (
 
 
 class ScattererSyntaxTest(unittest.TestCase):
-
     def test_scatterer_sum_matches_manual(self):
         dtype = torch.complex64
         device = torch.device("cpu")

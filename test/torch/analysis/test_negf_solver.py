@@ -3,21 +3,24 @@ import unittest
 import torch
 
 from pyquinn.torch.analysis.negf import (
-    NEGFSolver,
     ElasticDephasingScatterer,
+    NEGFSolver,
 )
 
 
 class _FakeGraph:
-
-    def __init__(self, size: int, device: torch.device | None = None, is_system: bool = False):
+    def __init__(
+        self,
+        size: int,
+        device: torch.device | None = None,
+        is_system: bool = False,
+    ):
         self.size = size
-        self.device = torch.device('cpu') if device is None else device
+        self.device = torch.device("cpu") if device is None else device
         self.is_system = is_system
 
 
 class _FakeDevice:
-
     def __init__(self, site_size: int, lead_sizes: list[int], gamma: float = 0.5):
         self.device = _FakeGraph(site_size)
         self.leads = [_FakeGraph(size) for size in lead_sizes]
@@ -30,7 +33,6 @@ class _FakeDevice:
 
 
 class _FakeModel:
-
     def __init__(self, site_size: int, lead_sizes: list[int], hop: float = 0.5):
         self.site_size = site_size
         self.lead_sizes = lead_sizes
@@ -48,8 +50,8 @@ class _FakeModel:
         if graph.is_system:
             site = self.site_size
             lead = self.lead_sizes[0]
-            mat[:, :site, site:site+lead] = self.hop
-            mat[:, site:site+lead, :site] = self.hop
+            mat[:, :site, site : site + lead] = self.hop
+            mat[:, site : site + lead, :site] = self.hop
         return mat
 
 
@@ -68,7 +70,6 @@ def _build_solver(site_size: int = 2, lead_sizes: list[int] | None = None, tol: 
 
 
 class TorchNEGFSolverTest(unittest.TestCase):
-
     def test_solver_runs_and_shapes(self):
         solver = _build_solver(tol=1.0)
         energies = torch.linspace(-1.0, 1.0, 128)

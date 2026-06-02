@@ -24,6 +24,7 @@ dev = [
   "piccolo_theme",
   "flake8",
   "black",
+  "ruff",
   "jupyter",
   "sphinx-copybutton",
   "matplotlib",
@@ -38,3 +39,21 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["pyquinn*"]
 exclude = ["test*", "benchmark*"]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E741", "E226"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"test/**" = ["F403", "F405"]
+
+

@@ -2,18 +2,17 @@ import unittest
 
 import torch
 
-from pyquinn.torch.nn import SKHamiltonian, E3SKHamiltonian, PODHamiltonian
+from pyquinn.torch.nn import E3SKHamiltonian, PODHamiltonian, SKHamiltonian
 from pyquinn.torch.nn.hamiltonian import ExponentialSKCoefficients
 from pyquinn.torch.types.operator import build_nonperiodic_matrix
 
 
 class TestSKHamiltonian(unittest.TestCase):
-
     def test_sk_hamiltonian_matrix_shapes_and_symmetry(self):
         torch.manual_seed(0)
 
         model = SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0, 1]},  # carbon sp
             z_max=6,
         )
@@ -52,16 +51,18 @@ class TestSKHamiltonian(unittest.TestCase):
 
     def test_sk_hamiltonian_slater_koster_angular_factors_sp(self):
         model = SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0, 1]},
             z_max=6,
         )
 
         # Force constant SK integrals (no distance decay, unit element scaling).
         with torch.no_grad():
-            model.sk_coefficients.coeff[:] = torch.tensor([-2.0, 1.5, 0.8, -0.3], dtype=model.sk_coefficients.coeff.dtype)
+            model.sk_coefficients.coeff[:] = torch.tensor(
+                [-2.0, 1.5, 0.8, -0.3], dtype=model.sk_coefficients.coeff.dtype
+            )
             model.sk_coefficients.raw_decay.fill_(-20.0)  # softplus ~ 0 => exp(-beta r) ~ 1
-            if getattr(model.sk_coefficients, 'element_scale', None) is not None:
+            if getattr(model.sk_coefficients, "element_scale", None) is not None:
                 model.sk_coefficients.element_scale.weight.fill_(1.0)
 
         atomic_numbers = torch.tensor([6, 6], dtype=torch.int64)
@@ -105,15 +106,17 @@ class TestSKHamiltonian(unittest.TestCase):
         torch.manual_seed(0)
 
         model = SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0, 1]},
             z_max=6,
         )
 
         with torch.no_grad():
-            model.sk_coefficients.coeff[:] = torch.tensor([-2.0, 1.5, 0.8, -0.3], dtype=model.sk_coefficients.coeff.dtype)
+            model.sk_coefficients.coeff[:] = torch.tensor(
+                [-2.0, 1.5, 0.8, -0.3], dtype=model.sk_coefficients.coeff.dtype
+            )
             model.sk_coefficients.raw_decay.fill_(-20.0)  # softplus ~ 0 => exp(-beta r) ~ 1
-            if getattr(model.sk_coefficients, 'element_scale', None) is not None:
+            if getattr(model.sk_coefficients, "element_scale", None) is not None:
                 model.sk_coefficients.element_scale.weight.fill_(1.0)
 
         atomic_numbers = torch.tensor([6, 6], dtype=torch.int64)
@@ -165,7 +168,7 @@ class TestSKHamiltonian(unittest.TestCase):
         t2 = -1.0
 
         model = SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0]},
             sk_coefficients=ExponentialSKCoefficients(z_max=6, element_dependent=False),
             z_max=6,
@@ -178,9 +181,7 @@ class TestSKHamiltonian(unittest.TestCase):
         k_pts = torch.cat((k, torch.zeros_like(k), torch.zeros_like(k)), dim=-1)
 
         # Target energies (sorted per k): [-E, +E]
-        E = torch.sqrt(
-            t1 * t1 + t2 * t2 + 2.0 * t1 * t2 * torch.cos(2.0 * torch.pi * k.squeeze(-1))
-        ).to(torch.float32)
+        E = torch.sqrt(t1 * t1 + t2 * t2 + 2.0 * t1 * t2 * torch.cos(2.0 * torch.pi * k.squeeze(-1))).to(torch.float32)
         target = torch.stack((-E, E), dim=-1)
 
         atomic_numbers = torch.tensor([6, 6], dtype=torch.int64)
@@ -188,13 +189,16 @@ class TestSKHamiltonian(unittest.TestCase):
 
         # Two neighbors per site to capture intra-cell (t1) and inter-cell (t2).
         neighbors = torch.tensor([[1, 1], [0, 0]], dtype=torch.int64)
-        unit_cell = torch.tensor([[a, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]], dtype=torch.float32)
+        unit_cell = torch.tensor(
+            [[a, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            dtype=torch.float32,
+        )
         unit_cell_images = torch.zeros((2, 2, 3), dtype=torch.int64)
         unit_cell_images[0, 1, 0] = -1  # site 0 sees site 1 in previous cell (distance r2)
-        unit_cell_images[1, 1, 0] = 1   # site 1 sees site 0 in next cell (distance r2)
+        unit_cell_images[1, 1, 0] = 1  # site 1 sees site 0 in next cell (distance r2)
 
         params = [model.sk_coefficients.coeff, model.sk_coefficients.raw_decay]
-        opt = torch.optim.LBFGS(params, lr=1.0, max_iter=200, line_search_fn='strong_wolfe')
+        opt = torch.optim.LBFGS(params, lr=1.0, max_iter=200, line_search_fn="strong_wolfe")
 
         def closure():
             opt.zero_grad(set_to_none=True)
@@ -227,12 +231,11 @@ class TestSKHamiltonian(unittest.TestCase):
 
 
 class TestE3SKHamiltonian(unittest.TestCase):
-
     def test_e3sk_hamiltonian_matrix_shapes_and_symmetry(self):
         torch.manual_seed(0)
 
         model = E3SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0, 1]},
             z_max=6,
             l_max=1,
@@ -278,7 +281,7 @@ class TestE3SKHamiltonian(unittest.TestCase):
         t2 = -1.0
 
         model = E3SKHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0]},
             z_max=6,
             l_max=0,
@@ -293,22 +296,23 @@ class TestE3SKHamiltonian(unittest.TestCase):
         k = torch.linspace(0.0, 0.5, 33, dtype=torch.float32).view(-1, 1)
         k_pts = torch.cat((k, torch.zeros_like(k), torch.zeros_like(k)), dim=-1)
 
-        E = torch.sqrt(
-            t1 * t1 + t2 * t2 + 2.0 * t1 * t2 * torch.cos(2.0 * torch.pi * k.squeeze(-1))
-        ).to(torch.float32)
+        E = torch.sqrt(t1 * t1 + t2 * t2 + 2.0 * t1 * t2 * torch.cos(2.0 * torch.pi * k.squeeze(-1))).to(torch.float32)
         target = torch.stack((-E, E), dim=-1)
 
         atomic_numbers = torch.tensor([6, 6], dtype=torch.int64)
         positions = torch.tensor([[0.0, 0.0, 0.0], [r1, 0.0, 0.0]], dtype=torch.float32)
 
         neighbors = torch.tensor([[1, 1], [0, 0]], dtype=torch.int64)
-        unit_cell = torch.tensor([[a, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]], dtype=torch.float32)
+        unit_cell = torch.tensor(
+            [[a, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            dtype=torch.float32,
+        )
         unit_cell_images = torch.zeros((2, 2, 3), dtype=torch.int64)
         unit_cell_images[0, 1, 0] = -1
         unit_cell_images[1, 1, 0] = 1
 
         params = list(model.edge_nns.parameters())
-        opt = torch.optim.LBFGS(params, lr=1.0, max_iter=250, line_search_fn='strong_wolfe')
+        opt = torch.optim.LBFGS(params, lr=1.0, max_iter=250, line_search_fn="strong_wolfe")
 
         def closure():
             opt.zero_grad(set_to_none=True)
@@ -341,12 +345,11 @@ class TestE3SKHamiltonian(unittest.TestCase):
 
 
 class TestPODHamiltonian(unittest.TestCase):
-
     def test_pod_hamiltonian_reduces_dimension(self):
         torch.manual_seed(0)
 
         model = PODHamiltonian(
-            eigensolver='torch_eigh',
+            eigensolver="torch_eigh",
             orbital_shells={6: [0, 1]},
             z_max=6,
             l_max=1,

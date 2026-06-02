@@ -1,4 +1,5 @@
 import unittest
+
 import numpy as np
 
 from pyquinn.torch.nn.lcao import VariationalE3TBHamiltonian
@@ -6,15 +7,15 @@ from pyquinn.torch.nn.lcao.lcao_hamiltonian_e3 import _make_shell_irrep_map
 
 
 class TestVariationalTBHamiltonian(unittest.TestCase):
-
     def test_make_shell_irrep_map(self):
 
-        shell_idxs = \
-            VariationalE3TBHamiltonian._make_shell_idxs({
+        shell_idxs = VariationalE3TBHamiltonian._make_shell_idxs(
+            {
                 1: [0, 0, 1, 2, 2, 2],
                 2: [2, 1, 0],
                 3: [0, 1, 2, 3],
-            })
+            }
+        )
 
         irrep_shells, shell_map, irrep_map = _make_shell_irrep_map(shell_idxs)
 
@@ -24,35 +25,39 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
 
         target_irrep_shells = np.array([0, 0, 1, 2, 2, 2, 3])
         blocks = {
-            0: [0], 
-            1: [1], 
+            0: [0],
+            1: [1],
             2: [2, 3, 4],
             3: [5, 6, 7, 8, 9],
             4: [10, 11, 12, 13, 14],
             5: [15, 16, 17, 18, 19],
-            6: [20, 21, 22, 23, 24, 25, 26]
+            6: [20, 21, 22, 23, 24, 25, 26],
         }
 
-        target_irrep_map = np.array([
-            [-1]*20,
-            blocks[0]+blocks[1]+blocks[2]+blocks[3]+blocks[4]+blocks[5], # noqa
-            blocks[3]+blocks[2]+blocks[0]+[-1]*11,
-            blocks[0]+blocks[2]+blocks[3]+blocks[6]+[-1]*4
-        ])
+        target_irrep_map = np.array(
+            [
+                [-1] * 20,
+                blocks[0] + blocks[1] + blocks[2] + blocks[3] + blocks[4] + blocks[5],  # noqa
+                blocks[3] + blocks[2] + blocks[0] + [-1] * 11,
+                blocks[0] + blocks[2] + blocks[3] + blocks[6] + [-1] * 4,
+            ]
+        )
 
-        target_shell_map = np.array([
-            [-1]*20,
-            [0]+[1]+[2]*3+[3]*5+[4]*5+[5]*5,
-            [0]*5+[1]*3+[2]+[-1]*11,
-            [0]+[1]*3+[2]*5+[3]*7 + [-1]*4
-        ])
+        target_shell_map = np.array(
+            [
+                [-1] * 20,
+                [0] + [1] + [2] * 3 + [3] * 5 + [4] * 5 + [5] * 5,
+                [0] * 5 + [1] * 3 + [2] + [-1] * 11,
+                [0] + [1] * 3 + [2] * 5 + [3] * 7 + [-1] * 4,
+            ]
+        )
 
         self.assertTrue(np.all(irrep_shells == target_irrep_shells))
         self.assertTrue(np.all(irrep_map == target_irrep_map))
         self.assertTrue(np.all(shell_map == target_shell_map))
-        
+
     # def test_var_tb_model_hamiltonian_matrix(self):
-        
+
     #     model = VariationalE3TBHamiltonian(
     #         onsite_nn='nnconv',
     #         variational_nn='nnconv',
@@ -67,7 +72,7 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
     #     atomic_numbers = torch.tensor([7, 7])
 
     #     positions = torch.tensor([
-    #         [0.0, 0.0, 0.0], 
+    #         [0.0, 0.0, 0.0],
     #         [1.0, 1.0, 0.0],
     #     ], requires_grad=True)
 
@@ -88,7 +93,7 @@ class TestVariationalTBHamiltonian(unittest.TestCase):
     #     ])
 
     #     k_pts = torch.outer(
-    #         torch.tensor([1.0, 0, 0]), 
+    #         torch.tensor([1.0, 0, 0]),
     #         torch.linspace(0, torch.pi/4, 1000)).T
 
     #     H_size = sum(

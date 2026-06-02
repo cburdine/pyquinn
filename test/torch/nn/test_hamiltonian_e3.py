@@ -1,7 +1,7 @@
 import unittest
 
-import torch
 import e3nn.o3 as o3
+import torch
 
 from pyquinn.torch.nn import E3Hamiltonian
 from pyquinn.torch.types.operator import build_nonperiodic_matrix
@@ -19,11 +19,10 @@ def _orbital_irreps_for_graph(model: E3Hamiltonian, atomic_numbers: torch.IntTen
 
 
 class TestE3Hamiltonian(unittest.TestCase):
-
     def test_e3_hamiltonian_matrix_shapes_and_symmetry(self):
         model = E3Hamiltonian(
-            eigensolver='torch_eigh',
-            spin='paired',
+            eigensolver="torch_eigh",
+            spin="paired",
             rank=4,
             orbital_shells={
                 6: [0, 1],
@@ -73,8 +72,8 @@ class TestE3Hamiltonian(unittest.TestCase):
         torch.manual_seed(0)
 
         model = E3Hamiltonian(
-            eigensolver='torch_eigh',
-            spin='paired',
+            eigensolver="torch_eigh",
+            spin="paired",
             rank=6,
             orbital_shells={
                 6: [0, 1],
@@ -104,8 +103,8 @@ class TestE3Hamiltonian(unittest.TestCase):
         torch.manual_seed(0)
 
         model = E3Hamiltonian(
-            eigensolver='torch_eigh',
-            spin='paired',
+            eigensolver="torch_eigh",
+            spin="paired",
             rank=4,
             orbital_shells={6: [0]},
         )
@@ -185,7 +184,7 @@ class TestE3Hamiltonian(unittest.TestCase):
         )
         unit_cell_images = torch.zeros((n_sites, 2, 3), dtype=torch.int64)
         unit_cell_images[0, 1, 0] = -1  # site 0 sees site 3 in previous cell
-        unit_cell_images[3, 1, 0] = 1   # site 3 sees site 0 in next cell
+        unit_cell_images[3, 1, 0] = 1  # site 3 sees site 0 in next cell
 
         # Orbital order per site: [s, p_x, p_y, p_z]
         n_orb_per_site = 4
@@ -219,7 +218,7 @@ class TestE3Hamiltonian(unittest.TestCase):
 
         for i in range(n_sites):
             j = (i + 1) % n_sites
-            parity_even = (i % 2 == 0)
+            parity_even = i % 2 == 0
 
             t_ss = t_ss_1 if parity_even else t_ss_2
             t_sp = t_sp_1 if parity_even else t_sp_2
@@ -272,16 +271,16 @@ class TestE3Hamiltonian(unittest.TestCase):
                     mask[p_j, p_i] = True
 
         model = E3Hamiltonian(
-            eigensolver='torch_eigh',
-            spin='paired',
+            eigensolver="torch_eigh",
+            spin="paired",
             rank=16,
             orbital_shells={6: [0, 1]},
             equivariant_nn_kwargs={
-                'layers': 2,
-                'hidden_features': 2,
-                'l_max': 1,
-                'r_max': 2.5,
-                'r_points': 8,
+                "layers": 2,
+                "hidden_features": 2,
+                "l_max": 1,
+                "r_max": 2.5,
+                "r_points": 8,
             },
         )
 

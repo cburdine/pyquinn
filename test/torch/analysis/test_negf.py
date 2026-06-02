@@ -6,17 +6,15 @@ import torch
 from pyquinn.torch.analysis.negf import (
     EinsteinPhononScatterer,
     PhotonDipoleScatterer,
-    surface_greens_function,
     SanchoRubioSolver,
-    greens_function,
     TorchNEGFResult,
+    greens_function,
+    surface_greens_function,
 )
 
 
 class TorchNEGFTest(unittest.TestCase):
-
     def test_current_matches_coherent_current_without_scatterers(self):
-
 
         dtype = torch.complex64
         device = torch.device("cpu")
@@ -200,11 +198,11 @@ class TorchNEGFTest(unittest.TestCase):
         self.assertTrue(torch.allclose(sigmaG[0, mid], factor * gG[0, mid], atol=1e-5, rtol=1e-5))
 
     def test_sancho_rubio(self):
-        
+
         def h_chain_g_surface(E, eta, e0, t0):
-            z = E+1.j*eta-e0
-            g = z/(2*t0**2) - 1.j * torch.sqrt(4*t0**2 - z**2)/(2*t0**2)
-            
+            z = E + 1.0j * eta - e0
+            g = z / (2 * t0**2) - 1.0j * torch.sqrt(4 * t0**2 - z**2) / (2 * t0**2)
+
             return g
 
         e_onsite = 1.0
@@ -217,17 +215,21 @@ class TorchNEGFTest(unittest.TestCase):
         v = torch.tensor([[t_hop]], dtype=torch.complex64)
 
         for eta in etas:
+            g_numerical = (
+                surface_greens_function(
+                    energies=energies,
+                    hamiltonian_matrix=h,
+                    coupling_matrix=v,
+                    eta=eta,
+                    solver=SanchoRubioSolver(tol=1e-8),
+                )
+                .squeeze()
+                .detach()
+                .cpu()
+                .numpy()
+            )
 
-            g_numerical = surface_greens_function(
-                energies=energies,
-                hamiltonian_matrix=h,
-                coupling_matrix=v,
-                eta=eta,
-                solver=SanchoRubioSolver(tol=1e-8),
-            ).squeeze().detach().cpu().numpy()
-
-            g_analytical = h_chain_g_surface(
-                energies, eta=eta, e0=e_onsite, t0=t_hop).detach().cpu().numpy()
+            g_analytical = h_chain_g_surface(energies, eta=eta, e0=e_onsite, t0=t_hop).detach().cpu().numpy()
 
             self.assertTrue(np.allclose(g_numerical, g_analytical, atol=1e-4))
 
@@ -236,15 +238,15 @@ class TorchNEGFTest(unittest.TestCase):
         e_onsite = 1.0
         t_hop = -1.0
         a_lat = 1.0
-        k_pts = torch.linspace(0, 1/a_lat, 100)
-        
-        H = (e_onsite * torch.eye(2)).view(1, 2, 2) + \
-            (2*t_hop*torch.cos(2*torch.pi*k_pts*a_lat)).view(-1, 1, 1) * \
-            torch.tensor([[[0.0, 1.0], [1.0, 0.0]]]).view(1, 2, 2)
+        k_pts = torch.linspace(0, 1 / a_lat, 100)
+
+        H = (e_onsite * torch.eye(2)).view(1, 2, 2) + (2 * t_hop * torch.cos(2 * torch.pi * k_pts * a_lat)).view(
+            -1, 1, 1
+        ) * torch.tensor([[[0.0, 1.0], [1.0, 0.0]]]).view(1, 2, 2)
 
         energies = torch.linspace(-2, 2, 10)
         gf = greens_function(energies, H, eta=1e-5)
-    
+
         self.assertTupleEqual(tuple(gf.shape), (100, 10, 2, 2))
 
     def test_occupied_ldos_and_dos(self):
@@ -308,13 +310,11 @@ class TorchNEGFTest(unittest.TestCase):
         lead_occ = torch.stack([f0, f1], dim=0)  # [L, E]
 
         a = torch.tensor(
-            [[0.5, 0.7, 0.9, 1.1],
-             [0.6, 0.8, 1.0, 1.2]],
+            [[0.5, 0.7, 0.9, 1.1], [0.6, 0.8, 1.0, 1.2]],
             dtype=torch.float32,
         )  # [K, E]
         b = torch.tensor(
-            [[1.1, 0.9, 0.7, 0.5],
-             [1.2, 1.0, 0.8, 0.6]],
+            [[1.1, 0.9, 0.7, 0.5], [1.2, 1.0, 0.8, 0.6]],
             dtype=torch.float32,
         )  # [K, E]
 

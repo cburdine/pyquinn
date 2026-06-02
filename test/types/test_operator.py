@@ -1,31 +1,26 @@
 import unittest
+
 import numpy as np
 
-from pyquinn.util.data import ATOMIC_SYMBOLS
-from pyquinn.types.operator import Operator, SUPPORTED_BACKENDS
+from pyquinn.types.operator import SUPPORTED_BACKENDS, Operator
+
 
 class OperatorTest(unittest.TestCase):
-
     def test_operator(self):
 
         N = 100
         onsite_values = np.linspace(1.0, 1.0, N)
-        couplings = np.concatenate([
-            np.hstack([
-                np.arange(0, N) % N,
-                np.arange(1, N+1) % N
-            ]),
-            np.hstack([
-                np.arange(1, N+1) % N,
-                np.arange(0, N) % N
-            ])
-        ])
+        couplings = np.concatenate(
+            [
+                np.hstack([np.arange(0, N) % N, np.arange(1, N + 1) % N]),
+                np.hstack([np.arange(1, N + 1) % N, np.arange(0, N) % N]),
+            ]
+        )
         coupling_values = np.ones(couplings.shape[0])
 
-
-        images = np.zeros((2*N, 3))
-        images[N-1, 0] = 1
-        images[2*N-1, 0] = -1
+        images = np.zeros((2 * N, 3))
+        images[N - 1, 0] = 1
+        images[2 * N - 1, 0] = -1
 
         site_indices = np.arange(N)
         orbital_indices = np.zeros(N)
@@ -36,7 +31,7 @@ class OperatorTest(unittest.TestCase):
             coupling_values=coupling_values,
             site_indices=site_indices,
             orbital_indices=orbital_indices,
-            images=images
+            images=images,
         )
 
         self.assertTrue(np.allclose(operator.onsite_values, onsite_values))
@@ -49,21 +44,17 @@ class OperatorTest(unittest.TestCase):
 
         N = 100
         onsite_values = np.linspace(1.0, 1.0, N)
-        couplings = np.concatenate([
-            np.hstack([
-                np.arange(0, N) % N,
-                np.arange(1, N+1) % N
-            ]),
-            np.hstack([
-                np.arange(1, N+1) % N,
-                np.arange(0, N) % N
-            ])
-        ])
+        couplings = np.concatenate(
+            [
+                np.hstack([np.arange(0, N) % N, np.arange(1, N + 1) % N]),
+                np.hstack([np.arange(1, N + 1) % N, np.arange(0, N) % N]),
+            ]
+        )
         coupling_values = np.ones(couplings.shape[0])
 
-        images = np.zeros((2*N, 3))
-        images[N-1, 0] = 1
-        images[2*N-1, 0] = -1
+        images = np.zeros((2 * N, 3))
+        images[N - 1, 0] = 1
+        images[2 * N - 1, 0] = -1
 
         site_indices = np.arange(N)
         orbital_indices = np.zeros(N)
@@ -74,27 +65,18 @@ class OperatorTest(unittest.TestCase):
             coupling_values=coupling_values,
             site_indices=site_indices,
             orbital_indices=orbital_indices,
-            images=images
+            images=images,
         )
 
         self.assertTrue(SUPPORTED_BACKENDS)
 
-        backend_operators = [
-            operator.compile(backend=backend)
-            for backend in SUPPORTED_BACKENDS
-        ]
+        backend_operators = [operator.compile(backend=backend) for backend in SUPPORTED_BACKENDS]
 
         self.assertTrue(len(backend_operators) > 0)
 
-        self.assertRaises(
-            ValueError,
-            lambda: operator.compile(backend='unknown_backend')
-        )
+        self.assertRaises(ValueError, lambda: operator.compile(backend="unknown_backend"))
 
-        extracted_operators = [
-            op.extract()
-            for op in backend_operators
-        ]
+        extracted_operators = [op.extract() for op in backend_operators]
 
         for op in extracted_operators:
             self.assertTrue(np.allclose(op.onsite_values, onsite_values))
@@ -108,23 +90,29 @@ class OperatorTest(unittest.TestCase):
         N = 3
         value_shape = (2,)
 
-        onsite_values = np.array([
-            [1.0, 0.5],
-            [2.0, -0.5],
-            [3.0, 1.5],
-        ])
+        onsite_values = np.array(
+            [
+                [1.0, 0.5],
+                [2.0, -0.5],
+                [3.0, 1.5],
+            ]
+        )
 
-        couplings = np.array([
-            [0, 1],
-            [1, 2],
-            [2, 0],
-        ])
+        couplings = np.array(
+            [
+                [0, 1],
+                [1, 2],
+                [2, 0],
+            ]
+        )
 
-        coupling_values = np.array([
-            [0.1, -0.2],
-            [0.3, 0.4],
-            [0.5, -0.6],
-        ])
+        coupling_values = np.array(
+            [
+                [0.1, -0.2],
+                [0.3, 0.4],
+                [0.5, -0.6],
+            ]
+        )
 
         site_indices = np.arange(N)
         orbital_indices = np.zeros(N)
@@ -149,7 +137,7 @@ class OperatorTest(unittest.TestCase):
         expected = np.zeros((N, N) + value_shape, dtype=coupling_values.dtype)
         diag_idx = np.arange(N)
         expected[diag_idx, diag_idx] += onsite_values
-        for (i, j), v in zip(couplings, coupling_values):
+        for (i, j), v in zip(couplings, coupling_values, strict=False):
             expected[i, j] += v
 
         self.assertTrue(np.allclose(H_k[0], expected))
@@ -196,19 +184,23 @@ class OperatorTest(unittest.TestCase):
         site_indices = np.arange(N)
         orbital_indices = np.zeros(N)
 
-        couplings = np.array([
-            [0, 1],
-            [0, 1],
-            [1, 2],
-            [1, 2],
-        ])
+        couplings = np.array(
+            [
+                [0, 1],
+                [0, 1],
+                [1, 2],
+                [1, 2],
+            ]
+        )
 
-        coupling_values = np.array([
-            [0.5, -0.5],
-            [1.5, 0.5],
-            [2.0, 0.0],
-            [-1.0, 1.0],
-        ])
+        coupling_values = np.array(
+            [
+                [0.5, -0.5],
+                [1.5, 0.5],
+                [2.0, 0.0],
+                [-1.0, 1.0],
+            ]
+        )
 
         operator = Operator(
             onsite_values=onsite_values,

@@ -3,8 +3,8 @@ import unittest
 import torch
 
 from pyquinn.torch.analysis.negf import (
-    TorchNEGFDevice,
     NEGFSolver,
+    TorchNEGFDevice,
     greens_function,
 )
 from pyquinn.torch.models.bandstructure_model import TorchBandStructureModel
@@ -12,11 +12,7 @@ from pyquinn.torch.nn.lcao.lcao_hamiltonian import TBHamiltonian
 from pyquinn.torch.types.atom_graph import TorchAtomGraph
 
 
-def _hydrogen_chain_graph(
-        n_atoms: int,
-        a: float,
-        x0: float,
-        periodic_x: bool) -> TorchAtomGraph:
+def _hydrogen_chain_graph(n_atoms: int, a: float, x0: float, periodic_x: bool) -> TorchAtomGraph:
     dev = torch.device("cpu")
 
     positions = torch.zeros((n_atoms, 3), dtype=torch.float32, device=dev)
@@ -50,7 +46,6 @@ def _hydrogen_chain_graph(
 
 
 class HydrogenChainIntegrationTest(unittest.TestCase):
-
     def test_device_and_solver_run_on_hydrogen_chain(self):
         # Deterministic-ish default weights.
         torch.manual_seed(0)
@@ -150,21 +145,25 @@ class HydrogenChainIntegrationTest(unittest.TestCase):
         # for a single k-point.
         ldos_k = result.ldos(k_resolved=True)
         self.assertEqual(ldos_k.shape, (1, energies.numel(), 3))
-        self.assertTrue(torch.allclose(
-            ldos_k,
-            (-1 / torch.pi) * torch.diagonal(g_ret.imag, dim1=-2, dim2=-1),
-            atol=1e-6,
-            rtol=1e-5,
-        ))
+        self.assertTrue(
+            torch.allclose(
+                ldos_k,
+                (-1 / torch.pi) * torch.diagonal(g_ret.imag, dim1=-2, dim2=-1),
+                atol=1e-6,
+                rtol=1e-5,
+            )
+        )
 
         dos_k = result.dos(k_resolved=True)
         self.assertEqual(dos_k.shape, (1, energies.numel()))
-        self.assertTrue(torch.allclose(
-            dos_k,
-            (-1 / torch.pi) * torch.diagonal(g_ret.imag, dim1=-2, dim2=-1).sum(dim=-1),
-            atol=1e-6,
-            rtol=1e-5,
-        ))
+        self.assertTrue(
+            torch.allclose(
+                dos_k,
+                (-1 / torch.pi) * torch.diagonal(g_ret.imag, dim1=-2, dim2=-1).sum(dim=-1),
+                atol=1e-6,
+                rtol=1e-5,
+            )
+        )
 
         # At equilibrium the lead current should vanish.
         I_terminal = result.current(in_idx=0, out_idx=1, k_resolved=False)
@@ -175,18 +174,22 @@ class HydrogenChainIntegrationTest(unittest.TestCase):
         J_bond = result.bond_current_density(k_resolved=False)  # [E, N, N]
         self.assertEqual(J_bond.shape, (energies.numel(), 3, 3))
         self.assertTrue(torch.isfinite(J_bond).all())
-        self.assertTrue(torch.allclose(
-            J_bond + J_bond.transpose(-2, -1),
-            torch.zeros_like(J_bond),
-            atol=1e-6,
-            rtol=1e-6,
-        ))
-        self.assertTrue(torch.allclose(
-            torch.diagonal(J_bond, dim1=-2, dim2=-1),
-            torch.zeros_like(torch.diagonal(J_bond, dim1=-2, dim2=-1)),
-            atol=1e-6,
-            rtol=1e-6,
-        ))
+        self.assertTrue(
+            torch.allclose(
+                J_bond + J_bond.transpose(-2, -1),
+                torch.zeros_like(J_bond),
+                atol=1e-6,
+                rtol=1e-6,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                torch.diagonal(J_bond, dim1=-2, dim2=-1),
+                torch.zeros_like(torch.diagonal(J_bond, dim1=-2, dim2=-1)),
+                atol=1e-6,
+                rtol=1e-6,
+            )
+        )
 
     def test_equilibrium_cut_current_matches_terminal_current(self):
         torch.manual_seed(0)

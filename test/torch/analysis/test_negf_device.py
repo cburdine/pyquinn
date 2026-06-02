@@ -7,7 +7,6 @@ from pyquinn.torch.types.atom_graph import TorchAtomGraph
 
 
 class TorchNEGFDeviceTest(unittest.TestCase):
-
     def _dummy_graph(self) -> TorchAtomGraph:
         # Minimal TorchAtomGraph instance; we avoid neighbor computation and
         # set neighbors/images manually where needed.
